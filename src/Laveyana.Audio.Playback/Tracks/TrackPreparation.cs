@@ -31,7 +31,11 @@ public sealed class TrackPreparation(string cacheDirectory)
     }, token);
 
     /// <summary>Imports one track and removes temporary files if decoding fails or is cancelled.</summary>
-    public async Task<CachedTrack> ImportAsync(TrackFile file, CancellationToken token)
+    public Task<CachedTrack> ImportAsync(TrackFile file, CancellationToken token) =>
+        ImportAsync(file, null, token);
+
+    /// <summary>Reuses tags already fetched for the queue and decodes directly from seekable MP3 streams.</summary>
+    public async Task<CachedTrack> ImportAsync(TrackFile file, TrackMetadata? metadata, CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(file);
         if (!TrackFile.IsMp3(file.Name))
@@ -42,25 +46,23 @@ public sealed class TrackPreparation(string cacheDirectory)
         token.ThrowIfCancellationRequested();
         Directory.CreateDirectory(cacheDirectory);
         string prefix = Path.Combine(cacheDirectory, $"lavpulse-{Guid.NewGuid():N}");
-        string mp3Path = prefix + ".mp3";
         string pcmPath = prefix + ".pcm";
         try
         {
-            await using (var copy = new FileStream(mp3Path, FileMode.CreateNew, FileAccess.Write, FileShare.None,
-                bufferSize: 64 * 1024, useAsync: true))
+            var track = await Task.Run(async () =>
             {
-                await file.CopyToAsync(copy, token).ConfigureAwait(false);
-            }
+                await using var direct = file.OpenReadAsync is { } open ? await open().ConfigureAwait(false) : null;
+                if (direct is not null && CanAnalyzeInPlace(direct))
+                {
+                    return Decode(direct, file, pcmPath, metadata, token);
+                }
 
-            CachedTrack track = await Task.Run(() =>
-            {
-                using var decoder = new Mp3PcmSource(mp3Path);
-                using var pcm = new FileStream(pcmPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024);
-                TrackWaveform waveform = TrackWaveform.Analyze(new RecordingSource(decoder, pcm), token);
-                using var source = File.OpenRead(mp3Path);
-                var tags = Mp3Tags.Read(source);
-                var audioInfo = Mp3AudioInfoReader.Read(source, token);
-                return new CachedTrack(file.Name, pcmPath, waveform, tags, audioInfo);
+                await using var copy = new FileStream(prefix + ".mp3", FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None,
+                    64 * 1024, FileOptions.Asynchronous | FileOptions.DeleteOnClose);
+                if (direct is not null) await direct.CopyToAsync(copy, token).ConfigureAwait(false);
+                else await file.CopyToAsync(copy, token).ConfigureAwait(false);
+                copy.Position = 0;
+                return Decode(copy, file, pcmPath, metadata, token);
             }, token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
             return track;
@@ -70,10 +72,43 @@ public sealed class TrackPreparation(string cacheDirectory)
             CachedTrack.DeleteCacheFile(pcmPath);
             throw;
         }
-        finally
+    }
+
+    private static bool CanAnalyzeInPlace(Stream source)
+    {
+        if (!source.CanSeek) return false;
+        try
         {
-            CachedTrack.DeleteCacheFile(mp3Path);
+            _ = source.Length;
+            source.Position = 0;
+            return true;
         }
+        catch (Exception ex) when (ex is NotSupportedException or IOException)
+        {
+            return false;
+        }
+    }
+
+    private static CachedTrack Decode(Stream source, TrackFile file, string pcmPath, TrackMetadata? metadata,
+        CancellationToken token)
+    {
+        TrackWaveform waveform;
+        using (var decoder = new Mp3PcmSource(source))
+        using (var pcm = new FileStream(pcmPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024))
+        {
+            waveform = TrackWaveform.Analyze(new RecordingSource(decoder, pcm), token);
+        }
+
+        source.Position = 0;
+        if (metadata is null)
+        {
+            var tags = Mp3Tags.Read(source);
+            metadata = new TrackMetadata(tags.Title ?? Path.GetFileNameWithoutExtension(file.Name), tags.Artist, tags.Artwork ?? []);
+        }
+
+        var audioInfo = Mp3AudioInfoReader.Read(source, token);
+        token.ThrowIfCancellationRequested();
+        return new CachedTrack(file.Name, pcmPath, waveform, metadata, audioInfo);
     }
 
     /// <summary>Writes the same samples used by the waveform analysis to the PCM cache.</summary>

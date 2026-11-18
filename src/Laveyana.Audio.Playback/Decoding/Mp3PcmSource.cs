@@ -5,7 +5,6 @@ namespace Laveyana.Audio.Playback;
 // Used during import to prepare the waveform and PCM cache.
 internal sealed class Mp3PcmSource : IPcmSource, IDisposable
 {
-    private readonly FileStream _file;
     private readonly MpegFile _mpeg;
     private readonly float[] _samples;
     private readonly int _channels;
@@ -20,28 +19,20 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
     private StereoFrame _current;
     private StereoFrame _next;
 
-    public Mp3PcmSource(string path)
+    public Mp3PcmSource(Stream source)
     {
-        _file = File.OpenRead(path);
-        try
+        var mpeg = new MpegFile(source);
+        if (mpeg.Channels is not (1 or 2) ||
+            mpeg.SampleRate <= 0 || mpeg.SampleRate > PlaybackFormat.SampleRate)
         {
-            var mpeg = new MpegFile(_file);
-            if (mpeg.Channels is not (1 or 2) ||
-                mpeg.SampleRate <= 0 || mpeg.SampleRate > PlaybackFormat.SampleRate)
-            {
-                throw new InvalidDataException("Ожидался MP3 с одним или двумя каналами до 48 кГц.");
-            }
+            mpeg.Dispose();
+            throw new InvalidDataException("Ожидался MP3 с одним или двумя каналами до 48 кГц.");
+        }
 
-            _channels = mpeg.Channels;
-            _sourceRate = mpeg.SampleRate;
-            _samples = new float[4096 * _channels];
-            _mpeg = mpeg;
-        }
-        catch
-        {
-            _file.Dispose();
-            throw;
-        }
+        _channels = mpeg.Channels;
+        _sourceRate = mpeg.SampleRate;
+        _samples = new float[4096 * _channels];
+        _mpeg = mpeg;
     }
 
     public int SampleRate => PlaybackFormat.SampleRate;
@@ -105,12 +96,8 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
         return true;
     }
 
-    /// <summary>Releases the decoder and its input file.</summary>
-    public void Dispose()
-    {
-        _mpeg.Dispose();
-        _file.Dispose();
-    }
+    /// <summary>Releases the decoder. The importer owns the input stream.</summary>
+    public void Dispose() => _mpeg.Dispose();
 
     private readonly record struct StereoFrame(float Left, float Right);
 }

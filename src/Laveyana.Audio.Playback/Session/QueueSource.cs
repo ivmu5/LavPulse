@@ -16,6 +16,9 @@ public readonly record struct QueueSnapshot(PlayingTrack? Current, PlayingTrack?
 internal sealed class QueueSource : IPcmSource, IDisposable
 {
     private readonly object _gate = new();
+    private readonly object _snapshotGate = new();
+    private QueueSnapshot _snapshot;
+    private bool _disposed;
     private readonly float[] _other = new float[PlaybackFormat.BlockFrames * PlaybackFormat.Channels];
     private Voice? _current;
     private Voice? _next;
@@ -29,45 +32,75 @@ internal sealed class QueueSource : IPcmSource, IDisposable
 
     public int SampleRate => PlaybackFormat.SampleRate;
 
-    /// <summary>Sets the first track and opens its seekable PCM cache.</summary>
+    /// <summary>Opens the cache before taking ownership of the initial reader.</summary>
     public void SetFirst(CachedTrack track)
     {
         lock (_gate)
         {
-            if (_current is not null)
+            if (_disposed || _current is not null) return;
+        }
+
+        var voice = new Voice(track, Deck.A);
+        lock (_gate)
+        {
+            if (!_disposed && _current is null)
             {
+                _current = voice;
+                PublishSnapshot();
                 return;
             }
+        }
+        voice.Dispose();
+    }
 
-            _current = new Voice(track, Deck.A);
+    /// <summary>Opens the next cache outside the render lock and revalidates before replacing it.</summary>
+    public bool SetNext(CachedTrack? track, CachedTrack? expectedCurrent = null)
+    {
+        Voice? replacement = null;
+        Voice? retired = null;
+        try
+        {
+            lock (_gate)
+            {
+                if (!CanSetNext(track, expectedCurrent)) return false;
+                if (ReferenceEquals(_next?.Track, track)) return true;
+                if (track is null)
+                {
+                    retired = ReplaceNext(null);
+                    return true;
+                }
+            }
+
+            replacement = new Voice(track, Deck.A);
+            lock (_gate)
+            {
+                if (!CanSetNext(track, expectedCurrent)) return false;
+                if (ReferenceEquals(_next?.Track, track)) return true;
+
+                replacement.Deck = _current!.Deck == Deck.A ? Deck.B : Deck.A;
+                retired = ReplaceNext(replacement);
+                replacement = null;
+                return true;
+            }
+        }
+        finally
+        {
+            replacement?.Dispose();
+            retired?.Dispose();
         }
     }
 
-    /// <summary>Preloads the candidate reader so the audio writer can switch without opening a file.</summary>
-    public bool SetNext(CachedTrack? track, CachedTrack? expectedCurrent = null)
+    private bool CanSetNext(CachedTrack? track, CachedTrack? expectedCurrent) =>
+        _current is not null && _fadeLength == 0 && !ReferenceEquals(_current.Track, track) &&
+        (expectedCurrent is null || !_manual && ReferenceEquals(_current.Track, expectedCurrent));
+
+    private Voice? ReplaceNext(Voice? voice)
     {
-        lock (_gate)
-        {
-            if (_current is null || _fadeLength != 0 || ReferenceEquals(_current.Track, track))
-            {
-                return false;
-            }
-            if (expectedCurrent is not null && (_manual || !ReferenceEquals(_current.Track, expectedCurrent)))
-            {
-                return false;
-            }
-
-            if (ReferenceEquals(_next?.Track, track))
-            {
-                return true;
-            }
-
-            var replacement = track is null ? null : new Voice(track, _current.Deck == Deck.A ? Deck.B : Deck.A);
-            _next?.Dispose();
-            _next = replacement;
-            _manual = false;
-            return true;
-        }
+        var previous = _next;
+        _next = voice;
+        _manual = false;
+        PublishSnapshot();
+        return previous;
     }
 
     /// <summary>Arms the selected track for a transition on the next audio block.</summary>
@@ -81,6 +114,7 @@ internal sealed class QueueSource : IPcmSource, IDisposable
             }
 
             _manual = true;
+            PublishSnapshot();
             return true;
         }
     }
@@ -111,6 +145,7 @@ internal sealed class QueueSource : IPcmSource, IDisposable
             if (!enabled)
             {
                 _manual = false;
+                PublishSnapshot();
             }
         }
     }
@@ -142,6 +177,7 @@ internal sealed class QueueSource : IPcmSource, IDisposable
             }
 
             current.Speed = rate;
+            PublishSnapshot();
             return true;
         }
     }
@@ -157,84 +193,104 @@ internal sealed class QueueSource : IPcmSource, IDisposable
             }
 
             current.Cursor.Seek(frame);
+            PublishSnapshot();
             return true;
         }
     }
 
-    /// <summary>Reads the deck positions together so the UI can follow the same transition.</summary>
+    /// <summary>Reads the last consistent deck state without waiting for cache reads.</summary>
     public QueueSnapshot Snapshot
     {
         get
         {
-            lock (_gate)
-            {
-                return new(_current?.Snapshot, _fadeLength != 0 ? _next?.Snapshot : null) { MixPending = _manual };
-            }
+            lock (_snapshotGate) return _snapshot;
         }
     }
 
-    /// <summary>Reads the next output segment and starts the fade at the exact frame, even within a block.</summary>
+    private void PublishSnapshot()
+    {
+        var snapshot = new QueueSnapshot(_current?.Snapshot, _fadeLength != 0 ? _next?.Snapshot : null)
+            { MixPending = _manual };
+        lock (_snapshotGate) _snapshot = snapshot;
+    }
+
+    /// <summary>Renders a block before releasing an outgoing reader outside the render lock.</summary>
     public int Read(Span<float> destination)
     {
-        lock (_gate)
+        Voice? retired = null;
+        try
         {
-            int written = 0;
-            while (_current is { } current && written < destination.Length / PlaybackFormat.Channels)
+            lock (_gate)
             {
-                int requested = destination.Length / PlaybackFormat.Channels - written;
-                var output = destination[(written * PlaybackFormat.Channels)..];
-                long remaining = current.Source.RemainingAtRate(current.Speed);
-                bool autoAdvance = _autoMix && !_repeatOne;
-                if ((_queueEnabled || _fadeLength > 0) && _next is { } next)
+                int written = ReadBlock(destination, ref retired);
+                PublishSnapshot();
+                return written;
+            }
+        }
+        finally
+        {
+            retired?.Dispose();
+        }
+    }
+
+    private int ReadBlock(Span<float> destination, ref Voice? retired)
+    {
+        int written = 0;
+        while (_current is { } current && written < destination.Length / PlaybackFormat.Channels)
+        {
+            int requested = destination.Length / PlaybackFormat.Channels - written;
+            var output = destination[(written * PlaybackFormat.Channels)..];
+            long remaining = current.Source.RemainingAtRate(current.Speed);
+            bool autoAdvance = _autoMix && !_repeatOne;
+            if ((_queueEnabled || _fadeLength > 0) && _next is { } next)
+            {
+                if (_fadeLength == 0 && (_manual || autoAdvance && remaining <= _crossfadeFrames))
                 {
-                    if (_fadeLength == 0 && (_manual || autoAdvance && remaining <= _crossfadeFrames))
+                    _manual = false;
+                    int length = (int)Math.Min(_crossfadeFrames,
+                        Math.Min(remaining, Math.Max(0, next.Source.RemainingAtRate(next.Speed) - 1)));
+                    if (length < 2)
                     {
-                        _manual = false;
-                        int length = (int)Math.Min(_crossfadeFrames,
-                            Math.Min(remaining, Math.Max(0, next.Source.RemainingAtRate(next.Speed) - 1)));
-                        if (length < 2)
-                        {
-                            Promote();
-                            continue;
-                        }
-
-                        _fadeLength = length;
-                    }
-
-                    if (_fadeLength > 0)
-                    {
-                        int frames = Math.Min(requested, _fadeLength - _fadePosition);
-                        MixFade(current, next, output[..(frames * PlaybackFormat.Channels)]);
-                        written += frames;
-                        _fadePosition += frames;
-                        if (_fadePosition == _fadeLength)
-                        {
-                            Promote();
-                        }
+                        retired = Promote();
                         continue;
                     }
 
-                    if (autoAdvance)
-                    {
-                        requested = (int)Math.Min(requested, remaining - _crossfadeFrames);
-                    }
+                    _fadeLength = length;
                 }
 
-                if (_repeatOne && remaining == 0 && current.Cursor.Length > 0)
+                if (_fadeLength > 0)
                 {
-                    current.Cursor.Seek(0);
+                    int frames = Math.Min(requested, _fadeLength - _fadePosition);
+                    MixFade(current, next, output[..(frames * PlaybackFormat.Channels)]);
+                    written += frames;
+                    _fadePosition += frames;
+                    if (_fadePosition == _fadeLength)
+                    {
+                        retired = Promote();
+                    }
                     continue;
                 }
-                int read = current.Source.ReadAtRate(output[..(requested * PlaybackFormat.Channels)], current.Speed);
-                written += read;
-                if (read == 0)
+
+                if (autoAdvance)
                 {
-                    break;
+                    requested = (int)Math.Min(requested, remaining - _crossfadeFrames);
                 }
             }
 
-            return written;
+            if (_repeatOne && remaining == 0 && current.Cursor.Length > 0)
+            {
+                current.Cursor.Seek(0);
+                continue;
+            }
+            int read = current.Source.ReadAtRate(output[..(requested * PlaybackFormat.Channels)], current.Speed);
+            written += read;
+            if (read == 0)
+            {
+                break;
+            }
         }
+
+        return written;
     }
 
     /// <summary>Applies a mirrored hyperbolic gain curve, normalized to keep the combined gain power constant.</summary>
@@ -254,23 +310,31 @@ internal sealed class QueueSource : IPcmSource, IDisposable
     }
 
     /// <summary>Transfers ownership of the incoming reader to the current deck.</summary>
-    private void Promote()
+    private Voice? Promote()
     {
-        _current?.Dispose();
+        var previous = _current;
         _current = _next;
         _next = null;
         _fadeLength = _fadePosition = 0;
+        return previous;
     }
 
     /// <summary>Releases the cache readers after the output has stopped.</summary>
     public void Dispose()
     {
+        Voice? current;
+        Voice? next;
         lock (_gate)
         {
-            _current?.Dispose();
-            _next?.Dispose();
+            _disposed = true;
+            current = _current;
+            next = _next;
             _current = _next = null;
+            _manual = false;
+            PublishSnapshot();
         }
+        current?.Dispose();
+        next?.Dispose();
     }
 
     private sealed class Voice : IDisposable
@@ -284,7 +348,7 @@ internal sealed class QueueSource : IPcmSource, IDisposable
         }
 
         public CachedTrack Track { get; }
-        public Deck Deck { get; }
+        public Deck Deck { get; set; }
         public DeckCursor Cursor { get; }
         public CachedPcmSource Source { get; }
         public double Speed { get; set; } = 1;

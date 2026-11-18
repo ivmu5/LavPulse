@@ -16,6 +16,9 @@ internal sealed class MixedPlayback : IAudioRenderSource, ISpectrumSource
     private readonly float[] _spectrum = new float[SpectrumHistorySize * PlaybackFormat.SpectrumBars];
     private readonly long[] _spectrumCenters = new long[SpectrumHistorySize];
     private long _spectrumVersion;
+    private long _minimumSpectrumVersion;
+    private int _analysisGeneration;
+    private TaskCompletionSource? _resumeAnalysis;
     private long _outputPosition = long.MaxValue;
 
     public MixedPlayback(CachedPcmSource? deckA, CachedPcmSource? deckB, DeckVolumes levels)
@@ -80,24 +83,61 @@ internal sealed class MixedPlayback : IAudioRenderSource, ISpectrumSource
     /// <summary>Publishes the device position for synchronizing spectrum presentation.</summary>
     public void ReportOutputPosition(long playedFrames) => Volatile.Write(ref _outputPosition, playedFrames);
 
-    /// <summary>Processes FFT snapshots off the audio writer and records their center frames.</summary>
+    public void SetSpectrumEnabled(bool enabled)
+    {
+        lock (_spectrumGate)
+        {
+            if (enabled == (_resumeAnalysis is null)) return;
+
+            _mixer.Spectrum.SetEnabled(enabled);
+            _minimumSpectrumVersion = _spectrumVersion;
+            Interlocked.Increment(ref _analysisGeneration);
+            if (enabled)
+            {
+                _resumeAnalysis!.TrySetResult();
+                _resumeAnalysis = null;
+            }
+            else
+            {
+                _resumeAnalysis = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+        }
+    }
+
+    /// <summary>Processes FFT snapshots off the audio writer and sleeps while visualization is off.</summary>
     public async Task RunSpectrumAsync(CancellationToken token)
     {
         var levels = new float[PlaybackFormat.SpectrumBars];
-        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(10));
-        while (await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
+        while (!token.IsCancellationRequested)
         {
-            if (!_mixer.Spectrum.TryReadLevels(levels, out long endFrame))
+            int generation;
+            Task? resume;
+            lock (_spectrumGate)
             {
+                generation = _analysisGeneration;
+                resume = _resumeAnalysis?.Task;
+            }
+            if (resume is not null)
+            {
+                await resume.WaitAsync(token).ConfigureAwait(false);
                 continue;
             }
 
-            lock (_spectrumGate)
+            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(10));
+            while (await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
             {
-                int slot = (int)(_spectrumVersion % SpectrumHistorySize);
-                levels.CopyTo(_spectrum, slot * PlaybackFormat.SpectrumBars);
-                _spectrumCenters[slot] = endFrame - SpectrumWindow / 2;
-                _spectrumVersion++;
+                if (Volatile.Read(ref _analysisGeneration) != generation) break;
+                if (!_mixer.Spectrum.TryReadLevels(levels, out long endFrame)) continue;
+
+                lock (_spectrumGate)
+                {
+                    if (_analysisGeneration != generation) break;
+
+                    int slot = (int)(_spectrumVersion % SpectrumHistorySize);
+                    levels.CopyTo(_spectrum, slot * PlaybackFormat.SpectrumBars);
+                    _spectrumCenters[slot] = endFrame - SpectrumWindow / 2;
+                    _spectrumVersion++;
+                }
             }
         }
     }
@@ -108,7 +148,8 @@ internal sealed class MixedPlayback : IAudioRenderSource, ISpectrumSource
         long played = Volatile.Read(ref _outputPosition);
         lock (_spectrumGate)
         {
-            long oldest = Math.Max(version, _spectrumVersion - SpectrumHistorySize);
+            if (_resumeAnalysis is not null) return false;
+            long oldest = Math.Max(Math.Max(version, _minimumSpectrumVersion), _spectrumVersion - SpectrumHistorySize);
             for (long snapshot = _spectrumVersion; snapshot > oldest; snapshot--)
             {
                 int slot = (int)((snapshot - 1) % SpectrumHistorySize);

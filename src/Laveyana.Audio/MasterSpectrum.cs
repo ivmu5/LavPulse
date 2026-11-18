@@ -27,6 +27,9 @@ public sealed class MasterSpectrum
     private long _renderedFrames;
     private long _publishedFrame;
     private long _readFrame;
+    private int _requestedGeneration = 1;
+    private int _capturingGeneration;
+    private int _publishedGeneration;
 
     internal MasterSpectrum(int sampleRate, int barCount, int windowFrames)
     {
@@ -94,6 +97,18 @@ public sealed class MasterSpectrum
         Bands = Array.AsReadOnly(bands);
     }
 
+    /// <summary>Enables audio capture and FFT frames without interrupting the render clock.</summary>
+    public void SetEnabled(bool enabled)
+    {
+        int generation;
+        do
+        {
+            generation = Volatile.Read(ref _requestedGeneration);
+            if ((generation & 1) == (enabled ? 1 : 0)) return;
+        }
+        while (Interlocked.CompareExchange(ref _requestedGeneration, unchecked(generation + 1), generation) != generation);
+    }
+
     /// <summary>Logarithmically spaced frequency bands, from lowest to highest.</summary>
     public IReadOnlyList<FrequencyBand> Bands { get; }
 
@@ -116,7 +131,7 @@ public sealed class MasterSpectrum
         lock (_snapshotGate)
         {
             endFrame = _publishedFrame;
-            if (endFrame == _readFrame)
+            if (endFrame == _readFrame || _publishedGeneration != Volatile.Read(ref _requestedGeneration))
             {
                 return false;
             }
@@ -155,6 +170,19 @@ public sealed class MasterSpectrum
     /// <summary>Keeps a rolling history of the master and publishes a window at each analysis hop.</summary>
     internal void Capture(ReadOnlySpan<float> master)
     {
+        int generation = Volatile.Read(ref _requestedGeneration);
+        if ((generation & 1) == 0)
+        {
+            _renderedFrames += master.Length / Channels;
+            return;
+        }
+        if (_capturingGeneration != generation)
+        {
+            _capturingGeneration = generation;
+            _writeOffset = 0;
+            _untilSnapshot = _windowFrames;
+        }
+
         while (!master.IsEmpty)
         {
             int frames = Math.Min(master.Length / Channels, _untilSnapshot);
@@ -189,6 +217,7 @@ public sealed class MasterSpectrum
         {
             _history.AsSpan(_writeOffset).CopyTo(_snapshot);
             _history.AsSpan(0, _writeOffset).CopyTo(_snapshot.AsSpan(_history.Length - _writeOffset));
+            _publishedGeneration = _capturingGeneration;
             _publishedFrame = _renderedFrames;
         }
         finally

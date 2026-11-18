@@ -1,5 +1,6 @@
 using Laveyana.Audio.Playback;
 using System.Runtime.InteropServices;
+using NAudio;
 using NAudio.Wave;
 
 namespace Laveyana.Audio.Maui.AudioOutput;
@@ -32,9 +33,11 @@ internal sealed class PlatformAudioOutput : IAudioOutput
         };
 
         device.Init(new MasterWaveProvider(source));
+        source.ReportOutputPosition(0);
         device.Play();
         try
         {
+            await FollowOutputPositionAsync(device, source, ended.Task, token).ConfigureAwait(false);
             await ended.Task.WaitAsync(token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -42,6 +45,32 @@ internal sealed class PlatformAudioOutput : IAudioOutput
             device.Stop();
             await ended.Task.ConfigureAwait(false);
             throw;
+        }
+    }
+
+    /// <summary>Publishes the frames played by WaveOut without querying the device on the render thread.</summary>
+    private static async Task FollowOutputPositionAsync(WaveOutEvent device, IAudioRenderSource source,
+        Task ended, CancellationToken token)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(10));
+        uint last = 0;
+        long playedBytes = 0;
+        while (!ended.IsCompleted && await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
+        {
+            if (ended.IsCompleted) break;
+            try
+            {
+                uint position = unchecked((uint)device.GetPosition());
+                playedBytes += unchecked(position - last);
+                last = position;
+                source.ReportOutputPosition(playedBytes / PlaybackFormat.Pcm16FrameBytes);
+            }
+            catch (Exception ex) when (ex is MmException or NotSupportedException)
+            {
+                // A driver without a usable playback counter can still display analyzed frames.
+                source.ReportOutputPosition(long.MaxValue);
+                break;
+            }
         }
     }
 

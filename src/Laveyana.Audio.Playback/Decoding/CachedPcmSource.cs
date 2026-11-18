@@ -4,7 +4,7 @@ namespace Laveyana.Audio.Playback;
 
 internal sealed class CachedPcmSource(string path, DeckCursor cursor) : IPcmSource, IDisposable
 {
-    private readonly FileStream _file = new(path, FileMode.Open, FileAccess.Read, FileShare.Read, 32 * 1024);
+    private readonly FileStream _file = new(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 32 * 1024);
     private readonly short[] _buffer = new short[(PlaybackFormat.BlockFrames * 5 / 4 + 2) * PcmMixer.ChannelCount];
     private DeckCursor.SeekPoint? _applied;
     private long _position;

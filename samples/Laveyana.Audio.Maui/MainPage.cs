@@ -136,10 +136,6 @@ public sealed class MainPage : ContentPage
 
         var added = _library.Add(files, _queue.Tracks);
         _queue.AddRange(added);
-        foreach (var file in added)
-        {
-            _ = ReadQueueTagsAsync(file);
-        }
         UpdateQueue();
         if (_playback.Snapshot.Current is null && !_loadingFirst)
         {
@@ -245,7 +241,7 @@ public sealed class MainPage : ContentPage
 
     private bool TrySetSelection(TrackFile? file)
     {
-        var prepared = file is null ? null : _library.GetPrepared(file);
+        var prepared = file is null ? null : _library.GetPrepared(file, forPlayback: true);
         if (_shownCurrent is not { } current || !_playback.SetNext(prepared, current))
         {
             return false;
@@ -355,7 +351,7 @@ public sealed class MainPage : ContentPage
     {
         try
         {
-            await _library.ReadMetadataAsync(file);
+            await _library.ReadQueueMetadataAsync(file);
         }
         catch (Exception ex)
         {
@@ -658,6 +654,7 @@ public sealed class MainPage : ContentPage
         _settings = value;
         _playback.SetAutoMix(value.AutoMix);
         _playback.SetCrossfadeDuration(value.CrossfadeMilliseconds);
+        _playback.SetSpectrumEnabled(value.ShowSpectrum && value.SpectrumWidthPercent > 0);
         _view.ApplyAppearance(value);
         if (save)
         {
@@ -669,15 +666,21 @@ public sealed class MainPage : ContentPage
     private void UpdateQueue()
     {
         _view.ShowQueue(_queue.Tracks, _queue.Current, _selected ?? _queue.Next, _queue.PlayedCount, ReadQueueItem);
+        if (!_loadingFirst)
+        {
+            var snapshot = _playback.Snapshot;
+            _library.Trim(snapshot.Current?.Track, snapshot.Incoming?.Track, _selected, _armed);
+        }
         UpdateTransport();
     }
 
     private QueueTrackItem ReadQueueItem(TrackFile file)
     {
+        if (!_closed && !_library.HasQueueMetadataRequest(file)) _ = ReadQueueTagsAsync(file);
         var track = _library.GetPrepared(file);
-        var tags = track is null ? _library.GetMetadata(file) : null;
+        var tags = _library.GetMetadata(file);
         return new(track?.Title ?? tags?.Title ?? Path.GetFileNameWithoutExtension(file.Name),
-            track?.Artist ?? tags?.Artist, track?.Artwork ?? tags?.Artwork ?? default, _library.IsAnalyzing(file));
+            track?.Artist ?? tags?.Artist, tags?.Artwork ?? default, _library.IsAnalyzing(file));
     }
 
     private void UpdateTransport()

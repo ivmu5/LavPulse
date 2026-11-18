@@ -1,5 +1,6 @@
 using Laveyana.Audio.Playback;
 using Microsoft.Maui.Controls.Shapes;
+using Microsoft.Maui.Layouts;
 using System.Diagnostics;
 
 namespace Laveyana.Audio.Maui.Controls;
@@ -7,10 +8,12 @@ namespace Laveyana.Audio.Maui.Controls;
 /// <summary>Shows the current cover next to the queue and animates the handoff between both halves.</summary>
 internal sealed class TrackQueueView : Grid
 {
-    private const int TrackSpacing = 5;
+    private const int RowStride = QueueTrackRow.RowHeight + 5;
+    private const int ViewportHeight = 236;
+    private const int OverscanRows = 2;
     private readonly TrackCard _current = new(TextAlignment.Start, showAudioInfo: true);
     private readonly TrackCard _incoming = new(TextAlignment.End);
-    private readonly VerticalStackLayout _rows = new() { Spacing = TrackSpacing };
+    private readonly AbsoluteLayout _rows = new();
     private readonly VerticalStackLayout _queue;
     private readonly Grid _right;
     private readonly Button _queueTab = MixerStyle.Button("Очередь", icon: "player_queue.png", stacked: true);
@@ -18,6 +21,14 @@ internal sealed class TrackQueueView : Grid
     private readonly ScrollView _queueScroll;
     private readonly Label _recommendations = MixerStyle.Label("В разработке", 13, MixerStyle.Muted);
     private readonly Dictionary<TrackFile, QueueTrackRow> _trackRows = new();
+    private readonly Stack<QueueTrackRow> _availableRows = new();
+    private readonly List<TrackFile> _leavingRows = new();
+    private IReadOnlyList<TrackFile> _tracks = [];
+    private Func<TrackFile, QueueTrackItem>? _readRow;
+    private TrackFile? _nextTrack;
+    private int _playedCount;
+    private int _firstRow = -1;
+    private int _endRow = -1;
     private readonly Label _empty = MixerStyle.Label("Очередь пуста", 12, MixerStyle.Muted);
     private readonly IDispatcherTimer _rowClock;
     private readonly long _start = Stopwatch.GetTimestamp();
@@ -40,7 +51,7 @@ internal sealed class TrackQueueView : Grid
         ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)];
         ColumnSpacing = 16;
         MinimumHeightRequest = 208;
-        _queueScroll = new ScrollView { Content = _rows, MaximumHeightRequest = 236 };
+        _queueScroll = new ScrollView { Content = _rows, MaximumHeightRequest = ViewportHeight };
         _rowClock = Dispatcher.CreateTimer();
         _rowClock.Interval = TimeSpan.FromMilliseconds(40);
         _rowClock.Tick += (_, _) => AnimateRows();
@@ -52,6 +63,12 @@ internal sealed class TrackQueueView : Grid
         Unloaded += (_, _) => _rowClock.Stop();
         _recommendations.IsVisible = false;
         _queue = new VerticalStackLayout { Spacing = 7, Children = { CreateFeedSelector(), _queueScroll, _recommendations } };
+        _queueScroll.Scrolled += (_, _) => RefreshRows();
+        _queueScroll.SizeChanged += (_, _) =>
+        {
+            RefreshRows();
+            if (_focusCurrent && !_showRecommendations && _queue.Opacity > 0) FocusCurrent();
+        };
         SetTabColors();
         _right = new Grid { Children = { _queue, _incoming } };
         _incoming.IsVisible = false;
@@ -111,6 +128,7 @@ internal sealed class TrackQueueView : Grid
         _queueScroll.IsVisible = !show;
         _recommendations.IsVisible = show;
         SetTabColors();
+        if (!show) RefreshRows(force: true);
         RecommendationsSelected?.Invoke(show);
     }
 
@@ -125,46 +143,77 @@ internal sealed class TrackQueueView : Grid
         SemanticProperties.SetDescription(_recommendationsTab, _showRecommendations ? "Рекомендации, выбраны" : "Рекомендации");
     }
 
-    /// <summary>Keeps row views stable while background analysis updates their contents.</summary>
+    /// <summary>Updates the queue model and rebinds only the visible window of rows.</summary>
     public void ShowQueue(IReadOnlyList<TrackFile> tracks, TrackFile? current, TrackFile? next, int playedCount, Func<TrackFile, QueueTrackItem> read)
     {
         _focusCurrent |= !ReferenceEquals(_currentTrack, current);
+        _tracks = tracks;
         _currentTrack = current;
-        var ordered = new List<View>(tracks.Count);
-        var visible = new HashSet<TrackFile>();
-        for (int index = 0; index < tracks.Count; index++)
+        _nextTrack = next;
+        _playedCount = playedCount;
+        _readRow = read;
+        double contentHeight = tracks.Count == 0 ? QueueTrackRow.RowHeight : (double)tracks.Count * RowStride - 5;
+        _rows.HeightRequest = contentHeight;
+        _queueScroll.HeightRequest = Math.Min(ViewportHeight, contentHeight);
+        if (tracks.Count == 0 && !_rows.Children.Contains(_empty))
         {
-            var file = tracks[index];
-            bool playing = ReferenceEquals(file, current);
-            if (!_trackRows.TryGetValue(file, out var row))
-            {
-                row = CreateRow(file);
-                _trackRows[file] = row;
-            }
-            visible.Add(file);
-            row.Show(read(file), playing, index < playedCount, ReferenceEquals(next, file), Accent);
-            ordered.Add(row);
+            AbsoluteLayout.SetLayoutFlags(_empty, AbsoluteLayoutFlags.WidthProportional);
+            AbsoluteLayout.SetLayoutBounds(_empty, new Rect(0, 0, 1, QueueTrackRow.RowHeight));
+            _rows.Children.Add(_empty);
         }
-        foreach (var file in _trackRows.Keys.Where(file => !visible.Contains(file)).ToArray())
+        else if (tracks.Count != 0)
         {
-            _trackRows.Remove(file);
-        }
-        if (ordered.Count == 0)
-        {
-            ordered.Add(_empty);
-        }
-        if (!_rows.Children.SequenceEqual(ordered))
-        {
-            _rows.Clear();
-            foreach (var row in ordered)
-            {
-                _rows.Add(row);
-            }
+            _rows.Children.Remove(_empty);
         }
 
-        if (_focusCurrent && !_showRecommendations && _queue.Opacity > 0)
+        RefreshRows(force: true);
+        if (_focusCurrent && !_showRecommendations && _queue.Opacity > 0) FocusCurrent();
+    }
+
+    private void RefreshRows(bool force = false)
+    {
+        if (_showRecommendations || _readRow is not { } read) return;
+
+        double height = _queueScroll.Height > 0 ? _queueScroll.Height : _queueScroll.HeightRequest;
+        double scroll = Math.Clamp(_queueScroll.ScrollY, 0, Math.Max(0, _rows.HeightRequest - height));
+        int first = Math.Max(0, (int)(scroll / RowStride) - OverscanRows);
+        int end = Math.Min(_tracks.Count, (int)Math.Ceiling((scroll + height) / RowStride) + OverscanRows);
+        if (!force && first == _firstRow && end == _endRow) return;
+
+        _firstRow = first;
+        _endRow = end;
+        foreach (var (file, row) in _trackRows)
         {
-            FocusCurrent();
+            // The native drag still owns its source view when it scrolls out of sight.
+            if (ReferenceEquals(file, _dragging)) continue;
+            if (row.Index < first || row.Index >= end || !ReferenceEquals(_tracks[row.Index], file))
+            {
+                if (ReferenceEquals(_dropTarget, row)) ClearDropTarget();
+                _leavingRows.Add(file);
+            }
+        }
+        foreach (var file in _leavingRows)
+        {
+            var row = _trackRows[file];
+            _trackRows.Remove(file);
+            _rows.Children.Remove(row);
+            row.Unbind();
+            _availableRows.Push(row);
+        }
+        _leavingRows.Clear();
+
+        for (int i = first; i < end; i++)
+        {
+            var file = _tracks[i];
+            if (!_trackRows.TryGetValue(file, out var row))
+            {
+                row = _availableRows.TryPop(out var recycled) ? recycled : CreateRow();
+                row.Bind(file, i);
+                AbsoluteLayout.SetLayoutBounds(row, new Rect(0, (double)i * RowStride, 1, QueueTrackRow.RowHeight));
+                _rows.Children.Add(row);
+                _trackRows.Add(file, row);
+            }
+            row.Show(read(file), ReferenceEquals(file, _currentTrack), i < _playedCount, ReferenceEquals(file, _nextTrack), Accent);
         }
     }
 
@@ -175,7 +224,8 @@ internal sealed class TrackQueueView : Grid
         if (_showRecommendations || _queue.Opacity == 0 || _currentTrack is not { } file ||
             !_trackRows.TryGetValue(file, out var row)) return;
         double scroll = _queueScroll.ScrollY;
-        if (row.Y + row.Height >= scroll && row.Y <= scroll + _queueScroll.Height)
+        double top = (double)row.Index * RowStride;
+        if (top + QueueTrackRow.RowHeight >= scroll && top <= scroll + _queueScroll.Height)
         {
             row.InvalidateSpectrum();
         }
@@ -207,21 +257,40 @@ internal sealed class TrackQueueView : Grid
 
     private void FocusCurrent()
     {
-        if (_currentTrack is { } track && _trackRows.TryGetValue(track, out var row))
+        if (_currentTrack is not { } track || _queueScroll.Height <= 0 || _queueScroll.ContentSize.Height < _rows.HeightRequest)
         {
-            _focusCurrent = false;
-            _ = _queueScroll.ScrollToAsync(row, ScrollToPosition.MakeVisible, false);
+            return;
         }
+
+        int index = IndexOf(track);
+        if (index < 0) return;
+        double top = (double)index * RowStride;
+        double bottom = top + QueueTrackRow.RowHeight;
+        double scroll = _queueScroll.ScrollY;
+        double y = Math.Clamp(scroll, Math.Clamp(bottom - _queueScroll.Height, 0, top), top);
+        _focusCurrent = false;
+        if (y != scroll) _ = _queueScroll.ScrollToAsync(0, y, false);
     }
 
-    private QueueTrackRow CreateRow(TrackFile file)
+    private int IndexOf(TrackFile file)
+    {
+        for (int i = 0; i < _tracks.Count; i++)
+        {
+            if (ReferenceEquals(_tracks[i], file)) return i;
+        }
+        return -1;
+    }
+
+    private QueueTrackRow CreateRow()
     {
         var row = new QueueTrackRow();
         row.SetSpectrum(_masterSpectrum);
+        AbsoluteLayout.SetLayoutFlags(row, AbsoluteLayoutFlags.WidthProportional);
         var tap = new TapGestureRecognizer();
         tap.Tapped += (_, _) =>
         {
-            if (_dragging is null && (_lastDrag == 0 || Stopwatch.GetElapsedTime(_lastDrag).TotalMilliseconds >= 300))
+            if (row.File is { } file && _dragging is null &&
+                (_lastDrag == 0 || Stopwatch.GetElapsedTime(_lastDrag).TotalMilliseconds >= 300))
             {
                 if (row.IsPlayed) HistoryRequested?.Invoke(file);
                 else if (!ReferenceEquals(_currentTrack, file)) TrackRequested?.Invoke(file);
@@ -231,7 +300,7 @@ internal sealed class TrackQueueView : Grid
         var drag = new DragGestureRecognizer { CanDrag = true };
         drag.DragStarting += (_, args) =>
         {
-            if (_queue.InputTransparent || _showRecommendations)
+            if (_queue.InputTransparent || _showRecommendations || row.File is not { } file)
             {
                 args.Cancel = true;
                 return;
@@ -275,12 +344,12 @@ internal sealed class TrackQueueView : Grid
         drop.Drop += (_, args) =>
         {
             row.Scale = 1;
-            if (!CanReorder() || _dragging is not { } source)
+            if (!CanReorder() || _dragging is not { } source || row.File is not { } file)
             {
                 return;
             }
             bool after = args.GetPosition(row) is { } point ? point.Y >= row.Height / 2
-                : _rows.Children.IndexOf(_trackRows[source]) < _rows.Children.IndexOf(row);
+                : _trackRows[source].Index < row.Index;
             args.Handled = true;
             EndDrag();
             Dispatcher.Dispatch(() => MoveRequested?.Invoke(source, file, after));
@@ -289,11 +358,12 @@ internal sealed class TrackQueueView : Grid
         return row;
 
         bool CanReorder() => !_queue.InputTransparent && !_showRecommendations && _dragging is { } source &&
-            !ReferenceEquals(source, file) && _trackRows.ContainsKey(source);
+            row.File is { } file && !ReferenceEquals(source, file) && _trackRows.ContainsKey(source);
     }
 
     private void EndDrag()
     {
+        bool wasDragging = _dragging is not null;
         _dragging = null;
         _dragStartX = null;
         if (_removeTarget is { } target)
@@ -304,6 +374,7 @@ internal sealed class TrackQueueView : Grid
         _lastDrag = Stopwatch.GetTimestamp();
         _dragScrollDirection = 0;
         ClearDropTarget();
+        if (wasDragging) Dispatcher.Dispatch(() => RefreshRows(force: true));
     }
 
     private void ClearDropTarget()
@@ -322,19 +393,22 @@ internal sealed class TrackQueueView : Grid
         {
             return;
         }
-        const int stride = QueueTrackRow.RowHeight + TrackSpacing;
+        if (_focusCurrent) FocusCurrent();
         if (_dragScrollDirection != 0 && Stopwatch.GetElapsedTime(_lastDragScroll).TotalMilliseconds >= 120)
         {
             _lastDragScroll = Stopwatch.GetTimestamp();
-            double y = Math.Clamp(_queueScroll.ScrollY + _dragScrollDirection * stride / 2d, 0, Math.Max(0, _rows.Height - _queueScroll.Height));
+            double y = Math.Clamp(_queueScroll.ScrollY + _dragScrollDirection * RowStride / 2d, 0,
+                Math.Max(0, _rows.HeightRequest - _queueScroll.Height));
             if (y != _queueScroll.ScrollY) _ = _queueScroll.ScrollToAsync(0, y, false);
         }
-        int first = Math.Max(0, (int)(_queueScroll.ScrollY / stride));
-        int end = Math.Min(_rows.Count, (int)Math.Ceiling((_queueScroll.ScrollY + _queueScroll.Height) / stride));
+
+        double top = _queueScroll.ScrollY;
+        double bottom = top + _queueScroll.Height;
         double seconds = Stopwatch.GetElapsedTime(_start).TotalSeconds;
-        for (int i = first; i < end; i++)
+        foreach (var row in _trackRows.Values)
         {
-            if (_rows[i] is QueueTrackRow row) row.Animate(seconds);
+            double rowTop = (double)row.Index * RowStride;
+            if (rowTop < bottom && rowTop + QueueTrackRow.RowHeight > top) row.Animate(seconds);
         }
     }
 
@@ -350,7 +424,7 @@ internal sealed class TrackQueueView : Grid
         _incoming.Show(track, "Сведение");
         EndDrag();
         var row = file is not null && _trackRows.TryGetValue(file, out var item) ? item : null;
-        double originY = row is null ? 0 : Math.Clamp(_queueScroll.Y + row.Y - _queueScroll.ScrollY, 0, Math.Max(0, _right.Height - 44));
+        double originY = row is null ? 0 : Math.Clamp(_queueScroll.Y + (double)row.Index * RowStride - _queueScroll.ScrollY, 0, Math.Max(0, _right.Height - 44));
         double rowHeight = Math.Max(44, row?.Height ?? 0);
         _incoming.TranslationY = originY;
         _incoming.ScaleX = .96;

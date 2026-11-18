@@ -7,6 +7,8 @@ public sealed class QueuePlaybackSession : IDisposable
 
     private readonly QueueSource _queue = new();
     private readonly MasterEqualizerSource _equalizer;
+    private readonly object _spectrumSettings = new();
+    private bool _spectrumEnabled = true;
     private MixedPlayback? _mix;
     private int _running;
 
@@ -35,6 +37,16 @@ public sealed class QueuePlaybackSession : IDisposable
 
     /// <summary>Changes the master sound profile for output and spectrum analysis together.</summary>
     public void SetEqualizer(EqualizerSettings settings) => _equalizer.Configure(settings);
+
+    /// <summary>Enables spectrum analysis for the active and subsequent output runs.</summary>
+    public void SetSpectrumEnabled(bool enabled)
+    {
+        lock (_spectrumSettings)
+        {
+            _spectrumEnabled = enabled;
+            Volatile.Read(ref _mix)?.SetSpectrumEnabled(enabled);
+        }
+    }
 
     /// <summary>Allows the queue to supply the next track, without interrupting a mix already under way.</summary>
     public void SetQueueEnabled(bool enabled) => _queue.SetQueueEnabled(enabled);
@@ -65,7 +77,11 @@ public sealed class QueuePlaybackSession : IDisposable
 
         _equalizer.Reset();
         using var stopSpectrum = CancellationTokenSource.CreateLinkedTokenSource(token);
-        Volatile.Write(ref _mix, mix);
+        lock (_spectrumSettings)
+        {
+            mix.SetSpectrumEnabled(_spectrumEnabled);
+            Volatile.Write(ref _mix, mix);
+        }
         var analysis = mix.RunSpectrumAsync(stopSpectrum.Token);
         try
         {
