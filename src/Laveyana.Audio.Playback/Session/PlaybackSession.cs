@@ -78,8 +78,11 @@ public sealed class PlaybackSession
             {
                 // The spectrum reader ends with the native output.
             }
-
-            Volatile.Write(ref _mix, null);
+            finally
+            {
+                // Clear the published mixer even when its analyzer fails unexpectedly.
+                Volatile.Write(ref _mix, null);
+            }
         }
     }
 
