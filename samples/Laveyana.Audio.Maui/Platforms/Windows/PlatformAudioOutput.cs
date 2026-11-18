@@ -15,8 +15,9 @@ internal sealed class PlatformAudioOutput : IAudioOutput
         using var device = new WaveOutEvent
         {
             DeviceNumber = -1,
-            DesiredLatency = 90,
-            NumberOfBuffers = 3
+            // Give the audio writer enough queued PCM to survive Windows UI and COM spikes.
+            DesiredLatency = 240,
+            NumberOfBuffers = 4
         };
 
         var ended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
