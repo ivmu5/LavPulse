@@ -178,7 +178,7 @@ public sealed class MainPage : ContentPage
     /// <summary>Selects a candidate on the first press and mixes into it on the next press.</summary>
     private async Task ChooseAsync(TrackFile file)
     {
-        if (_closed || _recommendations || _playback.Snapshot.Incoming.HasValue || _view.IsHandingOff)
+        if (_closed || _recommendations || IsTransitioning(_playback.Snapshot))
         {
             return;
         }
@@ -282,11 +282,13 @@ public sealed class MainPage : ContentPage
     /// <summary>Requests the pending mix and starts the output if the player was paused.</summary>
     private async Task StartMixAsync()
     {
-        if (_closed || _recommendations || _view.IsHandingOff || IsStopping ||
+        if (_closed || _recommendations || IsTransitioning(_playback.Snapshot) || IsStopping ||
             _selected is not { } file || !await ArmAsync(file) || _closed || _recommendations || IsStopping || !_playback.RequestMix())
         {
             return;
         }
+        UpdatePositions();
+        UpdateTransport();
         if (_worker is null)
         {
             await PlayAsync(restartAtEnd: false);
@@ -296,8 +298,8 @@ public sealed class MainPage : ContentPage
     /// <summary>Restarts the current track or mixes into the most recently completed track.</summary>
     private async Task PreviousAsync()
     {
-        if (_closed || _view.IsHandingOff || IsStopping ||
-            _playback.Snapshot is not { Current: { } current, Incoming: null })
+        var snapshot = _playback.Snapshot;
+        if (_closed || IsStopping || IsTransitioning(snapshot) || snapshot.Current is not { } current)
         {
             return;
         }
@@ -316,7 +318,7 @@ public sealed class MainPage : ContentPage
     /// <summary>Commits a seek preview to a still-active deck.</summary>
     private void Seek(CachedTrack track, long frame)
     {
-        if (!IsStopping && _playback.Seek(track, frame))
+        if (!_closed && !IsStopping && !IsTransitioning(_playback.Snapshot) && _playback.Seek(track, frame))
         {
             UpdatePositions();
         }
@@ -324,7 +326,7 @@ public sealed class MainPage : ContentPage
 
     private void SetTrackSpeed(CachedTrack track, double speed)
     {
-        if (!IsStopping)
+        if (!_closed && !IsStopping && !IsTransitioning(_playback.Snapshot))
         {
             _playback.TrySetSpeed(track, speed);
         }
@@ -408,9 +410,7 @@ public sealed class MainPage : ContentPage
     private void UpdatePositions()
     {
         var snapshot = _playback.Snapshot;
-        bool canSeek = !_closed && !IsStopping && snapshot.Incoming is null;
-        _view.CurrentDeck.Show(snapshot.Current, canSeek);
-        _view.IncomingDeck.Show(snapshot.Incoming, false);
+        UpdateDecks(snapshot);
         if (snapshot.Current is not { } current)
         {
             return;
@@ -454,15 +454,28 @@ public sealed class MainPage : ContentPage
     private async Task FinishCoverAsync(CachedTrack track)
     {
         var animation = _view.FinishMixAsync(track, UpdateQueue);
-        if (_queue.FirstOrDefault() is { } next)
-        {
-            await SelectNextAsync(next, renderQueue: false);
-        }
+        var preparation = _queue.FirstOrDefault() is { } next ? SelectNextAsync(next, renderQueue: false) : Task.CompletedTask;
         await animation;
+        if (!_closed)
+        {
+            UpdateDecks(_playback.Snapshot);
+        }
+        await preparation;
         if (!_closed)
         {
             UpdateQueue();
         }
+    }
+
+    /// <summary>Keeps scrubbing locked from the mix request through the cover handoff.</summary>
+    private bool IsTransitioning(QueueSnapshot snapshot) =>
+        snapshot.IsMixing || _shownIncoming is not null || _view.IsHandingOff;
+
+    private void UpdateDecks(QueueSnapshot snapshot)
+    {
+        bool transitioning = IsTransitioning(snapshot);
+        _view.CurrentDeck.Show(snapshot.Current, !_closed && !IsStopping && !transitioning, showOverview: !transitioning);
+        _view.IncomingDeck.Show(snapshot.Incoming, false, showOverview: false);
     }
 
     private void ShowCurrent(PlayingTrack track)
@@ -525,7 +538,7 @@ public sealed class MainPage : ContentPage
     private void UpdateTransport()
     {
         var snapshot = _playback.Snapshot;
-        bool idle = !_closed && !snapshot.Incoming.HasValue && !_view.IsHandingOff && !IsStopping;
+        bool idle = !_closed && !IsTransitioning(snapshot) && !IsStopping;
         _view.SetTransport(!_closed && snapshot.Current.HasValue && !IsStopping,
             _worker is not null && _stop?.IsCancellationRequested == false,
             idle && !_recommendations && _selected is not null, idle && snapshot.Current.HasValue, _settings.AutoMix);

@@ -18,10 +18,11 @@ public sealed partial class MasterSpectrumView : ContentView
         Content = _graphics;
     }
 
-    internal void SetAppearance(PlayerColors colors, SpectrumColorMode mode, bool visible, bool peaks)
+    internal void SetAppearance(PlayerColors colors, PlayerSettings settings)
     {
-        _drawable.SetAppearance(colors, mode, peaks);
-        IsVisible = visible;
+        _drawable.SetAppearance(colors, settings.SpectrumColors, settings.ShowPeaks,
+            settings.SpectrumLevelBrightness ? settings.SpectrumMinimumBrightnessPercent : null);
+        IsVisible = settings.ShowSpectrum;
         _graphics.Invalidate();
     }
 

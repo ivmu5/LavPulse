@@ -51,9 +51,10 @@ internal sealed class TrackQueueView : Grid
         _queueTab.FontSize = _recommendationsTab.FontSize = 10;
         _queueTab.Padding = _recommendationsTab.Padding = new Thickness(4, 2);
         _queueTab.CornerRadius = _recommendationsTab.CornerRadius = 7;
+        _queueTab.LineBreakMode = _recommendationsTab.LineBreakMode = LineBreakMode.CharacterWrap;
         _queueTab.Clicked += (_, _) => SelectRecommendations(false);
         _recommendationsTab.Clicked += (_, _) => SelectRecommendations(true);
-        var segments = new Grid { ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Star)] };
+        var segments = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)] };
         segments.Add(_queueTab);
         segments.Add(_recommendationsTab, 1);
         return new Border

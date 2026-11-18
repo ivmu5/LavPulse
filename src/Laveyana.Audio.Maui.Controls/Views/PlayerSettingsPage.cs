@@ -21,11 +21,11 @@ public sealed class PlayerSettingsPage : ContentPage
         header.Add(heading);
         header.Add(reset, 1);
 
-        var fadeIn = Duration("Плавный старт", [0, 150, 300, 500, 750, 1000, 1500, 2000, 3000],
+        var fadeIn = Number("Плавный старт", "мс", 3000,
             settings.FadeInMilliseconds, value => _settings = _settings with { FadeInMilliseconds = value });
-        var fadeOut = Duration("Затухание при паузе", [0, 150, 300, 500, 750, 1000, 1500, 2000, 3000],
+        var fadeOut = Number("Затухание при паузе", "мс", 3000,
             settings.FadeOutMilliseconds, value => _settings = _settings with { FadeOutMilliseconds = value });
-        var crossfade = Duration("Длительность перехода", [0, 2000, 4000, 6000, 8000, 10000, 12000],
+        var crossfade = Number("Длительность перехода", "мс", 12000,
             settings.CrossfadeMilliseconds, value => _settings = _settings with { CrossfadeMilliseconds = value });
         var autoMix = Toggle("Автомикс", settings.AutoMix, value => _settings = _settings with { AutoMix = value });
         var overview = Select("Полная дорожка", ["Полоса прогресса", "Цветная волна"], settings.WaveformOverview ? 1 : 0,
@@ -35,6 +35,21 @@ public sealed class PlayerSettingsPage : ContentPage
         var spectrum = Toggle("Показывать мастер-спектр", settings.ShowSpectrum, value => _settings = _settings with { ShowSpectrum = value });
         var spectrumColors = Select("Цвет мастер-спектра", ["Два цвета", "Градиент по частотам", "Однотонный"],
             (int)settings.SpectrumColors, index => _settings = _settings with { SpectrumColors = (SpectrumColorMode)index });
+        var brightness = Number("Минимальная яркость", "%", 100, settings.SpectrumMinimumBrightnessPercent,
+            value => _settings = _settings with { SpectrumMinimumBrightnessPercent = value });
+        brightness.Row.IsEnabled = settings.SpectrumLevelBrightness;
+        var adaptiveBrightness = new CheckBox { IsChecked = settings.SpectrumLevelBrightness, Color = MixerStyle.Accent };
+        SemanticProperties.SetDescription(adaptiveBrightness, "Яркость по уровню частоты");
+        adaptiveBrightness.CheckedChanged += (_, args) =>
+        {
+            if (!_loading)
+            {
+                brightness.Input.CommitText();
+                _settings = _settings with { SpectrumLevelBrightness = args.Value };
+                brightness.Row.IsEnabled = args.Value;
+            }
+        };
+        var brightnessToggle = ControlRow("Яркость по уровню частоты", adaptiveBrightness);
         var peaks = Toggle("Показывать пиковые метки", settings.ShowPeaks, value => _settings = _settings with { ShowPeaks = value });
 
         View[] sections =
@@ -43,18 +58,22 @@ public sealed class PlayerSettingsPage : ContentPage
             Section("Воспроизведение", fadeIn.Row, fadeOut.Row),
             Section("Сведение", autoMix.Row, crossfade.Row),
             Section("Дорожки", overview.Row),
-            Section("Оформление и спектр", palette.Row, spectrum.Row, spectrumColors.Row, peaks.Row)
+            Section("Оформление и спектр", palette.Row, spectrum.Row, spectrumColors.Row, brightnessToggle, brightness.Row, peaks.Row)
         ];
         reset.Clicked += (_, _) =>
         {
             var defaults = new PlayerSettings();
             _loading = true;
-            fadeIn.Picker.SelectedIndex = fadeOut.Picker.SelectedIndex = 2;
-            crossfade.Picker.SelectedIndex = 3;
+            fadeIn.Input.Value = defaults.FadeInMilliseconds;
+            fadeOut.Input.Value = defaults.FadeOutMilliseconds;
+            crossfade.Input.Value = defaults.CrossfadeMilliseconds;
             autoMix.Switch.IsToggled = defaults.AutoMix;
             overview.Picker.SelectedIndex = defaults.WaveformOverview ? 1 : 0;
             palette.Picker.SelectedIndex = (int)defaults.Palette;
             spectrumColors.Picker.SelectedIndex = (int)defaults.SpectrumColors;
+            adaptiveBrightness.IsChecked = defaults.SpectrumLevelBrightness;
+            brightness.Row.IsEnabled = defaults.SpectrumLevelBrightness;
+            brightness.Input.Value = defaults.SpectrumMinimumBrightnessPercent;
             spectrum.Switch.IsToggled = defaults.ShowSpectrum;
             peaks.Switch.IsToggled = defaults.ShowPeaks;
             _settings = defaults;
@@ -63,7 +82,14 @@ public sealed class PlayerSettingsPage : ContentPage
 
         var save = MixerStyle.Button("Сохранить", primary: true);
         var cancel = MixerStyle.Button("Отмена");
-        save.Clicked += async (_, _) => await CloseAsync(() => apply(_settings));
+        save.Clicked += async (_, _) => await CloseAsync(() =>
+        {
+            fadeIn.Input.CommitText();
+            fadeOut.Input.CommitText();
+            crossfade.Input.CommitText();
+            brightness.Input.CommitText();
+            apply(_settings);
+        });
         cancel.Clicked += async (_, _) => await CloseAsync(null);
         var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)], ColumnSpacing = 8 };
         actions.Add(cancel);
@@ -123,15 +149,11 @@ public sealed class PlayerSettingsPage : ContentPage
         await Navigation.PopModalAsync();
     }
 
-    private (View Row, Picker Picker) Duration(string name, int[] values, int selected, Action<int> update)
+    private static (View Row, NumericSettingInput Input) Number(string name, string unit, int maximum, int selected, Action<int> update)
     {
-        var labels = values.Select(ms => ms switch
-        {
-            0 => "Выключено",
-            < 1000 => $"{ms} мс",
-            _ => $"{ms / 1000d:0.##} с"
-        }).ToArray();
-        return Select(name, labels, Array.IndexOf(values, selected), index => update(values[index]));
+        var input = new NumericSettingInput(name, unit, 0, maximum, selected);
+        input.ValueChanged += value => update((int)value);
+        return (new VerticalStackLayout { Spacing = 3, Children = { MixerStyle.Label(name, 13), input } }, input);
     }
 
     private (View Row, Picker Picker) Select(string name, string[] labels, int selected, Action<int> update)
@@ -157,12 +179,17 @@ public sealed class PlayerSettingsPage : ContentPage
         var toggle = new Switch { IsToggled = selected, OnColor = MixerStyle.Accent };
         SemanticProperties.SetDescription(toggle, name);
         toggle.Toggled += (_, args) => { if (!_loading) update(args.Value); };
+        return (ControlRow(name, toggle), toggle);
+    }
+
+    private static Grid ControlRow(string name, View control)
+    {
         var row = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
         var label = MixerStyle.Label(name, 13);
         label.VerticalOptions = LayoutOptions.Center;
         row.Add(label);
-        row.Add(toggle, 1);
-        return (row, toggle);
+        row.Add(control, 1);
+        return row;
     }
 
     private static Border Section(string title, params View[] rows)

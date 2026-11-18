@@ -18,6 +18,9 @@ internal static class PlayerPreferences
             Palette = (PlayerPalette)Math.Clamp(Preferences.Default.Get("palette", (int)defaults.Palette), 0, (int)PlayerPalette.Warm),
             SpectrumColors = (SpectrumColorMode)Math.Clamp(Preferences.Default.Get("spectrum-colors", (int)defaults.SpectrumColors),
                 0, (int)SpectrumColorMode.Monochrome),
+            SpectrumLevelBrightness = Preferences.Default.Get("spectrum-level-brightness", defaults.SpectrumLevelBrightness),
+            SpectrumMinimumBrightnessPercent = Math.Clamp(
+                Preferences.Default.Get("spectrum-minimum-brightness", defaults.SpectrumMinimumBrightnessPercent), 0, 100),
             ShowSpectrum = Preferences.Default.Get("show-spectrum", defaults.ShowSpectrum),
             ShowPeaks = Preferences.Default.Get("show-peaks", defaults.ShowPeaks)
         };
@@ -32,6 +35,8 @@ internal static class PlayerPreferences
         Preferences.Default.Set("waveform-overview", settings.WaveformOverview);
         Preferences.Default.Set("palette", (int)settings.Palette);
         Preferences.Default.Set("spectrum-colors", (int)settings.SpectrumColors);
+        Preferences.Default.Set("spectrum-level-brightness", settings.SpectrumLevelBrightness);
+        Preferences.Default.Set("spectrum-minimum-brightness", settings.SpectrumMinimumBrightnessPercent);
         Preferences.Default.Set("show-spectrum", settings.ShowSpectrum);
         Preferences.Default.Set("show-peaks", settings.ShowPeaks);
     }

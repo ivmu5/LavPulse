@@ -4,7 +4,13 @@ namespace Laveyana.Audio.Playback;
 public readonly record struct PlayingTrack(CachedTrack Track, long Position, Deck Deck, double Speed = 1);
 
 /// <summary>Provides a consistent snapshot of the two decks and their pending transition.</summary>
-public readonly record struct QueueSnapshot(PlayingTrack? Current, PlayingTrack? Incoming);
+public readonly record struct QueueSnapshot(PlayingTrack? Current, PlayingTrack? Incoming)
+{
+    /// <summary>Indicates that a requested transition is waiting for the next audio block.</summary>
+    public bool MixPending { get; init; }
+
+    public bool IsMixing => MixPending || Incoming.HasValue;
+}
 
 /// <summary>Owns the current and next PCM readers and mixes transitions on the audio timeline.</summary>
 internal sealed class QueueSource : IPcmSource, IDisposable
@@ -117,7 +123,7 @@ internal sealed class QueueSource : IPcmSource, IDisposable
 
         lock (_gate)
         {
-            if (_current is not { } current || !ReferenceEquals(track, current.Track) || _fadeLength != 0)
+            if (_current is not { } current || !ReferenceEquals(track, current.Track) || _manual || _fadeLength != 0)
             {
                 return false;
             }
@@ -132,7 +138,7 @@ internal sealed class QueueSource : IPcmSource, IDisposable
     {
         lock (_gate)
         {
-            if (_current is not { } current || !ReferenceEquals(track, current.Track) || _fadeLength != 0)
+            if (_current is not { } current || !ReferenceEquals(track, current.Track) || _manual || _fadeLength != 0)
             {
                 return false;
             }
@@ -149,7 +155,7 @@ internal sealed class QueueSource : IPcmSource, IDisposable
         {
             lock (_gate)
             {
-                return new(_current?.Snapshot, _fadeLength != 0 ? _next?.Snapshot : null);
+                return new(_current?.Snapshot, _fadeLength != 0 ? _next?.Snapshot : null) { MixPending = _manual };
             }
         }
     }

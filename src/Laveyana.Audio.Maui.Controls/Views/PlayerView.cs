@@ -144,7 +144,7 @@ public sealed class PlayerView : Grid
         _queue.Accent = colors.Accent;
         CurrentDeck.SetAppearance(settings.WaveformOverview, colors);
         IncomingDeck.SetAppearance(settings.WaveformOverview, colors);
-        Spectrum.SetAppearance(colors, settings.SpectrumColors, settings.ShowSpectrum, settings.ShowPeaks);
+        Spectrum.SetAppearance(colors, settings);
     }
 
     public void ShowQueue(IReadOnlyList<TrackFile> files, TrackFile? selected, Func<TrackFile, string> name) => _queue.ShowQueue(files, selected, name);
