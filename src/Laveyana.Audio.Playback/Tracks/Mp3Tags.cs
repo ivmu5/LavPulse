@@ -13,6 +13,12 @@ internal sealed record Mp3Tags(string? Title = null, string? Artist = null, byte
     public static Mp3Tags Read(string path)
     {
         using var file = File.OpenRead(path);
+        return Read(file);
+    }
+
+    /// <summary>Reads only the ID3 header and tag bytes, including on non-seekable streams.</summary>
+    public static Mp3Tags Read(Stream file)
+    {
         Span<byte> header = stackalloc byte[10];
         if (file.ReadAtLeast(header, header.Length, false) != header.Length ||
             !header[..3].SequenceEqual("ID3"u8) || header[3] is not (3 or 4) ||
@@ -23,13 +29,16 @@ internal sealed record Mp3Tags(string? Title = null, string? Artist = null, byte
 
         bool version4 = header[3] == 4;
         int size = SyncSafe(header[6..]);
-        if (size is < 10 or > MaxTagSize || size > file.Length - file.Position)
+        if (size is < 10 or > MaxTagSize)
         {
             return new();
         }
 
         var bytes = new byte[size];
-        file.ReadExactly(bytes);
+        if (file.ReadAtLeast(bytes, bytes.Length, false) != bytes.Length)
+        {
+            return new();
+        }
         int offset = 0;
         if ((header[5] & 0x40) != 0)
         {

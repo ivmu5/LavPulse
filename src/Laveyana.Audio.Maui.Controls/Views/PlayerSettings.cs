@@ -18,6 +18,7 @@ public enum SpectrumColorMode
 public sealed record PlayerSettings
 {
     public const int MaximumSpectrumPaddingRows = 28;
+    public const int MaximumSpectrumWidthPercent = 45;
 
     public int FadeInMilliseconds { get; init; } = 300;
     public int FadeOutMilliseconds { get; init; } = 300;
@@ -31,6 +32,7 @@ public sealed record PlayerSettings
     public int SpectrumFullBrightnessPercent { get; init; } = 100;
     public int SpectrumTopPaddingRows { get; init; } = 2;
     public int SpectrumBottomPaddingRows { get; init; } = 2;
+    public int SpectrumWidthPercent { get; init; } = 20;
     public bool ShowSpectrum { get; init; } = true;
     public bool ShowPeaks { get; init; } = true;
 }

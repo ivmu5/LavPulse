@@ -14,8 +14,7 @@ public sealed class MainPage : ContentPage
     private readonly CancellationTokenSource _lifetime = new();
     private readonly PlayerLibrary _library;
     private readonly IDispatcherTimer _positions;
-    private readonly List<TrackFile> _queue = [];
-    private readonly Stack<TrackFile> _history = new();
+    private readonly PlaybackQueue _queue = new();
     private CancellationTokenSource? _stop;
     private Task? _worker;
     private Task? _coverAnimation;
@@ -29,6 +28,7 @@ public sealed class MainPage : ContentPage
     private bool _pausing;
     private bool _pickerOpen;
     private bool _loadingFirst;
+    private bool _queueRefreshPending;
     private bool _closed;
 
     private bool IsStopping => _pausing || _stop?.IsCancellationRequested == true;
@@ -47,10 +47,13 @@ public sealed class MainPage : ContentPage
         _view.SettingsRequested += async () => await OpenSettingsAsync();
         _view.RecommendationsSelected += SelectRecommendations;
         _view.QueueRequested += async file => await ChooseAsync(file);
+        _view.HistoryRequested += async file => await ReplayHistoryAsync(file);
+        _view.QueueMoveRequested += async (from, to, after) => await MoveQueueAsync(from, to, after);
         _view.BindFileDrops(() => !_closed, AddFilesAsync);
         _view.CurrentDeck.SeekRequested += Seek;
         _view.IncomingDeck.SeekRequested += Seek;
         _view.CurrentDeck.SpeedRequested += SetTrackSpeed;
+        _view.IncomingDeck.SpeedRequested += SetTrackSpeed;
 
         _positions = Dispatcher.CreateTimer();
         _positions.Interval = TimeSpan.FromMilliseconds(33);
@@ -118,6 +121,11 @@ public sealed class MainPage : ContentPage
 
         var added = _library.Add(files);
         _queue.AddRange(added);
+        foreach (var file in added)
+        {
+            _ = ReadQueueTagsAsync(file);
+        }
+        UpdateQueue();
         if (_playback.Snapshot.Current is null && !_loadingFirst)
         {
             await LoadFirstAsync();
@@ -134,7 +142,7 @@ public sealed class MainPage : ContentPage
         _loadingFirst = true;
         try
         {
-            foreach (var file in _queue.ToArray())
+            foreach (var file in _queue.Upcoming.ToArray())
             {
                 if (_closed)
                 {
@@ -171,7 +179,7 @@ public sealed class MainPage : ContentPage
     private Task SelectDefaultAsync()
     {
         UpdateQueue();
-        return _selected is null && _playback.Snapshot.Current.HasValue && _queue.FirstOrDefault() is { } file
+        return _selected is null && _playback.Snapshot.Current.HasValue && _queue.Next is { } file
             ? SelectNextAsync(file) : Task.CompletedTask;
     }
 
@@ -187,8 +195,7 @@ public sealed class MainPage : ContentPage
         {
             if (!_loadingFirst)
             {
-                _queue.Remove(file);
-                _queue.Insert(0, file);
+                _queue.Select(file);
                 await LoadFirstAsync();
             }
             return;
@@ -212,19 +219,55 @@ public sealed class MainPage : ContentPage
     /// <summary>Reorders the queue immediately and only arms a candidate after preparation succeeds.</summary>
     private async Task SelectNextAsync(TrackFile file, bool renderQueue = true)
     {
-        if (!_playback.SetNext(null))
+        if (!TrySetSelection(file))
         {
             return;
         }
-        _armed = null;
-        _selected = file;
-        _queue.Remove(file);
-        _queue.Insert(0, file);
+        _queue.Select(file);
         if (renderQueue)
         {
             UpdateQueue();
         }
         await ArmAsync(file);
+    }
+
+    private bool TrySetSelection(TrackFile file)
+    {
+        if (!_playback.SetNext(null))
+        {
+            return false;
+        }
+        _armed = null;
+        _selected = file;
+        return true;
+    }
+
+    /// <summary>Reorders the upcoming queue and replaces the armed candidate only if its head changes.</summary>
+    private async Task MoveQueueAsync(TrackFile from, TrackFile to, bool after)
+    {
+        if (_closed || _loadingFirst || _recommendations || IsTransitioning(_playback.Snapshot) ||
+            !_queue.Move(from, to, after, TrySetSelection))
+        {
+            return;
+        }
+        UpdateQueue();
+        if (_selected is { } next && !ReferenceEquals(_armed, next))
+        {
+            await ArmAsync(next);
+        }
+    }
+
+    /// <summary>Starts at a played entry and schedules the later history tracks before the existing queue.</summary>
+    private async Task ReplayHistoryAsync(TrackFile file)
+    {
+        if (_closed || _recommendations || IsStopping || IsTransitioning(_playback.Snapshot) ||
+            !_queue.Played.Contains(file) || !TrySetSelection(file))
+        {
+            return;
+        }
+        _queue.ReplayFrom(file);
+        UpdateQueue();
+        await StartMixAsync();
     }
 
     /// <summary>Preloads a candidate and ignores earlier selections that finish out of order.</summary>
@@ -259,14 +302,9 @@ public sealed class MainPage : ContentPage
             var task = _library.PrepareAsync(file);
             if (!task.IsCompleted)
             {
-                _view.Status.Text = $"Анализ MP3 · {file.Name}";
+                ScheduleQueueRefresh();
             }
-            var result = await task;
-            if (!_closed && _view.Status.Text == $"Анализ MP3 · {file.Name}")
-            {
-                _view.Status.Text = "";
-            }
-            return result;
+            return await task;
         }
         catch (OperationCanceledException) when (_closed)
         {
@@ -277,6 +315,42 @@ public sealed class MainPage : ContentPage
             if (!_closed) _view.Status.Text = $"Не удалось загрузить {file.Name}. {ex.Message}";
             return null;
         }
+        finally
+        {
+            ScheduleQueueRefresh();
+        }
+    }
+
+    private async Task ReadQueueTagsAsync(TrackFile file)
+    {
+        try
+        {
+            await _library.ReadMetadataAsync(file);
+        }
+        catch (Exception ex)
+        {
+            // Keep the filename available if optional tags cannot be read.
+            System.Diagnostics.Debug.WriteLine(ex);
+        }
+        finally
+        {
+            ScheduleQueueRefresh();
+        }
+    }
+
+    /// <summary>Coalesces bursts of tag updates when a folder is added.</summary>
+    private void ScheduleQueueRefresh()
+    {
+        if (_closed || _queueRefreshPending)
+        {
+            return;
+        }
+        _queueRefreshPending = true;
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(100), () =>
+        {
+            _queueRefreshPending = false;
+            if (!_closed) UpdateQueue();
+        });
     }
 
     /// <summary>Requests the pending mix and starts the output if the player was paused.</summary>
@@ -303,16 +377,12 @@ public sealed class MainPage : ContentPage
         {
             return;
         }
-        if (_recommendations || current.Position > 3 * PlaybackFormat.SampleRate || !_history.TryPop(out var previous))
+        if (_recommendations || current.Position > 3 * PlaybackFormat.SampleRate || _queue.Played.LastOrDefault() is not { } previous)
         {
             Seek(current.Track, 0);
             return;
         }
-        await SelectNextAsync(previous);
-        if (ReferenceEquals(_selected, previous))
-        {
-            await StartMixAsync();
-        }
+        await ReplayHistoryAsync(previous);
     }
 
     /// <summary>Commits a seek preview to a still-active deck.</summary>
@@ -420,7 +490,7 @@ public sealed class MainPage : ContentPage
         {
             if (_shownCurrent is { } old && _library.Find(old) is { } outgoing)
             {
-                _history.Push(outgoing);
+                _queue.MarkPlayed(outgoing);
             }
             bool animate = ReferenceEquals(_shownIncoming, current.Track);
             _shownIncoming = null;
@@ -454,7 +524,7 @@ public sealed class MainPage : ContentPage
     private async Task FinishCoverAsync(CachedTrack track)
     {
         var animation = _view.FinishMixAsync(track, UpdateQueue);
-        var preparation = _queue.FirstOrDefault() is { } next ? SelectNextAsync(next, renderQueue: false) : Task.CompletedTask;
+        var preparation = _queue.Next is { } next ? SelectNextAsync(next, renderQueue: false) : Task.CompletedTask;
         await animation;
         if (!_closed)
         {
@@ -474,8 +544,7 @@ public sealed class MainPage : ContentPage
     private void UpdateDecks(QueueSnapshot snapshot)
     {
         bool transitioning = IsTransitioning(snapshot);
-        _view.CurrentDeck.Show(snapshot.Current, !_closed && !IsStopping && !transitioning, showOverview: !transitioning);
-        _view.IncomingDeck.Show(snapshot.Incoming, false, showOverview: false);
+        _view.ShowDecks(snapshot, !_closed && !IsStopping && !transitioning, showOverview: !transitioning);
     }
 
     private void ShowCurrent(PlayingTrack track)
@@ -527,12 +596,16 @@ public sealed class MainPage : ContentPage
 
     private void UpdateQueue()
     {
-        _view.ShowQueue(_queue, _selected, file =>
-        {
-            var track = _library.GetPrepared(file);
-            return track is null ? Path.GetFileNameWithoutExtension(file.Name) : track.Title;
-        });
+        _view.ShowQueue(_queue.Upcoming, _queue.Played, ReadQueueItem);
         UpdateTransport();
+    }
+
+    private QueueTrackItem ReadQueueItem(TrackFile file)
+    {
+        var track = _library.GetPrepared(file);
+        var tags = track is null ? _library.GetMetadata(file) : null;
+        return new(track?.Title ?? tags?.Title ?? Path.GetFileNameWithoutExtension(file.Name),
+            track?.Artist ?? tags?.Artist, track?.Artwork ?? tags?.Artwork ?? default, _library.IsAnalyzing(file));
     }
 
     private void UpdateTransport()

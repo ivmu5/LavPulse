@@ -42,7 +42,11 @@ internal static class WindowsTrackDrag
     {
         void OnDragOver(object sender, Microsoft.UI.Xaml.DragEventArgs args)
         {
-            bool accepted = CanRead(args.DataView) && canDrop();
+            if (!CanRead(args.DataView))
+            {
+                return;
+            }
+            bool accepted = canDrop();
             args.AcceptedOperation = accepted ? NativeOperation.Copy : NativeOperation.None;
             args.Handled = true; // A deck handles its own drops before they can bubble to the page.
             highlight?.Invoke(accepted);
@@ -54,9 +58,13 @@ internal static class WindowsTrackDrag
         // Keep the native payload alive until its storage items have been read.
         async void OnDrop(object sender, Microsoft.UI.Xaml.DragEventArgs args)
         {
+            if (!CanRead(args.DataView))
+            {
+                return;
+            }
             highlight?.Invoke(false);
             args.Handled = true;
-            if (!canDrop() || !CanRead(args.DataView))
+            if (!canDrop())
             {
                 args.AcceptedOperation = NativeOperation.None;
                 return;
@@ -97,17 +105,20 @@ internal static class WindowsTrackDrag
             await receive(files);
         }
 
+        Microsoft.UI.Xaml.DragEventHandler dragOver = OnDragOver;
+        Microsoft.UI.Xaml.DragEventHandler drop = OnDrop;
         Attach(target, native =>
         {
             native.AllowDrop = true;
-            native.DragOver += OnDragOver;
+            // Queue rows handle their own drags. Still receive storage drops even over a queue row.
+            native.AddHandler(UIElement.DragOverEvent, dragOver, handledEventsToo: true);
             native.DragLeave += OnDragLeave;
-            native.Drop += OnDrop;
+            native.AddHandler(UIElement.DropEvent, drop, handledEventsToo: true);
         }, native =>
         {
-            native.DragOver -= OnDragOver;
+            native.RemoveHandler(UIElement.DragOverEvent, dragOver);
             native.DragLeave -= OnDragLeave;
-            native.Drop -= OnDrop;
+            native.RemoveHandler(UIElement.DropEvent, drop);
             native.AllowDrop = false;
         });
     }

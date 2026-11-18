@@ -2,9 +2,34 @@ using System.Runtime.InteropServices;
 
 namespace Laveyana.Audio.Playback;
 
+public sealed record TrackMetadata(string Title, string? Artist, ReadOnlyMemory<byte> Artwork);
+
 /// <summary>Prepares seekable PCM and a display waveform from an MP3 stream.</summary>
 public sealed class TrackPreparation(string cacheDirectory)
 {
+    /// <summary>Reads the display tags independently of PCM decoding and waveform analysis.</summary>
+    public Task<TrackMetadata> ReadMetadataAsync(TrackFile file, CancellationToken token) => Task.Run(async () =>
+    {
+        Mp3Tags tags;
+        if (file.OpenReadAsync is { } open)
+        {
+            await using var source = await open().ConfigureAwait(false);
+            tags = Mp3Tags.Read(source);
+        }
+        else
+        {
+            Directory.CreateDirectory(cacheDirectory);
+            string path = Path.Combine(cacheDirectory, $"lavpulse-tags-{Guid.NewGuid():N}.mp3");
+            await using var source = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None,
+                64 * 1024, FileOptions.Asynchronous | FileOptions.DeleteOnClose);
+            await file.CopyToAsync(source, token).ConfigureAwait(false);
+            source.Position = 0;
+            tags = Mp3Tags.Read(source);
+        }
+        token.ThrowIfCancellationRequested();
+        return new TrackMetadata(tags.Title ?? Path.GetFileNameWithoutExtension(file.Name), tags.Artist, tags.Artwork ?? []);
+    }, token);
+
     /// <summary>Imports one track and removes temporary files if decoding fails or is cancelled.</summary>
     public async Task<CachedTrack> ImportAsync(TrackFile file, CancellationToken token)
     {

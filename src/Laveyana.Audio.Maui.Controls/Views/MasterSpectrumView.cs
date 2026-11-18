@@ -21,7 +21,7 @@ public sealed partial class MasterSpectrumView : ContentView
     internal void SetAppearance(PlayerColors colors, PlayerSettings settings)
     {
         _drawable.SetAppearance(colors, settings);
-        IsVisible = settings.ShowSpectrum;
+        IsVisible = settings.ShowSpectrum && settings.SpectrumWidthPercent > 0;
         _graphics.Invalidate();
     }
 
@@ -57,7 +57,7 @@ public sealed partial class MasterSpectrumView : ContentView
     /// <summary>Reads the next audible spectrum and applies elapsed-time smoothing.</summary>
     private void DrawFrame(double time)
     {
-        if (_getSource?.Invoke() is not { } mix)
+        if (!IsVisible || _getSource?.Invoke() is not { } mix)
         {
             return;
         }

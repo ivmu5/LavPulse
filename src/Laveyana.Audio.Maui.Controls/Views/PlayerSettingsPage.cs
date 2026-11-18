@@ -43,14 +43,16 @@ public sealed class PlayerSettingsPage : ContentPage
             settings.SpectrumFullBrightnessPercent, value => _settings = _settings with { SpectrumFullBrightnessPercent = value });
         var brightnessOptions = new VerticalStackLayout
         {
-            Spacing = 8, IsEnabled = settings.SpectrumLevelBrightness, Children = { brightness.Row, fullBrightness.Row }
+            IsEnabled = settings.SpectrumLevelBrightness, Children = { Pair(brightness.Row, fullBrightness.Row) }
         };
         var topPadding = Number("Отступ сверху", "полосы", new(0, PlayerSettings.MaximumSpectrumPaddingRows, defaults.SpectrumTopPaddingRows, 1),
             settings.SpectrumTopPaddingRows, value => _settings = _settings with { SpectrumTopPaddingRows = value });
         var bottomPadding = Number("Отступ снизу", "полосы", new(0, PlayerSettings.MaximumSpectrumPaddingRows, defaults.SpectrumBottomPaddingRows, 1),
             settings.SpectrumBottomPaddingRows, value => _settings = _settings with { SpectrumBottomPaddingRows = value });
+        var width = Number("Ширина с каждой стороны", "%", new(0, PlayerSettings.MaximumSpectrumWidthPercent, defaults.SpectrumWidthPercent, 1),
+            settings.SpectrumWidthPercent, value => _settings = _settings with { SpectrumWidthPercent = value });
         NumericSettingInput[] numbers = [fadeIn.Input, fadeOut.Input, crossfade.Input, brightness.Input, fullBrightness.Input,
-            topPadding.Input, bottomPadding.Input];
+            topPadding.Input, bottomPadding.Input, width.Input];
         var adaptiveBrightness = new CheckBox { IsChecked = settings.SpectrumLevelBrightness, Color = MixerStyle.Accent };
         SemanticProperties.SetDescription(adaptiveBrightness, "Яркость по уровню частоты");
         adaptiveBrightness.CheckedChanged += (_, args) =>
@@ -66,15 +68,15 @@ public sealed class PlayerSettingsPage : ContentPage
         var brightnessToggle = ControlRow("Яркость по уровню частоты", adaptiveBrightness);
         var peaks = Toggle("Показывать пиковые метки", settings.ShowPeaks, value => _settings = _settings with { ShowPeaks = value });
 
-        View[] sections =
-        [
-            CreateLibrarySection(pickFiles, pickFolder),
-            Section("Воспроизведение", fadeIn.Row, fadeOut.Row),
-            Section("Сведение", autoMix.Row, crossfade.Row),
-            Section("Дорожки", overview.Row),
-            Section("Оформление и спектр", palette.Row, spectrum.Row, spectrumColors.Row, brightnessToggle, brightnessOptions,
-                topPadding.Row, bottomPadding.Row, peaks.Row)
-        ];
+        var (tabs, content) = CreateSettingsPages(
+            ("Воспроизведение", Page(
+                Section("Плавный старт и пауза", Pair(fadeIn.Row, fadeOut.Row)),
+                Section("Переход между треками", autoMix.Row, crossfade.Row))),
+            ("Оформление", Page(Section("Плеер и деки", Pair(palette.Row, overview.Row)))),
+            ("Спектр", Page(
+                Section("Геометрия и видимость", Pair(spectrum.Row, peaks.Row), width.Row, Pair(topPadding.Row, bottomPadding.Row)),
+                Section("Цвет и яркость", spectrumColors.Row, brightnessToggle, brightnessOptions))),
+            ("Медиатека", Page(CreateLibrarySection(pickFiles, pickFolder))));
         reset.Clicked += (_, _) =>
         {
             _loading = true;
@@ -108,22 +110,92 @@ public sealed class PlayerSettingsPage : ContentPage
         var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)], ColumnSpacing = 8 };
         actions.Add(cancel);
         actions.Add(save, 1);
-        var stack = new VerticalStackLayout { Spacing = 12 };
-        foreach (var section in sections)
-        {
-            stack.Children.Add(section);
-        }
-
         var layout = new Grid
         {
             Padding = 16, RowSpacing = 12, MaximumWidthRequest = 660, HorizontalOptions = LayoutOptions.Center,
-            RowDefinitions = [new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)]
+            RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)]
         };
         layout.Add(header);
-        layout.Add(new ScrollView { Content = stack }, row: 1);
-        layout.Add(actions, row: 2);
+        layout.Add(tabs, row: 1);
+        layout.Add(content, row: 2);
+        layout.Add(actions, row: 3);
         SizeChanged += (_, _) => { if (Width > 0) layout.WidthRequest = Math.Min(Width, 660); };
         Content = layout;
+    }
+
+    /// <summary>Gives each category its own scroll position while preserving one draft across all pages.</summary>
+    private static (Grid Tabs, Grid Content) CreateSettingsPages(params (string Title, ScrollView View)[] pages)
+    {
+        var tabs = new Grid
+        {
+            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)],
+            RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)], ColumnSpacing = 6, RowSpacing = 6
+        };
+        var content = new Grid();
+        var buttons = new Button[pages.Length];
+        for (int i = 0; i < pages.Length; i++)
+        {
+            int index = i;
+            var (title, page) = pages[i];
+            var button = MixerStyle.Button(title);
+            button.Clicked += (_, _) => SelectPage(index);
+            buttons[i] = button;
+            tabs.Add(button, i % 2, i / 2);
+            content.Add(page);
+        }
+        SelectPage(0);
+        return (tabs, content);
+
+        void SelectPage(int selected)
+        {
+            for (int i = 0; i < pages.Length; i++)
+            {
+                bool active = i == selected;
+                pages[i].View.IsVisible = active;
+                buttons[i].BackgroundColor = active ? MixerStyle.SelectedBackground : MixerStyle.ButtonBackground;
+                SemanticProperties.SetDescription(buttons[i], active ? $"{pages[i].Title}. Выбрано." : pages[i].Title);
+            }
+        }
+    }
+
+    private static ScrollView Page(params View[] sections)
+    {
+        var content = new VerticalStackLayout { Spacing = 10 };
+        foreach (var section in sections)
+        {
+            content.Add(section);
+        }
+        return new ScrollView { Content = content };
+    }
+
+    /// <summary>Places related controls side by side as soon as the window has enough room.</summary>
+    private static Grid Pair(View first, View second)
+    {
+        var pair = new Grid
+        {
+            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)],
+            RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)],
+            ColumnSpacing = 12, RowSpacing = 8
+        };
+        pair.Add(first);
+        pair.Add(second, row: 1);
+        Grid.SetColumnSpan(first, 2);
+        Grid.SetColumnSpan(second, 2);
+        bool wide = false;
+        pair.SizeChanged += (_, _) =>
+        {
+            bool next = pair.Width >= 480;
+            if (wide == next)
+            {
+                return;
+            }
+            wide = next;
+            Grid.SetColumnSpan(first, wide ? 1 : 2);
+            Grid.SetColumnSpan(second, wide ? 1 : 2);
+            Grid.SetRow(second, wide ? 0 : 1);
+            Grid.SetColumn(second, wide ? 1 : 0);
+        };
+        return pair;
     }
 
     /// <summary>Keeps native file and folder import available from settings.</summary>
