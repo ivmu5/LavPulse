@@ -29,7 +29,7 @@ public sealed class PlayerSettingsPage : ContentPage
         var crossfade = Number("Длительность перехода", "мс", new(0, 12000, defaults.CrossfadeMilliseconds, 100),
             settings.CrossfadeMilliseconds, value => _settings = _settings with { CrossfadeMilliseconds = value });
         var autoMix = Toggle("Автомикс", settings.AutoMix, value => _settings = _settings with { AutoMix = value });
-        var overview = Select("Полная дорожка", ["Полоса прогресса", "Цветная волна"], settings.WaveformOverview ? 1 : 0,
+        var overview = Select("Вид нижней дорожки", ["Полоса прогресса", "Цветная волна"], settings.WaveformOverview ? 1 : 0,
             index => _settings = _settings with { WaveformOverview = index == 1 });
         var detail = Number("Длительность верхней волны", "с",
             new(PlayerSettings.MinimumWaveformDetailSeconds, PlayerSettings.MaximumWaveformDetailSeconds, defaults.WaveformDetailSeconds, 1),
@@ -71,15 +71,16 @@ public sealed class PlayerSettingsPage : ContentPage
         var brightnessToggle = ControlRow("Яркость по уровню частоты", adaptiveBrightness);
         var peaks = Toggle("Показывать пиковые метки", settings.ShowPeaks, value => _settings = _settings with { ShowPeaks = value });
 
-        var (tabs, content) = CreateSettingsPages(
-            ("Воспроизведение", Page(
+        var (sections, content) = CreateSettingsList(
+            ("Медиатека", [CreateLibrarySection(pickFiles, pickFolder)]),
+            ("Воспроизведение", [
                 Section("Плавный старт и пауза", Pair(fadeIn.Row, fadeOut.Row)),
-                Section("Переход между треками", autoMix.Row, crossfade.Row))),
-            ("Оформление", Page(Section("Плеер и деки", palette.Row, Pair(detail.Row, overview.Row)))),
-            ("Спектр", Page(
-                Section("Геометрия и видимость", Pair(spectrum.Row, peaks.Row), width.Row, Pair(topPadding.Row, bottomPadding.Row)),
-                Section("Цвет и яркость", spectrumColors.Row, brightnessToggle, brightnessOptions))),
-            ("Медиатека", Page(CreateLibrarySection(pickFiles, pickFolder))));
+                Section("Переход между треками", autoMix.Row, crossfade.Row)]),
+            ("Деки", [Section("Дорожки деки", Pair(detail.Row, overview.Row))]),
+            ("Цвета и спектр", [
+                Section("Палитра плеера", palette.Row),
+                Section("Мастер-спектр", Pair(spectrum.Row, peaks.Row), width.Row, Pair(topPadding.Row, bottomPadding.Row)),
+                Section("Цвет и яркость спектра", spectrumColors.Row, brightnessToggle, brightnessOptions)]));
         reset.Clicked += (_, _) =>
         {
             _loading = true;
@@ -113,62 +114,62 @@ public sealed class PlayerSettingsPage : ContentPage
         var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)], ColumnSpacing = 8 };
         actions.Add(cancel);
         actions.Add(save, 1);
+        int topPaddingInset = 16;
+#if WINDOWS
+        topPaddingInset += WindowsWindowChrome.ContentInset;
+#endif
         var layout = new Grid
         {
-            Padding = 16, RowSpacing = 12, MaximumWidthRequest = 660, HorizontalOptions = LayoutOptions.Center,
+            Padding = new Thickness(16, topPaddingInset, 16, 16), RowSpacing = 12,
+            MaximumWidthRequest = 660, HorizontalOptions = LayoutOptions.Center,
             RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)]
         };
         layout.Add(header);
-        layout.Add(tabs, row: 1);
+        layout.Add(sections, row: 1);
         layout.Add(content, row: 2);
         layout.Add(actions, row: 3);
         SizeChanged += (_, _) => { if (Width > 0) layout.WidthRequest = Math.Min(Width, 660); };
         Content = layout;
     }
 
-    /// <summary>Gives each category its own scroll position while preserving one draft across all pages.</summary>
-    private static (Grid Tabs, Grid Content) CreateSettingsPages(params (string Title, ScrollView View)[] pages)
+    /// <summary>Creates one scrollable settings list and keeps its section shortcuts visible.</summary>
+    private static (Grid Sections, ScrollView Content) CreateSettingsList(params (string Title, View[] Cards)[] sections)
     {
-        var tabs = new Grid
+        var shortcuts = new Grid
         {
-            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)],
+            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star), new(GridLength.Star), new(GridLength.Star)],
             RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)], ColumnSpacing = 6, RowSpacing = 6
         };
-        var content = new Grid();
-        var buttons = new Button[pages.Length];
-        for (int i = 0; i < pages.Length; i++)
+        var groups = new VerticalStackLayout { Spacing = 16 };
+        var scroll = new ScrollView { Content = groups };
+        for (int i = 0; i < sections.Length; i++)
         {
-            int index = i;
-            var (title, page) = pages[i];
+            var (title, cards) = sections[i];
+            var group = new VerticalStackLayout { Spacing = 8 };
+            foreach (var card in cards) group.Children.Add(card);
+            groups.Children.Add(group);
+
             var button = MixerStyle.Button(title);
-            button.Clicked += (_, _) => SelectPage(index);
-            buttons[i] = button;
-            tabs.Add(button, i % 2, i / 2);
-            content.Add(page);
+            SemanticProperties.SetDescription(button, $"Прокрутить к разделу «{title}»");
+            button.Clicked += async (_, _) => await scroll.ScrollToAsync(group, ScrollToPosition.Start, true);
+            shortcuts.Add(button, (i % 2) * 2, i / 2);
+            Grid.SetColumnSpan(button, 2);
         }
-        SelectPage(0);
-        return (tabs, content);
-
-        void SelectPage(int selected)
+        bool wide = false;
+        shortcuts.SizeChanged += (_, _) =>
         {
-            for (int i = 0; i < pages.Length; i++)
+            bool next = shortcuts.Width >= 540;
+            if (next == wide) return;
+            wide = next;
+            for (int i = 0; i < shortcuts.Children.Count; i++)
             {
-                bool active = i == selected;
-                pages[i].View.IsVisible = active;
-                buttons[i].BackgroundColor = active ? MixerStyle.SelectedBackground : MixerStyle.ButtonBackground;
-                SemanticProperties.SetDescription(buttons[i], active ? $"{pages[i].Title}. Выбрано." : pages[i].Title);
+                var button = (Button)shortcuts.Children[i];
+                Grid.SetColumnSpan(button, wide ? 1 : 2);
+                Grid.SetColumn(button, wide ? i : (i % 2) * 2);
+                Grid.SetRow(button, wide ? 0 : i / 2);
             }
-        }
-    }
-
-    private static ScrollView Page(params View[] sections)
-    {
-        var content = new VerticalStackLayout { Spacing = 10 };
-        foreach (var section in sections)
-        {
-            content.Add(section);
-        }
-        return new ScrollView { Content = content };
+        };
+        return (shortcuts, scroll);
     }
 
     /// <summary>Places related controls side by side as soon as the window has enough room.</summary>

@@ -50,11 +50,15 @@ public sealed class PlayerView : Grid
             VerticalScrollBarVisibility = ScrollBarVisibility.Never,
             Content = _decks
         };
+        int topPadding = 14;
+#if WINDOWS
+        topPadding += WindowsWindowChrome.ContentInset;
+#endif
         var player = new Grid
         {
             HorizontalOptions = LayoutOptions.Center,
             MaximumWidthRequest = 760,
-            Padding = new Thickness(16, 14, 16, 12),
+            Padding = new Thickness(16, topPadding, 16, 12),
             RowSpacing = 8,
             RowDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto)]
         };
