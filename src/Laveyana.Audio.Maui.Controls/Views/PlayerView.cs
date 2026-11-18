@@ -2,7 +2,7 @@ using Laveyana.Audio.Playback;
 
 namespace Laveyana.Audio.Maui.Controls;
 
-/// <summary>Composes the native player, decks, master spectrum and track browser.</summary>
+/// <summary>Composes the native player, decks, master spectrum and track feed.</summary>
 public sealed class PlayerView : Grid
 {
     private const string PlayIcon = "player_play.png";
@@ -12,42 +12,17 @@ public sealed class PlayerView : Grid
     private readonly ImageButton _next = MixerStyle.IconButton("player_next.png", 44);
     private readonly Button _automix = MixerStyle.Button("Автомикс");
     private readonly TrackQueueView _queue = new();
-    private readonly Border _browser = new() { IsVisible = false };
-    private readonly CollectionView _library = new() { SelectionMode = SelectionMode.Single };
     private readonly Grid _body = new() { IsClippedToBounds = true };
-    private readonly Button _handle = MixerStyle.Button("Треки");
 
     public PlayerView()
     {
         BackgroundColor = MixerStyle.Background;
         IsClippedToBounds = true;
-        RowDefinitions = [new(GridLength.Star), new(GridLength.Auto)];
         this.Add(Spectrum);
-        SetRowSpan((IView)Spectrum, 2);
         var player = CreatePlayerLayout();
         _body.Add(player);
         this.Add(_body);
 
-        var dock = new HorizontalStackLayout
-        {
-            HorizontalOptions = LayoutOptions.Center, Padding = new Thickness(16, 3, 16, 13),
-            Spacing = 4
-        };
-        var grip = new GraphicsView { Drawable = new BrowserGrip(), WidthRequest = 44, HeightRequest = 44 };
-        SemanticProperties.SetDescription(grip, "Ручка браузера треков. Потяни вверх.");
-        float downY = 0;
-        TimelineInput.Attach(grip,
-            point => { downY = point.Y; return true; },
-            point => { if (point.Y < downY - 22) SetBrowser(true); },
-            point => { if (Math.Abs(point.Y - downY) < 7) SetBrowser(!_browser.IsVisible); },
-            () => { });
-        dock.Add(grip);
-        SemanticProperties.SetDescription(_handle, "Открыть браузер треков");
-        dock.Add(_handle);
-        this.Add(dock, row: 1);
-        _handle.Clicked += (_, _) => SetBrowser(!_browser.IsVisible);
-        CreateBrowser();
-        this.Add(_browser);
         _queue.ShowCurrent(null);
         CurrentDeck.Show(null, false);
         IncomingDeck.Show(null, false);
@@ -59,7 +34,7 @@ public sealed class PlayerView : Grid
         var upper = new ScrollView
         {
             VerticalScrollBarVisibility = ScrollBarVisibility.Never,
-            Content = new VerticalStackLayout { Spacing = 10, Children = { CreateHeader(), _queue } }
+            Content = new VerticalStackLayout { Spacing = 10, Children = { CreateHeader(), CreateImportActions(), _queue } }
         };
         var deckScroll = new ScrollView
         {
@@ -71,7 +46,7 @@ public sealed class PlayerView : Grid
         {
             HorizontalOptions = LayoutOptions.Center,
             MaximumWidthRequest = 760,
-            Padding = new Thickness(16, 14, 16, 6),
+            Padding = new Thickness(16, 14, 16, 12),
             RowSpacing = 8,
             RowDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto)]
         };
@@ -98,17 +73,6 @@ public sealed class PlayerView : Grid
         return player;
     }
 
-    private sealed class BrowserGrip : IDrawable
-    {
-        public void Draw(ICanvas canvas, RectF bounds)
-        {
-            canvas.FillColor = MixerStyle.Card;
-            canvas.FillRoundedRectangle(bounds.X, bounds.Y, bounds.Width, bounds.Height, 11);
-            canvas.FillColor = MixerStyle.Muted;
-            canvas.FillRoundedRectangle(bounds.Center.X - 12, bounds.Center.Y - 1.5f, 24, 3, 1.5f);
-        }
-    }
-
     public MasterSpectrumView Spectrum { get; } = new();
     public DeckView CurrentDeck { get; } = new();
     public DeckView IncomingDeck { get; } = new();
@@ -125,12 +89,17 @@ public sealed class PlayerView : Grid
         add => _queue.TrackRequested += value;
         remove => _queue.TrackRequested -= value;
     }
-    public event Action<TrackFile>? LibraryTrackRequested;
+    public event Action? SettingsRequested;
+    public event Action<bool>? RecommendationsSelected
+    {
+        add => _queue.RecommendationsSelected += value;
+        remove => _queue.RecommendationsSelected -= value;
+    }
 
     public bool IsHandingOff => _queue.IsHandingOff;
 
     /// <summary>Displays the ribbon and the application name at the top of the player.</summary>
-    private static View CreateHeader()
+    private View CreateHeader()
     {
         var mark = new Image
         {
@@ -140,7 +109,12 @@ public sealed class PlayerView : Grid
         var name = MixerStyle.Label("LavPulse", 20, bold: true);
         name.VerticalOptions = LayoutOptions.Center;
         SemanticProperties.SetHeadingLevel(name, SemanticHeadingLevel.Level1);
-        return new HorizontalStackLayout { Spacing = 9, Children = { mark, name } };
+        var settings = MixerStyle.Button("Настройки");
+        settings.Clicked += (_, _) => SettingsRequested?.Invoke();
+        var header = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
+        header.Add(new HorizontalStackLayout { Spacing = 9, Children = { mark, name } });
+        header.Add(settings, 1);
+        return header;
     }
 
     /// <summary>Creates the centered transport and its accessible actions.</summary>
@@ -164,58 +138,26 @@ public sealed class PlayerView : Grid
         return controls;
     }
 
-    /// <summary>Builds the virtualized library sheet with file and folder import.</summary>
-    private void CreateBrowser()
+    /// <summary>Keeps file and folder import above the queue on both platforms.</summary>
+    private View CreateImportActions()
     {
-        var close = MixerStyle.Button("Закрыть");
-        close.HorizontalOptions = LayoutOptions.Center;
-        close.Clicked += (_, _) => SetBrowser(false);
-        var controls = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)], ColumnSpacing = 8 };
-        controls.Add(AddFiles);
-        controls.Add(AddFolder, 1);
-        _library.ItemTemplate = new DataTemplate(() =>
-        {
-            var title = MixerStyle.Label("", 14);
-            title.Padding = new Thickness(9, 11);
-            title.SetBinding(Label.TextProperty, nameof(TrackFile.Name));
-            return title;
-        });
-        _library.EmptyView = MixerStyle.Label("Добавь MP3 или выбери папку", 13, MixerStyle.Muted);
-        _library.SelectionChanged += (_, args) =>
-        {
-            if (args.CurrentSelection.FirstOrDefault() is TrackFile file)
-            {
-                _library.SelectedItem = null;
-                SetBrowser(false);
-                LibraryTrackRequested?.Invoke(file);
-            }
-        };
-        var content = new Grid
-        {
-            RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Star)],
-            RowSpacing = 8
-        };
-        content.Add(close);
-        content.Add(controls, row: 1);
-        content.Add(_library, row: 2);
-        MixerStyle.StyleCard(_browser, content);
-        _browser.HeightRequest = 320;
-        _browser.MaximumWidthRequest = 760;
-        _browser.HorizontalOptions = LayoutOptions.Fill;
-        _browser.VerticalOptions = LayoutOptions.End;
-        _browser.Margin = new Thickness(12, 0, 12, 6);
-        _browser.BackgroundColor = MixerStyle.Overlay;
+        var row = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)], ColumnSpacing = 8 };
+        row.Add(AddFiles);
+        row.Add(AddFolder, 1);
+        return row;
     }
 
-    /// <summary>Shows the sheet above the safe bottom dock without intercepting unrelated gestures.</summary>
-    public void SetBrowser(bool open)
+    /// <summary>Applies the saved palette and timeline settings to the player.</summary>
+    public void ApplyAppearance(PlayerSettings settings)
     {
-        _browser.IsVisible = open;
-        _body.InputTransparent = open;
-        SemanticProperties.SetDescription(_handle, open ? "Закрыть браузер треков" : "Открыть браузер треков");
+        var colors = PlayerColors.For(settings.Palette);
+        _play.BackgroundColor = AddFiles.BackgroundColor = colors.Accent;
+        _queue.Accent = colors.Accent;
+        CurrentDeck.SetAppearance(settings.WaveformOverview, colors);
+        IncomingDeck.SetAppearance(settings.WaveformOverview, colors);
+        Spectrum.SetAppearance(colors, settings.ShowSpectrum, settings.ShowPeaks);
     }
 
-    public void ShowLibrary(IReadOnlyList<TrackFile> files) => _library.ItemsSource = files;
     public void ShowQueue(IReadOnlyList<TrackFile> files, TrackFile? selected, Func<TrackFile, string> name) => _queue.ShowQueue(files, selected, name);
     public void ShowCurrent(CachedTrack? track) => _queue.ShowCurrent(track);
     public Task BeginMixAsync(CachedTrack track, TrackFile? file) => _queue.BeginMixAsync(track, file);

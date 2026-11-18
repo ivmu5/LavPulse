@@ -4,7 +4,8 @@ namespace Laveyana.Audio.Maui.Controls;
 
 internal sealed class WaveformDrawable : IDrawable
 {
-    private static readonly Color WindowColor = MixerStyle.Accent.WithAlpha(.16f);
+    public PlayerColors Colors { get; set; } = PlayerColors.For(PlayerPalette.LavPulse);
+    public bool UseProgressBar { get; set; }
 
     public TrackWaveform? Waveform { get; set; }
     public bool Detailed { get; init; }
@@ -14,6 +15,12 @@ internal sealed class WaveformDrawable : IDrawable
     /// <summary>Scales waveform points to the view and draws their three frequency bands.</summary>
     public void Draw(ICanvas canvas, RectF bounds)
     {
+        if (UseProgressBar)
+        {
+            DrawProgress(canvas, bounds);
+            return;
+        }
+
         canvas.FillColor = MixerStyle.Surface;
         canvas.FillRoundedRectangle(bounds.X, bounds.Y, bounds.Width, bounds.Height, 6);
 
@@ -45,7 +52,7 @@ internal sealed class WaveformDrawable : IDrawable
         {
             long span = Math.Min(waveform.TotalFrames, 15L * PlaybackFormat.SampleRate);
             long start = Math.Clamp((Preview ?? Position) - span / 2, 0, waveform.TotalFrames - span);
-            canvas.FillColor = WindowColor;
+            canvas.FillColor = Colors.Accent.WithAlpha(.16f);
             canvas.FillRectangle(x + width * start / waveform.TotalFrames, bounds.Y + 4,
                 width * span / waveform.TotalFrames, bounds.Height - 8);
         }
@@ -82,9 +89,9 @@ internal sealed class WaveformDrawable : IDrawable
             float low = height * point.Low / sum;
             float mid = height * point.Mid / sum;
             float bar = x + spacing * (column + 0.5f);
-            DrawBand(canvas, bar, middle, 0, low, MixerStyle.Blue);
-            DrawBand(canvas, bar, middle, low, low + mid, MixerStyle.Violet);
-            DrawBand(canvas, bar, middle, low + mid, height, MixerStyle.Alternate);
+            DrawBand(canvas, bar, middle, 0, low, Colors.WaveLow);
+            DrawBand(canvas, bar, middle, low, low + mid, Colors.WaveMid);
+            DrawBand(canvas, bar, middle, low + mid, height, Colors.Alternate);
         }
 
         if (Preview is long preview)
@@ -110,6 +117,36 @@ internal sealed class WaveformDrawable : IDrawable
             triangle.LineTo(marker, bounds.Y + 10);
             triangle.Close();
             canvas.FillPath(triangle);
+        }
+    }
+
+    /// <summary>Shows played progress and a separate seek preview using the entire track duration.</summary>
+    private void DrawProgress(ICanvas canvas, RectF bounds)
+    {
+        if (Waveform is not { TotalFrames: > 0 } waveform || bounds.Width <= 12 || bounds.Height < 12)
+        {
+            return;
+        }
+
+        const float radius = 3;
+        float start = bounds.Left + 6;
+        float width = bounds.Width - 12;
+        float y = bounds.Center.Y - radius;
+        float played = width * Math.Clamp((float)Position / waveform.TotalFrames, 0, 1);
+        canvas.FillColor = MixerStyle.BorderColor;
+        canvas.FillRoundedRectangle(start, y, width, radius * 2, radius);
+        if (played > 0)
+        {
+            canvas.FillColor = Colors.Accent;
+            canvas.FillRoundedRectangle(start, y, played, radius * 2, Math.Min(radius, played / 2));
+        }
+
+        canvas.FillColor = MixerStyle.TextColor;
+        canvas.FillCircle(start + played, bounds.Center.Y, 4);
+        if (Preview is long frame)
+        {
+            canvas.FillColor = MixerStyle.Preview;
+            canvas.FillCircle(start + width * Math.Clamp((float)frame / waveform.TotalFrames, 0, 1), bounds.Center.Y, 5);
         }
     }
 

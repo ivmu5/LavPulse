@@ -1,7 +1,7 @@
 namespace Laveyana.Audio.Playback;
 
 /// <summary>Describes a deck's track, position and physical input.</summary>
-public readonly record struct PlayingTrack(CachedTrack Track, long Position, Deck Deck);
+public readonly record struct PlayingTrack(CachedTrack Track, long Position, Deck Deck, double Speed = 1);
 
 /// <summary>Provides a consistent snapshot of the two decks and their pending transition.</summary>
 public readonly record struct QueueSnapshot(PlayingTrack? Current, PlayingTrack? Incoming);
@@ -9,7 +9,6 @@ public readonly record struct QueueSnapshot(PlayingTrack? Current, PlayingTrack?
 /// <summary>Owns the current and next PCM readers and mixes transitions on the audio timeline.</summary>
 internal sealed class QueueSource : IPcmSource, IDisposable
 {
-    private const int FadeFrames = 6 * PlaybackFormat.SampleRate;
     private readonly object _gate = new();
     private readonly float[] _other = new float[PlaybackFormat.BlockFrames * PlaybackFormat.Channels];
     private Voice? _current;
@@ -18,6 +17,8 @@ internal sealed class QueueSource : IPcmSource, IDisposable
     private int _fadePosition;
     private bool _manual;
     private bool _autoMix = true;
+    private bool _queueEnabled = true;
+    private int _crossfadeFrames = 6 * PlaybackFormat.SampleRate;
 
     public int SampleRate => PlaybackFormat.SampleRate;
 
@@ -63,7 +64,7 @@ internal sealed class QueueSource : IPcmSource, IDisposable
     {
         lock (_gate)
         {
-            if (_next is null || _fadeLength != 0)
+            if (!_queueEnabled || _next is null || _fadeLength != 0)
             {
                 return false;
             }
@@ -79,6 +80,50 @@ internal sealed class QueueSource : IPcmSource, IDisposable
         lock (_gate)
         {
             _autoMix = enabled;
+        }
+    }
+
+    /// <summary>Changes which feed can advance the transport without touching the decks in a running mix.</summary>
+    public void SetQueueEnabled(bool enabled)
+    {
+        lock (_gate)
+        {
+            _queueEnabled = enabled;
+            if (!enabled)
+            {
+                _manual = false;
+            }
+        }
+    }
+
+    /// <summary>Stores the maximum overlap for future transitions.</summary>
+    public void SetCrossfadeDuration(int milliseconds)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(milliseconds);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(milliseconds, 12000);
+        lock (_gate)
+        {
+            _crossfadeFrames = PlaybackFormat.SampleRate * milliseconds / 1000;
+        }
+    }
+
+    /// <summary>Changes the current deck's speed outside a transition, leaving the next deck at its original speed.</summary>
+    public bool TrySetSpeed(CachedTrack track, double rate)
+    {
+        if (!double.IsFinite(rate) || rate < .75 || rate > 1.25)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rate));
+        }
+
+        lock (_gate)
+        {
+            if (_current is not { } current || !ReferenceEquals(track, current.Track) || _fadeLength != 0)
+            {
+                return false;
+            }
+
+            current.Speed = rate;
+            return true;
         }
     }
 
@@ -119,14 +164,14 @@ internal sealed class QueueSource : IPcmSource, IDisposable
             {
                 int requested = destination.Length / PlaybackFormat.Channels - written;
                 var output = destination[(written * PlaybackFormat.Channels)..];
-                long remaining = current.Cursor.Length - current.Cursor.Position;
-                if (_next is { } next)
+                long remaining = current.Source.RemainingAtRate(current.Speed);
+                if ((_queueEnabled || _fadeLength > 0) && _next is { } next)
                 {
-                    if (_fadeLength == 0 && (_manual || _autoMix && remaining <= FadeFrames))
+                    if (_fadeLength == 0 && (_manual || _autoMix && remaining <= _crossfadeFrames))
                     {
                         _manual = false;
-                        int length = (int)Math.Min(FadeFrames,
-                            Math.Min(remaining, Math.Max(0, next.Cursor.Length - 1)));
+                        int length = (int)Math.Min(_crossfadeFrames,
+                            Math.Min(remaining, Math.Max(0, next.Source.RemainingAtRate(next.Speed) - 1)));
                         if (length < 2)
                         {
                             Promote();
@@ -151,11 +196,11 @@ internal sealed class QueueSource : IPcmSource, IDisposable
 
                     if (_autoMix)
                     {
-                        requested = (int)Math.Min(requested, remaining - FadeFrames);
+                        requested = (int)Math.Min(requested, remaining - _crossfadeFrames);
                     }
                 }
 
-                int read = current.Source.Read(output[..(requested * PlaybackFormat.Channels)]);
+                int read = current.Source.ReadAtRate(output[..(requested * PlaybackFormat.Channels)], current.Speed);
                 written += read;
                 if (read == 0)
                 {
@@ -171,8 +216,8 @@ internal sealed class QueueSource : IPcmSource, IDisposable
     private void MixFade(Voice outgoing, Voice incoming, Span<float> buffer)
     {
         var second = _other.AsSpan(0, buffer.Length);
-        outgoing.Source.Read(buffer);
-        incoming.Source.Read(second);
+        outgoing.Source.ReadAtRate(buffer, outgoing.Speed);
+        incoming.Source.ReadAtRate(second, incoming.Speed);
         for (int frame = 0; frame < buffer.Length / PlaybackFormat.Channels; frame++)
         {
             float progress = (float)(_fadePosition + frame) / (_fadeLength - 1);
@@ -217,7 +262,8 @@ internal sealed class QueueSource : IPcmSource, IDisposable
         public Deck Deck { get; }
         public DeckCursor Cursor { get; }
         public CachedPcmSource Source { get; }
-        public PlayingTrack Snapshot => new(Track, Cursor.Position, Deck);
+        public double Speed { get; set; } = 1;
+        public PlayingTrack Snapshot => new(Track, Cursor.Position, Deck, Speed);
 
         public void Dispose() => Source.Dispose();
     }

@@ -3,6 +3,8 @@ namespace Laveyana.Audio.Playback;
 /// <summary>Keeps the playback queue and deck cursors across repeated starts of the native audio output.</summary>
 public sealed class QueuePlaybackSession : IDisposable
 {
+    public const int DefaultFadeMilliseconds = 300;
+
     private readonly QueueSource _queue = new();
     private MixedPlayback? _mix;
     private int _running;
@@ -22,21 +24,33 @@ public sealed class QueuePlaybackSession : IDisposable
     /// <summary>Configures whether to mix into the next track at the end of the current one.</summary>
     public void SetAutoMix(bool enabled) => _queue.SetAutoMix(enabled);
 
+    /// <summary>Allows the queue to supply the next track, without interrupting a mix already under way.</summary>
+    public void SetQueueEnabled(bool enabled) => _queue.SetQueueEnabled(enabled);
+
+    /// <summary>Sets the maximum transition time. Zero switches at the end or when requested.</summary>
+    public void SetCrossfadeDuration(int milliseconds) => _queue.SetCrossfadeDuration(milliseconds);
+
+    /// <summary>Sets playback speed by resampling the source PCM, which also changes pitch.</summary>
+    public bool TrySetSpeed(CachedTrack track, double rate) => _queue.TrySetSpeed(track, rate);
+
     /// <summary>Queues a seek if the track is still current and outside a transition.</summary>
     public bool Seek(CachedTrack track, long frame) => _queue.TrySeek(track, frame);
 
     /// <summary>Fades the current output to silence while preserving the deck cursors for resume.</summary>
-    public bool RequestPause() => Volatile.Read(ref _mix)?.RequestPause() == true;
+    public bool RequestPause(int milliseconds = DefaultFadeMilliseconds) => Volatile.Read(ref _mix)?.RequestPause(milliseconds) == true;
 
     /// <summary>Runs the native output and the spectrum reader until paused or the queue stops.</summary>
-    public async Task RunAsync(IAudioOutput output, CancellationToken token)
+    public Task RunAsync(IAudioOutput output, CancellationToken token) =>
+        RunAsync(output, DefaultFadeMilliseconds, token);
+
+    public async Task RunAsync(IAudioOutput output, int startMilliseconds, CancellationToken token)
     {
+        var mix = new MixedPlayback(_queue, startMilliseconds);
         if (Interlocked.Exchange(ref _running, 1) != 0)
         {
             throw new InvalidOperationException("The audio output is already running.");
         }
 
-        var mix = new MixedPlayback(_queue);
         using var stopSpectrum = CancellationTokenSource.CreateLinkedTokenSource(token);
         Volatile.Write(ref _mix, mix);
         var analysis = mix.RunSpectrumAsync(stopSpectrum.Token);

@@ -1,6 +1,7 @@
 using Laveyana.Audio.Maui.AudioOutput;
 using Laveyana.Audio.Maui.Controls;
 using Laveyana.Audio.Maui.Tracks;
+using Laveyana.Audio.Maui.Settings;
 using Laveyana.Audio.Playback;
 
 namespace Laveyana.Audio.Maui;
@@ -22,7 +23,9 @@ public sealed class MainPage : ContentPage
     private TrackFile? _armed;
     private CachedTrack? _shownCurrent;
     private CachedTrack? _shownIncoming;
-    private bool _autoMix = true;
+    private PlayerSettings _settings = PlayerPreferences.Load();
+    private bool _recommendations;
+    private bool _openingSettings;
     private bool _pausing;
     private bool _pickerOpen;
     private bool _loadingFirst;
@@ -41,18 +44,20 @@ public sealed class MainPage : ContentPage
         _view.NextRequested += async () => await StartMixAsync();
         _view.PreviousRequested += async () => await PreviousAsync();
         _view.AutoMixChanged += ToggleAutoMix;
+        _view.SettingsRequested += async () => await OpenSettingsAsync();
+        _view.RecommendationsSelected += SelectRecommendations;
         _view.QueueRequested += async file => await ChooseAsync(file);
-        _view.LibraryTrackRequested += async file => await ChooseAsync(file);
         _view.AddFiles.Clicked += async (_, _) => await PickFilesAsync();
         _view.AddFolder.Clicked += async (_, _) => await PickFolderAsync();
         _view.BindFileDrops(() => !_closed, AddFilesAsync);
         _view.CurrentDeck.SeekRequested += Seek;
         _view.IncomingDeck.SeekRequested += Seek;
+        _view.CurrentDeck.SpeedRequested += SetTrackSpeed;
 
         _positions = Dispatcher.CreateTimer();
         _positions.Interval = TimeSpan.FromMilliseconds(33);
         _positions.Tick += (_, _) => UpdatePositions();
-        UpdateTransport();
+        ApplySettings(_settings, save: false);
     }
 
     /// <summary>Imports MP3s selected using the system file picker.</summary>
@@ -117,7 +122,6 @@ public sealed class MainPage : ContentPage
 
         var added = _library.Add(files);
         _queue.AddRange(added);
-        _view.ShowLibrary(_library.Files.ToArray());
         if (_playback.Snapshot.Current is null && !_loadingFirst)
         {
             await LoadFirstAsync();
@@ -178,7 +182,7 @@ public sealed class MainPage : ContentPage
     /// <summary>Selects a candidate on the first press and mixes into it on the next press.</summary>
     private async Task ChooseAsync(TrackFile file)
     {
-        if (_closed || _playback.Snapshot.Incoming.HasValue || _view.IsHandingOff)
+        if (_closed || _recommendations || _playback.Snapshot.Incoming.HasValue || _view.IsHandingOff)
         {
             return;
         }
@@ -282,8 +286,8 @@ public sealed class MainPage : ContentPage
     /// <summary>Requests the pending mix and starts the output if the player was paused.</summary>
     private async Task StartMixAsync()
     {
-        if (_closed || _view.IsHandingOff || IsStopping ||
-            _selected is not { } file || !await ArmAsync(file) || _closed || IsStopping || !_playback.RequestMix())
+        if (_closed || _recommendations || _view.IsHandingOff || IsStopping ||
+            _selected is not { } file || !await ArmAsync(file) || _closed || _recommendations || IsStopping || !_playback.RequestMix())
         {
             return;
         }
@@ -301,7 +305,7 @@ public sealed class MainPage : ContentPage
         {
             return;
         }
-        if (current.Position > 3 * PlaybackFormat.SampleRate || !_history.TryPop(out var previous))
+        if (_recommendations || current.Position > 3 * PlaybackFormat.SampleRate || !_history.TryPop(out var previous))
         {
             Seek(current.Track, 0);
             return;
@@ -322,11 +326,20 @@ public sealed class MainPage : ContentPage
         }
     }
 
+    private void SetTrackSpeed(CachedTrack track, double speed)
+    {
+        if (!IsStopping)
+        {
+            _playback.TrySetSpeed(track, speed);
+        }
+        UpdatePositions();
+    }
+
     private async Task TogglePlaybackAsync()
     {
         if (_worker is not null)
         {
-            if (!IsStopping && _playback.RequestPause())
+            if (!IsStopping && _playback.RequestPause(_settings.FadeOutMilliseconds))
             {
                 _pausing = true;
                 _view.CurrentDeck.CancelScrub();
@@ -356,7 +369,7 @@ public sealed class MainPage : ContentPage
         _positions.Start();
         _view.Spectrum.Start(() => _playback.Spectrum);
         _view.Status.Text = "";
-        _worker = _playback.RunAsync(new PlatformAudioOutput(), stop.Token);
+        _worker = _playback.RunAsync(new PlatformAudioOutput(), _settings.FadeInMilliseconds, stop.Token);
         UpdateTransport();
         try
         {
@@ -463,16 +476,49 @@ public sealed class MainPage : ContentPage
         _view.CurrentDeck.Show(track, true);
     }
 
-    private void ToggleAutoMix()
+    private void ToggleAutoMix() => ApplySettings(_settings with { AutoMix = !_settings.AutoMix });
+
+    private void SelectRecommendations(bool enabled)
     {
-        _autoMix = !_autoMix;
-        _playback.SetAutoMix(_autoMix);
+        _recommendations = enabled;
+        _playback.SetQueueEnabled(!enabled);
         UpdateTransport();
+    }
+
+    private async Task OpenSettingsAsync()
+    {
+        if (_closed || _openingSettings || Navigation.ModalStack.Count > 0)
+        {
+            return;
+        }
+
+        _openingSettings = true;
+        try
+        {
+            await Navigation.PushModalAsync(new PlayerSettingsPage(_settings, value => ApplySettings(value)));
+        }
+        finally
+        {
+            _openingSettings = false;
+        }
+    }
+
+    private void ApplySettings(PlayerSettings value, bool save = true)
+    {
+        _settings = value;
+        _playback.SetAutoMix(value.AutoMix);
+        _playback.SetCrossfadeDuration(value.CrossfadeMilliseconds);
+        _view.ApplyAppearance(value);
+        if (save)
+        {
+            PlayerPreferences.Save(value);
+        }
+        UpdateQueue();
     }
 
     private void UpdateQueue()
     {
-        _view.ShowQueue(_queue.Take(3).ToArray(), _selected, file =>
+        _view.ShowQueue(_queue, _selected, file =>
         {
             var track = _library.GetPrepared(file);
             return track is null ? Path.GetFileNameWithoutExtension(file.Name) : track.Title;
@@ -486,7 +532,7 @@ public sealed class MainPage : ContentPage
         bool idle = !_closed && !snapshot.Incoming.HasValue && !_view.IsHandingOff && !IsStopping;
         _view.SetTransport(!_closed && snapshot.Current.HasValue && !IsStopping,
             _worker is not null && _stop?.IsCancellationRequested == false,
-            idle && _selected is not null, idle && snapshot.Current.HasValue, _autoMix);
+            idle && !_recommendations && _selected is not null, idle && snapshot.Current.HasValue, _settings.AutoMix);
     }
 
     /// <summary>Stops output before closing readers and clears temporary decoded tracks.</summary>

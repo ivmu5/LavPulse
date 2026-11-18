@@ -9,7 +9,6 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
     private readonly Dictionary<TrackFile, Task<CachedTrack>> _prepared = new();
     private readonly SemaphoreSlim _decodeSlots = new(2);
 
-    public IReadOnlyList<TrackFile> Files => _files;
 
     /// <summary>Adds playable files while retaining stable identities for the queue and cached tracks.</summary>
     public IReadOnlyList<TrackFile> Add(IEnumerable<TrackFile> files)
