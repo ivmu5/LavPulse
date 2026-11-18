@@ -1,22 +1,36 @@
 using Laveyana.Audio.Playback;
 using Microsoft.Maui.Controls.Shapes;
+using System.Diagnostics;
 
 namespace Laveyana.Audio.Maui.Controls;
 
 /// <summary>Shows the current cover next to the queue and animates the handoff between both halves.</summary>
 internal sealed class TrackQueueView : Grid
 {
+    private const int TrackSpacing = 5;
     private readonly TrackCard _current = new(TextAlignment.Start);
     private readonly TrackCard _incoming = new(TextAlignment.End);
-    private readonly VerticalStackLayout _rows = new() { Spacing = 5 };
+    private readonly VerticalStackLayout _rows = new() { Spacing = TrackSpacing };
     private readonly VerticalStackLayout _queue;
     private readonly Grid _right;
     private readonly Button _queueTab = MixerStyle.Button("Очередь", icon: "player_queue.png", stacked: true);
     private readonly Button _recommendationsTab = MixerStyle.Button("Рекомендации", icon: "player_recommendations.png", stacked: true);
     private readonly ScrollView _queueScroll;
     private readonly Label _recommendations = MixerStyle.Label("В разработке", 13, MixerStyle.Muted);
-    private readonly Dictionary<TrackFile, Button> _buttons = new();
+    private readonly Dictionary<TrackFile, QueueTrackRow> _trackRows = new();
+    private readonly Label _empty = MixerStyle.Label("Очередь пуста", 12, MixerStyle.Muted);
+    private readonly IDispatcherTimer _rowClock;
+    private readonly long _start = Stopwatch.GetTimestamp();
+    private IReadOnlyList<TrackFile> _upcoming = [];
+    private IReadOnlyList<TrackFile> _played = [];
+    private Func<TrackFile, QueueTrackItem>? _readItem;
+    private TrackFile? _dragging;
+    private QueueTrackRow? _dropTarget;
+    private int _dragScrollDirection;
+    private long _lastDragScroll;
+    private long _lastDrag;
     private bool _showRecommendations;
+    private bool _showPlayed;
     private int _animation;
     private bool _handoff;
 
@@ -25,7 +39,12 @@ internal sealed class TrackQueueView : Grid
         ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)];
         ColumnSpacing = 16;
         MinimumHeightRequest = 208;
-        _queueScroll = new ScrollView { Content = _rows, MaximumHeightRequest = 176 };
+        _queueScroll = new ScrollView { Content = _rows, MaximumHeightRequest = 236 };
+        _rowClock = Dispatcher.CreateTimer();
+        _rowClock.Interval = TimeSpan.FromMilliseconds(40);
+        _rowClock.Tick += (_, _) => AnimateRows();
+        Loaded += (_, _) => _rowClock.Start();
+        Unloaded += (_, _) => _rowClock.Stop();
         _recommendations.IsVisible = false;
         _queue = new VerticalStackLayout { Spacing = 7, Children = { CreateFeedSelector(), _queueScroll, _recommendations } };
         SetTabColors();
@@ -42,6 +61,8 @@ internal sealed class TrackQueueView : Grid
     }
 
     public event Action<TrackFile>? TrackRequested;
+    public event Action<TrackFile>? HistoryRequested;
+    public event Action<TrackFile, TrackFile, bool>? MoveRequested;
     public event Action<bool>? RecommendationsSelected;
     public Color Accent { get; set; } = MixerStyle.Accent;
 
@@ -49,7 +70,20 @@ internal sealed class TrackQueueView : Grid
     private Border CreateFeedSelector()
     {
         _queueTab.CornerRadius = _recommendationsTab.CornerRadius = 7;
-        _queueTab.Clicked += (_, _) => SelectRecommendations(false);
+        _queueTab.Clicked += (_, _) =>
+        {
+            if (_showRecommendations)
+            {
+                SelectRecommendations(false);
+            }
+            else
+            {
+                _showPlayed = !_showPlayed;
+                SetTabColors();
+                RenderQueue();
+                _ = _queueScroll.ScrollToAsync(0, 0, false);
+            }
+        };
         _recommendationsTab.Clicked += (_, _) => SelectRecommendations(true);
         var segments = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)] };
         segments.Add(_queueTab);
@@ -85,34 +119,187 @@ internal sealed class TrackQueueView : Grid
         _recommendationsTab.BackgroundColor = _showRecommendations ? MixerStyle.SelectedBackground : Colors.Transparent;
         _queueTab.TextColor = _showRecommendations ? MixerStyle.Muted : MixerStyle.TextColor;
         _recommendationsTab.TextColor = _showRecommendations ? MixerStyle.TextColor : MixerStyle.Muted;
-        SemanticProperties.SetDescription(_queueTab, _showRecommendations ? "Очередь" : "Очередь, выбрана");
+        SemanticProperties.SetDescription(_queueTab, _showRecommendations ? "Очередь" :
+            _showPlayed ? "Очередь. Скрыть проигранные треки." : "Очередь. Показать проигранные треки.");
         SemanticProperties.SetDescription(_recommendationsTab, _showRecommendations ? "Рекомендации, выбраны" : "Рекомендации");
     }
 
     /// <summary>Updates the visible queue and marks the item that will play next.</summary>
-    public void ShowQueue(IReadOnlyList<TrackFile> tracks, TrackFile? selected, Func<TrackFile, string> getName)
+    public void ShowQueue(IReadOnlyList<TrackFile> upcoming, IReadOnlyList<TrackFile> played, Func<TrackFile, QueueTrackItem> read)
     {
-        _rows.Clear();
-        _buttons.Clear();
-        foreach (var track in tracks)
-        {
-            var button = MixerStyle.Button(getName(track));
-            if (ReferenceEquals(track, selected ?? tracks.FirstOrDefault()))
-            {
-                button.BackgroundColor = MixerStyle.SelectedBackground;
-                button.BorderColor = Accent.WithAlpha(.55f);
-                button.BorderWidth = 1;
-                SemanticProperties.SetDescription(button, getName(track) + ". Следующий трек. Повторное нажатие запускает сведение.");
-            }
+        _upcoming = upcoming;
+        _played = played;
+        _readItem = read;
+        RenderQueue();
+    }
 
-            button.Clicked += (_, _) => TrackRequested?.Invoke(track);
-            _buttons[track] = button;
-            _rows.Add(button);
+    /// <summary>Keeps row views stable while background analysis updates their contents.</summary>
+    private void RenderQueue()
+    {
+        if (_readItem is not { } read)
+        {
+            return;
+        }
+        var ordered = new List<View>(_upcoming.Count + (_showPlayed ? _played.Count : 0));
+        var visible = new HashSet<TrackFile>();
+        if (_showPlayed)
+        {
+            foreach (var file in _played)
+            {
+                AddRow(file, played: true, selected: false);
+            }
+        }
+        var next = _upcoming.FirstOrDefault();
+        foreach (var file in _upcoming)
+        {
+            AddRow(file, played: false, selected: ReferenceEquals(next, file));
+        }
+        foreach (var file in _trackRows.Keys.Where(file => !visible.Contains(file)).ToArray())
+        {
+            _trackRows.Remove(file);
+        }
+        if (ordered.Count == 0)
+        {
+            ordered.Add(_empty);
+        }
+        if (!_rows.Children.SequenceEqual(ordered))
+        {
+            _rows.Clear();
+            foreach (var row in ordered)
+            {
+                _rows.Add(row);
+            }
         }
 
-        if (tracks.Count == 0)
+        void AddRow(TrackFile file, bool played, bool selected)
         {
-            _rows.Add(MixerStyle.Label("Очередь пуста", 12, MixerStyle.Muted));
+            if (!visible.Add(file))
+            {
+                return;
+            }
+            if (!_trackRows.TryGetValue(file, out var row) || row.IsPlayed != played)
+            {
+                row = CreateRow(file, played);
+                _trackRows[file] = row;
+            }
+            row.Show(read(file), selected, Accent);
+            ordered.Add(row);
+        }
+    }
+
+    private QueueTrackRow CreateRow(TrackFile file, bool played)
+    {
+        var row = new QueueTrackRow(file, played);
+        var tap = new TapGestureRecognizer();
+        tap.Tapped += (_, _) =>
+        {
+            if (_dragging is null && (_lastDrag == 0 || Stopwatch.GetElapsedTime(_lastDrag).TotalMilliseconds >= 300))
+            {
+                if (played) HistoryRequested?.Invoke(file);
+                else TrackRequested?.Invoke(file);
+            }
+        };
+        row.GestureRecognizers.Add(tap);
+        if (played)
+        {
+            return row;
+        }
+
+        var drag = new DragGestureRecognizer { CanDrag = true };
+        drag.DragStarting += (_, args) =>
+        {
+            if (_queue.InputTransparent || _showRecommendations)
+            {
+                args.Cancel = true;
+                return;
+            }
+            _dragging = file;
+            args.Data.Text = "LavPulse.QueueTrack";
+        };
+        drag.DropCompleted += (_, _) => EndDrag();
+        row.DragHandle.GestureRecognizers.Add(drag);
+
+        var drop = new DropGestureRecognizer { AllowDrop = true };
+        drop.DragOver += (_, args) =>
+        {
+            bool accepted = CanReorder();
+            args.AcceptedOperation = accepted ? DataPackageOperation.Copy : DataPackageOperation.None;
+            if (accepted && !ReferenceEquals(_dropTarget, row))
+            {
+                ClearDropTarget();
+                _dropTarget = row;
+                row.Scale = .97;
+            }
+            if (_dragging is not null && args.GetPosition(_queueScroll) is { } point)
+            {
+                _dragScrollDirection = point.Y < 26 ? -1 : point.Y > _queueScroll.Height - 26 ? 1 : 0;
+            }
+        };
+        drop.DragLeave += (_, _) =>
+        {
+            if (ReferenceEquals(_dropTarget, row))
+            {
+                ClearDropTarget();
+                _dragScrollDirection = 0;
+            }
+        };
+        drop.Drop += (_, args) =>
+        {
+            row.Scale = 1;
+            if (!CanReorder() || _dragging is not { } source)
+            {
+                return;
+            }
+            bool after = args.GetPosition(row) is { } point ? point.Y >= row.Height / 2
+                : _rows.Children.IndexOf(_trackRows[source]) < _rows.Children.IndexOf(row);
+            args.Handled = true;
+            EndDrag();
+            Dispatcher.Dispatch(() => MoveRequested?.Invoke(source, file, after));
+        };
+        row.GestureRecognizers.Add(drop);
+        return row;
+
+        bool CanReorder() => !_queue.InputTransparent && !_showRecommendations && _dragging is { } source &&
+            !ReferenceEquals(source, file) && _trackRows.ContainsKey(source);
+    }
+
+    private void EndDrag()
+    {
+        _dragging = null;
+        _lastDrag = Stopwatch.GetTimestamp();
+        _dragScrollDirection = 0;
+        ClearDropTarget();
+    }
+
+    private void ClearDropTarget()
+    {
+        if (_dropTarget is { } row)
+        {
+            row.Scale = 1;
+            _dropTarget = null;
+        }
+    }
+
+    /// <summary>Animates only rows inside the scroll viewport, including the slow text marquee.</summary>
+    private void AnimateRows()
+    {
+        if (_showRecommendations || _queue.Opacity == 0 || _queueScroll.Height <= 0)
+        {
+            return;
+        }
+        const int stride = QueueTrackRow.RowHeight + TrackSpacing;
+        if (_dragScrollDirection != 0 && Stopwatch.GetElapsedTime(_lastDragScroll).TotalMilliseconds >= 120)
+        {
+            _lastDragScroll = Stopwatch.GetTimestamp();
+            double y = Math.Clamp(_queueScroll.ScrollY + _dragScrollDirection * stride / 2d, 0, Math.Max(0, _rows.Height - _queueScroll.Height));
+            if (y != _queueScroll.ScrollY) _ = _queueScroll.ScrollToAsync(0, y, false);
+        }
+        int first = Math.Max(0, (int)(_queueScroll.ScrollY / stride));
+        int end = Math.Min(_rows.Count, (int)Math.Ceiling((_queueScroll.ScrollY + _queueScroll.Height) / stride));
+        double seconds = Stopwatch.GetElapsedTime(_start).TotalSeconds;
+        for (int i = first; i < end; i++)
+        {
+            if (_rows[i] is QueueTrackRow row) row.Animate(seconds);
         }
     }
 
@@ -126,7 +313,8 @@ internal sealed class TrackQueueView : Grid
         _queue.InputTransparent = true;
         _queue.Opacity = 0;
         _incoming.Show(track, "Сведение");
-        var row = file is not null && _buttons.TryGetValue(file, out var button) ? button : null;
+        EndDrag();
+        var row = file is not null && _trackRows.TryGetValue(file, out var item) ? item : null;
         double originY = row is null ? 0 : Math.Clamp(_queueScroll.Y + row.Y - _queueScroll.ScrollY, 0, Math.Max(0, _right.Height - 44));
         double rowHeight = Math.Max(44, row?.Height ?? 0);
         _incoming.TranslationY = originY;
@@ -194,6 +382,8 @@ internal sealed class TrackQueueView : Grid
         _queue.TranslationX = 0;
         _queue.InputTransparent = false;
         _handoff = false;
+        EndDrag();
+        _rowClock.Stop();
     }
 
     public bool IsHandingOff => _handoff;

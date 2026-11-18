@@ -14,12 +14,20 @@ public sealed class PlayerView : Grid
     private readonly Button _settings = MixerStyle.Button("Настройки", icon: "player_settings.png", stacked: true);
     private readonly TrackQueueView _queue = new();
     private readonly Grid _body = new() { IsClippedToBounds = true };
+    private readonly VerticalStackLayout _decks = new() { Spacing = 8 };
+    private DeckView? _leavingDeck;
+    private int _deckExit;
+    private PlayingTrack? _latestCurrent;
+    private bool _latestCanSeek;
+    private bool _latestOverview;
 
     public PlayerView()
     {
         BackgroundColor = MixerStyle.Background;
         IsClippedToBounds = true;
         this.Add(Spectrum);
+        _decks.Children.Add(CurrentDeck);
+        _decks.Children.Add(IncomingDeck);
         var player = CreatePlayerLayout();
         _body.Add(player);
         this.Add(_body);
@@ -40,9 +48,8 @@ public sealed class PlayerView : Grid
         var deckScroll = new ScrollView
         {
             VerticalScrollBarVisibility = ScrollBarVisibility.Never,
-            Content = new VerticalStackLayout { Spacing = 8, Children = { CurrentDeck, IncomingDeck } }
+            Content = _decks
         };
-        deckScroll.SetBinding(IsVisibleProperty, new Binding(nameof(IsVisible), source: CurrentDeck));
         var player = new Grid
         {
             HorizontalOptions = LayoutOptions.Center,
@@ -75,8 +82,8 @@ public sealed class PlayerView : Grid
     }
 
     public MasterSpectrumView Spectrum { get; } = new();
-    public DeckView CurrentDeck { get; } = new();
-    public DeckView IncomingDeck { get; } = new();
+    public DeckView CurrentDeck { get; private set; } = new();
+    public DeckView IncomingDeck { get; private set; } = new();
     public Label Status { get; } = MixerStyle.Label("", 12, MixerStyle.Muted);
 
     public event Action? PlayRequested;
@@ -87,6 +94,16 @@ public sealed class PlayerView : Grid
     {
         add => _queue.TrackRequested += value;
         remove => _queue.TrackRequested -= value;
+    }
+    public event Action<TrackFile>? HistoryRequested
+    {
+        add => _queue.HistoryRequested += value;
+        remove => _queue.HistoryRequested -= value;
+    }
+    public event Action<TrackFile, TrackFile, bool>? QueueMoveRequested
+    {
+        add => _queue.MoveRequested += value;
+        remove => _queue.MoveRequested -= value;
     }
     public event Action? SettingsRequested;
     public event Action<bool>? RecommendationsSelected
@@ -145,11 +162,91 @@ public sealed class PlayerView : Grid
         Spectrum.SetAppearance(colors, settings);
     }
 
-    public void ShowQueue(IReadOnlyList<TrackFile> files, TrackFile? selected, Func<TrackFile, string> name) => _queue.ShowQueue(files, selected, name);
+    public void ShowQueue(IReadOnlyList<TrackFile> upcoming, IReadOnlyList<TrackFile> played, Func<TrackFile, QueueTrackItem> read)
+        => _queue.ShowQueue(upcoming, played, read);
+
+    /// <summary>Moves physical deck views without replacing the outgoing waveform during its exit.</summary>
+    public void ShowDecks(QueueSnapshot snapshot, bool canSeek, bool showOverview)
+    {
+        _latestCurrent = snapshot.Current;
+        _latestCanSeek = canSeek;
+        _latestOverview = showOverview;
+        if (snapshot.Current is { } current && CurrentDeck.DisplayedTrack is { } previous && !ReferenceEquals(previous, current.Track))
+        {
+            ShowEnteringDeck(current);
+            (CurrentDeck, IncomingDeck) = (IncomingDeck, CurrentDeck);
+            IncomingDeck.FreezeForExit();
+            _leavingDeck = IncomingDeck;
+            _ = SlideOutAsync(IncomingDeck, ++_deckExit);
+        }
+
+        CurrentDeck.Show(snapshot.Current, canSeek && _leavingDeck is null, showOverview && _leavingDeck is null);
+        if (snapshot.Incoming is { } incoming)
+        {
+            ShowEnteringDeck(incoming);
+        }
+        else if (_leavingDeck is null)
+        {
+            IncomingDeck.Show(null, false, showOverview: false);
+        }
+    }
+
+    private void ShowEnteringDeck(PlayingTrack track)
+    {
+        if (_leavingDeck is { } previous)
+        {
+            CompleteDeckExit(previous);
+        }
+        var entering = IncomingDeck;
+        bool firstFrame = !ReferenceEquals(entering.DisplayedTrack, track.Track);
+        if (firstFrame)
+        {
+            entering.CancelAnimations();
+            entering.TranslationX = SlideDistance;
+        }
+        entering.Show(track, false, showOverview: false);
+        if (firstFrame)
+        {
+            _ = entering.TranslateToAsync(0, 0, 280, Easing.CubicOut);
+        }
+    }
+
+    private double SlideDistance => Math.Max(280, Window?.Width ?? _body.Width);
+
+    private async Task SlideOutAsync(DeckView deck, int exit)
+    {
+        await deck.TranslateToAsync(-SlideDistance, 0, 260, Easing.CubicIn);
+        if (exit == _deckExit)
+        {
+            CompleteDeckExit(deck);
+            CurrentDeck.Show(_latestCurrent, _latestCanSeek, _latestOverview);
+        }
+    }
+
+    private void CompleteDeckExit(DeckView deck)
+    {
+        _deckExit++;
+        _leavingDeck = null;
+        deck.CancelAnimations();
+        deck.Show(null, false, showOverview: false);
+        deck.TranslationX = 0;
+        _decks.Children.Remove(deck);
+        _decks.Children.Add(deck);
+    }
+
     public void ShowCurrent(CachedTrack? track) => _queue.ShowCurrent(track);
     public Task BeginMixAsync(CachedTrack track, TrackFile? file) => _queue.BeginMixAsync(track, file);
     public Task FinishMixAsync(CachedTrack track, Action refreshQueue) => _queue.FinishMixAsync(track, refreshQueue);
-    public void ResetAnimations() => _queue.Reset();
+    public void ResetAnimations()
+    {
+        if (_leavingDeck is { } leaving)
+        {
+            CompleteDeckExit(leaving);
+        }
+        CurrentDeck.CancelAnimations();
+        IncomingDeck.CancelAnimations();
+        _queue.Reset();
+    }
 
     /// <summary>Reflects playback state and the availability of a prepared incoming track.</summary>
     public void SetTransport(bool canPlay, bool playing, bool canMix, bool canGoBack, bool automix)

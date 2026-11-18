@@ -15,6 +15,7 @@ internal sealed class SpectrumDrawable : IDrawable
     private float _fullBrightnessLevel;
     private int _topPaddingRows;
     private int _bottomPaddingRows;
+    private float _widthFraction;
 
     public SpectrumDrawable() => SetAppearance(PlayerColors.For(PlayerPalette.LavPulse), new PlayerSettings());
 
@@ -25,6 +26,7 @@ internal sealed class SpectrumDrawable : IDrawable
         _fullBrightnessLevel = Math.Clamp(settings.SpectrumFullBrightnessPercent, 1, 100) / 100f;
         _topPaddingRows = Math.Clamp(settings.SpectrumTopPaddingRows, 0, PlayerSettings.MaximumSpectrumPaddingRows);
         _bottomPaddingRows = Math.Clamp(settings.SpectrumBottomPaddingRows, 0, PlayerSettings.MaximumSpectrumPaddingRows);
+        _widthFraction = Math.Clamp(settings.SpectrumWidthPercent, 0, PlayerSettings.MaximumSpectrumWidthPercent) / 100f;
         float minimum = settings.SpectrumLevelBrightness ? Math.Clamp(settings.SpectrumMinimumBrightnessPercent, 0, 100) / 100f : 1;
         var mode = settings.SpectrumColors;
         if (mode != SpectrumColorMode.FrequencyGradient)
@@ -132,14 +134,14 @@ internal sealed class SpectrumDrawable : IDrawable
     /// <summary>Mirrors the same master bands and peak positions across the screen.</summary>
     public void Draw(ICanvas canvas, RectF bounds)
     {
-        if (bounds.Width <= 0 || bounds.Height <= 0)
+        if (bounds.Width <= 0 || bounds.Height <= 0 || _widthFraction <= 0)
         {
             return;
         }
 
         float spacing = bounds.Height / (_bars.Length + _topPaddingRows + _bottomPaddingRows);
         float thickness = Math.Min(4, spacing * .52f);
-        float maximum = bounds.Width * .2f;
+        float maximum = bounds.Width * _widthFraction;
         float markerWidth = Math.Min(7, maximum);
         for (int band = 0; band < _bars.Length; band++)
         {

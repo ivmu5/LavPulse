@@ -73,6 +73,16 @@ public sealed class DeckView : Border
 
     public event Action<CachedTrack, long>? SeekRequested;
     public event Action<CachedTrack, double>? SpeedRequested;
+    internal CachedTrack? DisplayedTrack => _track;
+
+    /// <summary>Keeps the last visible playhead while the deck leaves the screen.</summary>
+    internal void FreezeForExit()
+    {
+        if (_track is { } track)
+        {
+            Show(new PlayingTrack(track, _position, _deck, _trackSpeed.Value), false, showOverview: false);
+        }
+    }
 
     /// <summary>Updates the playhead and gesture availability with the overview visible.</summary>
     public void Show(PlayingTrack? playing, bool canSeek) => Show(playing, canSeek, showOverview: true);

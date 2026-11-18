@@ -27,6 +27,8 @@ internal static class PlayerPreferences
                 Preferences.Default.Get("spectrum-top-padding", defaults.SpectrumTopPaddingRows), 0, PlayerSettings.MaximumSpectrumPaddingRows),
             SpectrumBottomPaddingRows = Math.Clamp(
                 Preferences.Default.Get("spectrum-bottom-padding", defaults.SpectrumBottomPaddingRows), 0, PlayerSettings.MaximumSpectrumPaddingRows),
+            SpectrumWidthPercent = Math.Clamp(
+                Preferences.Default.Get("spectrum-width", defaults.SpectrumWidthPercent), 0, PlayerSettings.MaximumSpectrumWidthPercent),
             ShowSpectrum = Preferences.Default.Get("show-spectrum", defaults.ShowSpectrum),
             ShowPeaks = Preferences.Default.Get("show-peaks", defaults.ShowPeaks)
         };
@@ -46,6 +48,7 @@ internal static class PlayerPreferences
         Preferences.Default.Set("spectrum-full-brightness", settings.SpectrumFullBrightnessPercent);
         Preferences.Default.Set("spectrum-top-padding", settings.SpectrumTopPaddingRows);
         Preferences.Default.Set("spectrum-bottom-padding", settings.SpectrumBottomPaddingRows);
+        Preferences.Default.Set("spectrum-width", settings.SpectrumWidthPercent);
         Preferences.Default.Set("show-spectrum", settings.ShowSpectrum);
         Preferences.Default.Set("show-peaks", settings.ShowPeaks);
     }

@@ -7,8 +7,9 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
 {
     private readonly List<TrackFile> _files = [];
     private readonly Dictionary<TrackFile, Task<CachedTrack>> _prepared = new();
+    private readonly Dictionary<TrackFile, Task<TrackMetadata>> _metadata = new();
     private readonly SemaphoreSlim _decodeSlots = new(2);
-
+    private readonly SemaphoreSlim _metadataSlots = new(3);
 
     /// <summary>Adds playable files while retaining stable identities for the queue and cached tracks.</summary>
     public IReadOnlyList<TrackFile> Add(IEnumerable<TrackFile> files)
@@ -44,6 +45,36 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
 
     public TrackFile? Find(CachedTrack track) => _files.FirstOrDefault(file => ReferenceEquals(GetPrepared(file), track));
 
+    /// <summary>Reads queue tags in parallel without making playback wait for the rest of a folder.</summary>
+    public Task<TrackMetadata> ReadMetadataAsync(TrackFile file)
+    {
+        if (!_metadata.TryGetValue(file, out var task))
+        {
+            _metadata[file] = task = ReadTagsAsync(file);
+        }
+        return task;
+    }
+
+    public TrackMetadata? GetMetadata(TrackFile file) =>
+        _metadata.TryGetValue(file, out var task) && task.IsCompletedSuccessfully ? task.Result : null;
+
+    public bool IsAnalyzing(TrackFile file) =>
+        (_metadata.TryGetValue(file, out var tags) && !tags.IsCompleted) ||
+        (_prepared.TryGetValue(file, out var pcm) && !pcm.IsCompleted);
+
+    private async Task<TrackMetadata> ReadTagsAsync(TrackFile file)
+    {
+        await _metadataSlots.WaitAsync(lifetime);
+        try
+        {
+            return await preparation.ReadMetadataAsync(file, lifetime);
+        }
+        finally
+        {
+            _metadataSlots.Release();
+        }
+    }
+
     /// <summary>Limits simultaneous MP3 analysis on mobile while letting playback continue.</summary>
     private async Task<CachedTrack> DecodeAsync(TrackFile file)
     {
@@ -64,7 +95,7 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
         var tasks = _prepared.Values.ToArray();
         try
         {
-            await Task.WhenAll(tasks);
+            await Task.WhenAll(tasks.Cast<Task>().Concat(_metadata.Values));
         }
         catch (Exception)
         {
@@ -78,5 +109,6 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
             }
         }
         _decodeSlots.Dispose();
+        _metadataSlots.Dispose();
     }
 }
