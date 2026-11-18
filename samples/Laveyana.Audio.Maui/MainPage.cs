@@ -620,16 +620,42 @@ public sealed class MainPage : ContentPage
 #if WINDOWS
             // Switching native MAUI window roots can reactivate an AppWindow title bar that is disabled.
             if (_overlay is not null) return;
+            // Cover the transport before constructing the settings controls. Image handlers otherwise
+            // become visible at their unconstrained initial size while the new layout is measured.
+            _overlay = new ContentView
+            {
+                BackgroundColor = _view.BackgroundColor,
+                IsClippedToBounds = true
+            };
+            _view.IsVisible = false;
+            _pageRoot.Children.Add(_overlay);
+            await WaitForOverlayFrameAsync();
+            if (_closed)
+            {
+                await CloseOverlayAsync();
+                return;
+            }
+
             var page = createPage(CloseOverlayAsync);
             var content = page.Content;
             page.Content = null;
-            _overlay = new ContentView { Content = content, BackgroundColor = page.BackgroundColor };
-            _view.IsEnabled = false;
-            _pageRoot.Children.Add(_overlay);
-            await Task.CompletedTask;
+            if (content is not null)
+            {
+                content.Opacity = 0;
+                _overlay.Content = content;
+                await WaitForOverlayFrameAsync();
+                content.Opacity = 1;
+            }
 #else
             await Navigation.PushModalAsync(createPage(null));
 #endif
+        }
+        catch (Exception ex)
+        {
+#if WINDOWS
+            await CloseOverlayAsync();
+#endif
+            if (!_closed) _view.Status.Text = $"Не удалось открыть настройки. {ex.Message}";
         }
         finally
         {
@@ -638,13 +664,21 @@ public sealed class MainPage : ContentPage
     }
 
 #if WINDOWS
+    /// <summary>Allows the opaque overlay and its initial layout to reach the compositor.</summary>
+    private Task WaitForOverlayFrameAsync()
+    {
+        var complete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(34), () => complete.TrySetResult());
+        return complete.Task;
+    }
+
     private Task CloseOverlayAsync()
     {
         if (_overlay is { } overlay)
         {
             _pageRoot.Children.Remove(overlay);
             _overlay = null;
-            _view.IsEnabled = true;
+            _view.IsVisible = true;
         }
         return Task.CompletedTask;
     }
