@@ -24,6 +24,8 @@ public sealed record PlayerSettings
     public bool WaveformOverview { get; init; }
     public PlayerPalette Palette { get; init; }
     public SpectrumColorMode SpectrumColors { get; init; }
+    public bool SpectrumLevelBrightness { get; init; }
+    public int SpectrumMinimumBrightnessPercent { get; init; } = 50;
     public bool ShowSpectrum { get; init; } = true;
     public bool ShowPeaks { get; init; } = true;
 }

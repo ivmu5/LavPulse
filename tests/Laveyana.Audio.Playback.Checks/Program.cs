@@ -13,7 +13,7 @@ try
     CheckShortTrack();
     await CheckStartupAndRate(first, second);
     await CheckFeedSelection(first, second);
-    Console.WriteLine("OK: startup/pause envelopes, resume, per-track speed and reset, and queue feed selection.");
+    Console.WriteLine("OK: startup/pause envelopes, resume, per-track speed, mix seek lock, and queue feed selection.");
 }
 finally
 {
@@ -29,6 +29,8 @@ static async Task CheckPauseAndResume(CachedTrack first, CachedTrack second, boo
     if (duringMix)
     {
         Require(session.SetNext(second) && session.RequestMix(), "The crossfade could not start.");
+        Require(session.Snapshot is { MixPending: true, IsMixing: true, Incoming: null }, "The pending mix was not exposed.");
+        Require(!session.Seek(first, Rate) && !session.TrySetSpeed(first, 1.25), "The pending mix allowed edits to the outgoing deck.");
     }
 
     var block = new float[BlockSize * PlaybackFormat.Channels];
@@ -36,6 +38,12 @@ static async Task CheckPauseAndResume(CachedTrack first, CachedTrack second, boo
     await session.RunAsync(new InMemoryOutput(source =>
     {
         Require(source.Render(block) == BlockSize, "Initial PCM block is missing.");
+        if (duringMix)
+        {
+            Require(session.Snapshot is { MixPending: false, IsMixing: true, Incoming: not null }, "The active mix was not exposed.");
+            Require(!session.Seek(first, Rate) && !session.Seek(second, Rate) && !session.TrySetSpeed(first, 1.25),
+                "The active mix allowed edits to a deck.");
+        }
         Require(session.RequestPause(), "The fade request was not accepted.");
         Require(!session.RequestPause(), "A duplicate request restarted the fade.");
 
@@ -120,6 +128,9 @@ static async Task CheckStartupAndRate(CachedTrack first, CachedTrack second)
         Require(session.RequestMix(), "Could not start the immediate transition.");
         Require(source.Render(block) == BlockSize && block[1] == .25f, "The next track did not take over.");
         Require(session.Snapshot.Current is { Speed: 1, Position: BlockSize }, "The next track inherited the outgoing rate.");
+        Require(!session.Snapshot.IsMixing && session.Seek(second, Rate) && session.TrySetSpeed(second, .925),
+            "Seek and fine speed adjustments did not return after promotion.");
+        Require(session.Snapshot.Current is { Speed: .925, Position: Rate }, "The promoted deck ignored the adjustment.");
     }), CancellationToken.None);
 }
 
