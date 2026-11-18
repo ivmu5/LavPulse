@@ -3,6 +3,7 @@ using Microsoft.Maui.Platform;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
 using Windows.System;
 using MauiWindow = Microsoft.Maui.Controls.Window;
@@ -14,8 +15,13 @@ using NativeStack = Microsoft.UI.Xaml.Controls.StackPanel;
 using NativeWindow = Microsoft.UI.Xaml.Window;
 using NativeThickness = Microsoft.UI.Xaml.Thickness;
 using NativeColor = Windows.UI.Color;
+using NativeDependencyObject = Microsoft.UI.Xaml.DependencyObject;
+using NativeGrid = Microsoft.UI.Xaml.Controls.Grid;
+using NativeImage = Microsoft.UI.Xaml.Controls.Image;
+using NativeText = Microsoft.UI.Xaml.Controls.TextBlock;
 using NativeKeyboardAccelerator = Microsoft.UI.Xaml.Input.KeyboardAccelerator;
 using NativeSolidBrush = Microsoft.UI.Xaml.Media.SolidColorBrush;
+using NativeVisibility = Microsoft.UI.Xaml.Visibility;
 
 namespace Laveyana.Audio.Maui.Controls;
 
@@ -41,7 +47,7 @@ public sealed class WindowsWindowChrome
     private readonly NativePanel _root;
     private readonly AppWindow _appWindow;
     private readonly OverlappedPresenter _windowed;
-    private readonly NativeBorder _toolbar;
+    private readonly NativeGrid _caption;
     private readonly NativeButton _maximize;
     private readonly NativeButton _fullscreen;
     private readonly NativeKeyboardAccelerator _fullscreenKey;
@@ -51,6 +57,8 @@ public sealed class WindowsWindowChrome
     private RectInt32? _restoreBounds;
     private bool _restoreMaximized;
     private bool _fullscreenActive;
+    private WindowRootView? _mauiPageRoot;
+    private FrameworkElement? _mauiTitleBar;
     private bool IsFullscreen => _appWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
 
     /// <summary>Sets logical window sizes before activation and installs native controls when the root is ready.</summary>
@@ -91,20 +99,25 @@ public sealed class WindowsWindowChrome
         var close = CreateButton("\uE8BB", "Закрыть", _native.Close);
         close.Resources["ButtonBackgroundPointerOver"] = Brush(220, 180, 36, 53);
         buttons.Children.Add(close);
-        _toolbar = new NativeBorder
+        var toolbar = new NativeBorder
         {
             Child = buttons,
             HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Right,
-            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Top,
-            Margin = new NativeThickness(0, 4, ToolbarRight, 0),
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
+            Margin = new NativeThickness(0, 0, ToolbarRight, 0),
             Padding = new NativeThickness(ToolbarPadding),
             Background = Brush(232, 17, 24, 49),
             CornerRadius = new Microsoft.UI.Xaml.CornerRadius(8),
             RequestedTheme = ElementTheme.Dark
         };
-        Microsoft.UI.Xaml.Controls.Canvas.SetZIndex(_toolbar, 1000);
+        _caption = new NativeGrid { Height = ContentInset, VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Top };
+        _caption.Children.Add(CreateBrand(window.Title));
+        _caption.Children.Add(toolbar);
+        Microsoft.UI.Xaml.Controls.Canvas.SetZIndex(_caption, 1000);
         // MAUI's root panel keeps overlays above the page and any modal pages.
-        _root.Children.Add(_toolbar);
+        _root.Children.Add(_caption);
+        _root.Loaded += OnRootLoaded;
+        _root.LayoutUpdated += OnRootLayoutUpdated;
 
         _fullscreenKey = new NativeKeyboardAccelerator { Key = VirtualKey.F11 };
         _fullscreenKey.Invoked += (_, args) => { ToggleFullscreen(); args.Handled = true; };
@@ -120,11 +133,7 @@ public sealed class WindowsWindowChrome
         _root.KeyboardAccelerators.Add(_fullscreenKey);
         _root.KeyboardAccelerators.Add(_escapeKey);
 
-        if (AppWindowTitleBar.IsCustomizationSupported())
-        {
-            _appWindow.TitleBar.ExtendsContentIntoTitleBar = false;
-        }
-        _windowed.SetBorderAndTitleBar(hasBorder: true, hasTitleBar: false);
+        HideStandardTitleBar();
         SetWindowSubclass(_hwnd, _subclass, 1, 0);
         ApplyMinimumSize();
         FitInitialWindow();
@@ -132,6 +141,80 @@ public sealed class WindowsWindowChrome
         _window.DisplayDensityChanged += OnDensityChanged;
         _native.Closed += OnClosed;
         UpdateButtons();
+    }
+
+    /// <summary>Displays the app ribbon on the same line as the window controls.</summary>
+    private static NativeStack CreateBrand(string? title)
+    {
+        var brand = new NativeStack
+        {
+            Orientation = Microsoft.UI.Xaml.Controls.Orientation.Horizontal,
+            HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Left,
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
+            Margin = new NativeThickness(14, 0, 0, 0),
+            Spacing = 8
+        };
+        brand.Children.Add(new NativeImage
+        {
+            Source = new BitmapImage(new Uri("ms-appx:///lavpulse_mark.png")),
+            Width = 44, Height = 26,
+            Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform
+        });
+        brand.Children.Add(new NativeText
+        {
+            Text = title ?? "LavPulse", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center, Foreground = Brush(255, 244, 246, 255)
+        });
+        return brand;
+    }
+
+    private void OnRootLoaded(object sender, RoutedEventArgs args) => HideStandardTitleBar();
+
+    /// <summary>Conceals the MAUI title placeholder when a page or modal supplies a fresh WinUI root.</summary>
+    private void OnRootLayoutUpdated(object? sender, object args)
+    {
+        WindowRootView? pageRoot = null;
+        for (int index = _root.Children.Count - 1; index >= 0; index--)
+        {
+            if (_root.Children[index] is WindowRootView candidate)
+            {
+                pageRoot = candidate;
+                break;
+            }
+        }
+        if (ReferenceEquals(pageRoot, _mauiPageRoot) && _mauiTitleBar is not null)
+        {
+            if (_mauiTitleBar.Visibility != NativeVisibility.Collapsed) _mauiTitleBar.Visibility = NativeVisibility.Collapsed;
+            return;
+        }
+        _mauiPageRoot = pageRoot;
+        _mauiTitleBar = pageRoot is null || VisualTreeHelper.GetChildrenCount(pageRoot) == 0
+            ? null : FindMauiTitleBar(VisualTreeHelper.GetChild(pageRoot, 0));
+        if (_mauiTitleBar is not null) _mauiTitleBar.Visibility = NativeVisibility.Collapsed;
+    }
+
+    private static FrameworkElement? FindMauiTitleBar(NativeDependencyObject node)
+    {
+        if (node is FrameworkElement { Name: "AppTitleBarContainer" } titleBar) return titleBar;
+        if (node is Microsoft.UI.Xaml.Controls.ContentPresenter) return null;
+        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(node); index++)
+        {
+            if (FindMauiTitleBar(VisualTreeHelper.GetChild(node, index)) is { } child) return child;
+        }
+        return null;
+    }
+
+    private void HideStandardTitleBar()
+    {
+        if (IsFullscreen) return;
+        if (AppWindowTitleBar.IsCustomizationSupported() && _appWindow.TitleBar.ExtendsContentIntoTitleBar)
+        {
+            _appWindow.TitleBar.ExtendsContentIntoTitleBar = false;
+        }
+        if (!_windowed.HasBorder || _windowed.HasTitleBar)
+        {
+            _windowed.SetBorderAndTitleBar(hasBorder: true, hasTitleBar: false);
+        }
     }
 
     private void Minimize()
@@ -177,6 +260,7 @@ public sealed class WindowsWindowChrome
     private void ExitFullscreen()
     {
         _appWindow.SetPresenter(_windowed);
+        HideStandardTitleBar();
         if (_restoreMaximized)
         {
             _windowed.Maximize();
@@ -259,9 +343,11 @@ public sealed class WindowsWindowChrome
         _appWindow.Changed -= OnWindowChanged;
         _window.DisplayDensityChanged -= OnDensityChanged;
         _native.Closed -= OnClosed;
+        _root.Loaded -= OnRootLoaded;
+        _root.LayoutUpdated -= OnRootLayoutUpdated;
         _root.KeyboardAccelerators.Remove(_fullscreenKey);
         _root.KeyboardAccelerators.Remove(_escapeKey);
-        _root.Children.Remove(_toolbar);
+        _root.Children.Remove(_caption);
     }
 
     private static NativeButton CreateButton(string glyph, string description, Action action)

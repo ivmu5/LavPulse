@@ -40,7 +40,7 @@ internal sealed class MixedPlayback : IAudioRenderSource, ISpectrumSource
     }
 
     /// <summary>Analyzes the finished queue mix with the same spectrum pipeline as standalone decks.</summary>
-    public MixedPlayback(QueueSource queue, int startMilliseconds)
+    public MixedPlayback(IPcmSource queue, int startMilliseconds)
     {
         _queueOutput = new TransportFadeSource(queue, startMilliseconds);
         _mixer = new PcmMixer([new PcmInput(_queueOutput, 1)], PlaybackFormat.SpectrumBars, SpectrumWindow);

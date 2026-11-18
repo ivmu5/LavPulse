@@ -11,6 +11,8 @@ public sealed class PlayerView : Grid
     private readonly ImageButton _previous = MixerStyle.IconButton("player_previous.png", 44);
     private readonly ImageButton _next = MixerStyle.IconButton("player_next.png", 44);
     private readonly Button _automix = MixerStyle.Button("Автомикс", icon: "player_automix.png", stacked: true);
+    private readonly ImageButton _repeatOne = MixerStyle.IconButton("player_repeat_one.png", 44);
+    private readonly ImageButton _equalizer = MixerStyle.IconButton("player_equalizer.png", 44);
     private readonly Button _settings = MixerStyle.Button("Настройки", icon: "player_settings.png", stacked: true);
     private readonly TrackQueueView _queue = new();
     private readonly Grid _body = new() { IsClippedToBounds = true };
@@ -43,7 +45,7 @@ public sealed class PlayerView : Grid
         var upper = new ScrollView
         {
             VerticalScrollBarVisibility = ScrollBarVisibility.Never,
-            Content = new VerticalStackLayout { Spacing = 10, Children = { CreateHeader(), _queue } }
+            Content = _queue
         };
         var deckScroll = new ScrollView
         {
@@ -94,6 +96,8 @@ public sealed class PlayerView : Grid
     public event Action? PreviousRequested;
     public event Action? NextRequested;
     public event Action? AutoMixChanged;
+    public event Action? RepeatOneChanged;
+    public event Action? EqualizerRequested;
     public event Action<TrackFile>? QueueRequested
     {
         add => _queue.TrackRequested += value;
@@ -118,41 +122,58 @@ public sealed class PlayerView : Grid
 
     public bool IsHandingOff => _queue.IsHandingOff;
 
-    /// <summary>Displays the ribbon and the application name at the top of the player.</summary>
-    private View CreateHeader()
-    {
-        var mark = new Image
-        {
-            Source = "lavpulse_mark.png", WidthRequest = 64, HeightRequest = 38,
-            Aspect = Aspect.AspectFit, VerticalOptions = LayoutOptions.Center
-        };
-        var name = MixerStyle.Label("LavPulse", 20, bold: true);
-        name.VerticalOptions = LayoutOptions.Center;
-        SemanticProperties.SetHeadingLevel(name, SemanticHeadingLevel.Level1);
-        return new HorizontalStackLayout { IsVisible = false, Spacing = 9, Children = { mark, name } };
-    }
-
     /// <summary>Creates the centered transport and its accessible actions.</summary>
     private Grid CreateTransport()
     {
         var controls = new Grid
         {
-            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Star)]
+            ColumnDefinitions = [new(GridLength.Star), new(0), new(GridLength.Star)],
+            RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)], RowSpacing = 4
         };
-        _automix.HorizontalOptions = LayoutOptions.Start;
-        _settings.HorizontalOptions = LayoutOptions.End;
-        _automix.VerticalOptions = _settings.VerticalOptions = LayoutOptions.Center;
         _automix.Clicked += (_, _) => AutoMixChanged?.Invoke();
+        _repeatOne.Clicked += (_, _) => RepeatOneChanged?.Invoke();
+        _equalizer.Clicked += (_, _) => EqualizerRequested?.Invoke();
         _settings.Clicked += (_, _) => SettingsRequested?.Invoke();
         _play.Clicked += (_, _) => PlayRequested?.Invoke();
         _previous.Clicked += (_, _) => PreviousRequested?.Invoke();
         _next.Clicked += (_, _) => NextRequested?.Invoke();
         SemanticProperties.SetDescription(_next, "Свести со следующим треком");
         SemanticProperties.SetDescription(_previous, "Предыдущий трек");
-        controls.Add(_automix);
-        controls.Add(new HorizontalStackLayout { Spacing = 4, Children = { _previous, _play, _next } }, 1);
-        controls.Add(_settings, 2);
+        var left = new HorizontalStackLayout { HorizontalOptions = LayoutOptions.Start, VerticalOptions = LayoutOptions.Center,
+            Spacing = 4, Children = { _automix, _repeatOne } };
+        var right = new HorizontalStackLayout { HorizontalOptions = LayoutOptions.End, VerticalOptions = LayoutOptions.Center,
+            Spacing = 4, Children = { _equalizer, _settings } };
+        var primary = new HorizontalStackLayout { HorizontalOptions = LayoutOptions.Center,
+            Spacing = 4, Children = { _previous, _play, _next } };
+        controls.Add(left);
+        controls.Add(right, 2);
+        controls.Add(primary, row: 1);
+        Grid.SetColumnSpan(primary, 3);
+        bool wide = false;
+        controls.SizeChanged += (_, _) =>
+        {
+            bool next = controls.Width >= 440;
+            if (next == wide) return;
+            wide = next;
+            controls.ColumnDefinitions[1].Width = wide ? GridLength.Auto : new GridLength(0);
+            Grid.SetColumnSpan(primary, wide ? 1 : 3);
+            Grid.SetColumn(primary, wide ? 1 : 0);
+            Grid.SetRow(primary, wide ? 0 : 1);
+            controls.RowSpacing = wide ? 0 : 4;
+        };
         return controls;
+    }
+
+    public void SetRepeatOne(bool enabled)
+    {
+        _repeatOne.BackgroundColor = enabled ? MixerStyle.SelectedBackground : MixerStyle.Card;
+        SemanticProperties.SetDescription(_repeatOne, enabled ? "Повтор одного трека включён" : "Повтор одного трека выключен");
+    }
+
+    public void SetEqualizerEnabled(bool enabled)
+    {
+        _equalizer.BackgroundColor = enabled ? MixerStyle.SelectedBackground : MixerStyle.Card;
+        SemanticProperties.SetDescription(_equalizer, enabled ? "Эквалайзер включён. Открыть" : "Эквалайзер выключен. Открыть");
     }
 
     /// <summary>Applies the saved palette and timeline settings to the player.</summary>
