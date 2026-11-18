@@ -57,7 +57,10 @@ public sealed class TrackPreparation(string cacheDirectory)
                 using var decoder = new Mp3PcmSource(mp3Path);
                 using var pcm = new FileStream(pcmPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024);
                 TrackWaveform waveform = TrackWaveform.Analyze(new RecordingSource(decoder, pcm), token);
-                return new CachedTrack(file.Name, pcmPath, waveform, Mp3Tags.Read(mp3Path));
+                using var source = File.OpenRead(mp3Path);
+                var tags = Mp3Tags.Read(source);
+                var audioInfo = Mp3AudioInfoReader.Read(source, token);
+                return new CachedTrack(file.Name, pcmPath, waveform, tags, audioInfo);
             }, token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
             return track;

@@ -9,14 +9,7 @@ internal sealed record Mp3Tags(string? Title = null, string? Artist = null, byte
     private const int MaxTagSize = 8 * 1024 * 1024;
     private const int MaxArtworkSize = 3 * 1024 * 1024;
 
-    /// <summary>Extracts display data from common ID3v2.3 and ID3v2.4 tags.</summary>
-    public static Mp3Tags Read(string path)
-    {
-        using var file = File.OpenRead(path);
-        return Read(file);
-    }
-
-    /// <summary>Reads only the ID3 header and tag bytes, including on non-seekable streams.</summary>
+    /// <summary>Reads ID3v2.3 or ID3v2.4 tag bytes, including on non-seekable streams.</summary>
     public static Mp3Tags Read(Stream file)
     {
         Span<byte> header = stackalloc byte[10];

@@ -6,6 +6,8 @@ const int BlockSize = PlaybackFormat.BlockFrames;
 string directory = Directory.CreateTempSubdirectory("lavpulse-checks-").FullName;
 try
 {
+    CheckMp3AudioInfo();
+    Console.WriteLine("OK: MP3 stream properties.");
     CachedTrack first = MakeTrack(directory, "first", left: 8192, right: 0);
     CachedTrack second = MakeTrack(directory, "second", left: 0, right: 8192);
     await CheckPauseAndResume(first, second, duringMix: false);
@@ -21,6 +23,49 @@ try
 finally
 {
     Directory.Delete(directory, recursive: true);
+}
+
+/// <summary>Verifies bitrate and mode are read from the audio frames even with misleading tag or seek-table bytes.</summary>
+static void CheckMp3AudioInfo()
+{
+    using var source = new MemoryStream();
+    // The tag contains two complete-looking 128 kbps Stereo frames.
+    source.Write("ID3"u8);
+    source.Write([4, 0, 0x10, 0, 0, 6, 66]);
+    source.Write(CreateFrame(417, 0xfb, 0x90, 0x00));
+    source.Write(CreateFrame(417, 0xfb, 0x90, 0x00));
+    source.Write(new byte[10]); // ID3v2.4 footer.
+
+    byte[] seekFrame = CreateFrame(626, 0xfb, 0xb0, 0x00);
+    "Xing"u8.CopyTo(seekFrame.AsSpan(36));
+    source.Write(seekFrame);
+    source.Write(CreateFrame(417, 0xfb, 0x90, 0x40)); // 128 kbps Joint Stereo.
+    source.Write(CreateFrame(731, 0xfb, 0xc0, 0x40)); // 224 kbps Joint Stereo.
+    var vbr = Mp3AudioInfoReader.Read(source, CancellationToken.None);
+    Require(vbr == new TrackAudioInfo("MP3", 44100, 176, true, TrackChannelMode.JointStereo), "Invalid VBR audio properties.");
+
+    source.SetLength(0);
+    source.Write(CreateFrame(144, 0xe3, 0x28, 0xc0));
+    source.Write(CreateFrame(144, 0xe3, 0x28, 0xc0));
+    var mono = Mp3AudioInfoReader.Read(source, CancellationToken.None);
+    Require(mono == new TrackAudioInfo("MP3", 8000, 16, false, TrackChannelMode.Mono), "Invalid low-rate mono audio properties.");
+
+    source.SetLength(0);
+    source.Write(CreateFrame(417, 0xfb, 0x00, 0x00));
+    source.Write(CreateFrame(418, 0xfb, 0x02, 0x00));
+    source.Write(CreateFrame(417, 0xfb, 0x00, 0x00));
+    var freeFormat = Mp3AudioInfoReader.Read(source, CancellationToken.None);
+    Require(freeFormat == new TrackAudioInfo("MP3", 44100, 128, false, TrackChannelMode.Stereo), "Invalid free-format MP3 properties.");
+
+    static byte[] CreateFrame(int length, byte versionLayer, byte rate, byte channel)
+    {
+        var bytes = new byte[length];
+        bytes[0] = 0xff;
+        bytes[1] = versionLayer;
+        bytes[2] = rate;
+        bytes[3] = channel;
+        return bytes;
+    }
 }
 
 /// <summary>Checks the audible buffer and verifies that neither deck was reset or read past the fade.</summary>
