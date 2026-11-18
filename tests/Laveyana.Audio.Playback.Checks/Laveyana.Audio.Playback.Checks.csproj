@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Laveyana.Audio.Playback/Laveyana.Audio.Playback.csproj" />
+    <Compile Include="../../samples/Laveyana.Audio.Maui/Tracks/PlaybackQueue.cs" Link="PlaybackQueue.cs" />
   </ItemGroup>
 </Project>

@@ -40,14 +40,6 @@ internal sealed class PlaybackQueue
         return index >= 0 && index < PlayedCount;
     }
 
-    /// <summary>Moves an explicitly chosen upcoming track directly after the active track.</summary>
-    public void SelectNext(TrackFile file)
-    {
-        int index = _tracks.IndexOf(file);
-        if (index >= 0) RemoveAt(index);
-        _tracks.Insert(NextIndex, file);
-    }
-
     /// <summary>Removes a row. Removing the active row keeps its successor anchored while the track plays out.</summary>
     public bool TryRemove(TrackFile file, Func<TrackFile?, bool> changeNext)
     {
