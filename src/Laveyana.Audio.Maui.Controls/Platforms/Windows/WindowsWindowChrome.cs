@@ -14,14 +14,12 @@ using NativeStack = Microsoft.UI.Xaml.Controls.StackPanel;
 using NativeWindow = Microsoft.UI.Xaml.Window;
 using NativeThickness = Microsoft.UI.Xaml.Thickness;
 using NativeColor = Windows.UI.Color;
-using NativeDependencyObject = Microsoft.UI.Xaml.DependencyObject;
 using NativeGrid = Microsoft.UI.Xaml.Controls.Grid;
 using NativeImage = Microsoft.UI.Xaml.Controls.Image;
 using NativeText = Microsoft.UI.Xaml.Controls.TextBlock;
 using NativeKeyboardAccelerator = Microsoft.UI.Xaml.Input.KeyboardAccelerator;
 using NativeKeyboardAcceleratorPlacementMode = Microsoft.UI.Xaml.Input.KeyboardAcceleratorPlacementMode;
 using NativeSolidBrush = Microsoft.UI.Xaml.Media.SolidColorBrush;
-using NativeVisibility = Microsoft.UI.Xaml.Visibility;
 
 namespace Laveyana.Audio.Maui.Controls;
 
@@ -52,8 +50,6 @@ public sealed class WindowsWindowChrome
     private readonly WindowsClientFrame _frame;
     private RectInt32? _restoreBounds;
     private bool _restoreMaximized;
-    private WindowRootView? _mauiPageRoot;
-    private FrameworkElement? _mauiTitleBar;
     private bool IsFullscreen => _appWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
 
     /// <summary>Sets logical window sizes before activation and installs native controls when the root is ready.</summary>
@@ -116,7 +112,6 @@ public sealed class WindowsWindowChrome
         // MAUI's root panel keeps overlays above the page and any modal pages.
         _root.Children.Add(_caption);
         _root.Loaded += OnRootLoaded;
-        _root.LayoutUpdated += OnRootLayoutUpdated;
 
         _fullscreenKey = new NativeKeyboardAccelerator { Key = VirtualKey.F11 };
         _fullscreenKey.Invoked += (_, args) => { ToggleFullscreen(); args.Handled = true; };
@@ -173,40 +168,6 @@ public sealed class WindowsWindowChrome
     {
         HideStandardTitleBar();
         _frame.Refresh();
-    }
-
-    /// <summary>Conceals the MAUI title placeholder when a page or modal supplies a fresh WinUI root.</summary>
-    private void OnRootLayoutUpdated(object? sender, object args)
-    {
-        WindowRootView? pageRoot = null;
-        for (int index = _root.Children.Count - 1; index >= 0; index--)
-        {
-            if (_root.Children[index] is WindowRootView candidate)
-            {
-                pageRoot = candidate;
-                break;
-            }
-        }
-        if (ReferenceEquals(pageRoot, _mauiPageRoot) && _mauiTitleBar is not null)
-        {
-            if (_mauiTitleBar.Visibility != NativeVisibility.Collapsed) _mauiTitleBar.Visibility = NativeVisibility.Collapsed;
-            return;
-        }
-        _mauiPageRoot = pageRoot;
-        _mauiTitleBar = pageRoot is null || VisualTreeHelper.GetChildrenCount(pageRoot) == 0
-            ? null : FindMauiTitleBar(VisualTreeHelper.GetChild(pageRoot, 0));
-        if (_mauiTitleBar is not null) _mauiTitleBar.Visibility = NativeVisibility.Collapsed;
-    }
-
-    private static FrameworkElement? FindMauiTitleBar(NativeDependencyObject node)
-    {
-        if (node is FrameworkElement { Name: "AppTitleBarContainer" } titleBar) return titleBar;
-        if (node is Microsoft.UI.Xaml.Controls.ContentPresenter) return null;
-        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(node); index++)
-        {
-            if (FindMauiTitleBar(VisualTreeHelper.GetChild(node, index)) is { } child) return child;
-        }
-        return null;
     }
 
     private void HideStandardTitleBar()
@@ -331,7 +292,6 @@ public sealed class WindowsWindowChrome
         _window.DisplayDensityChanged -= OnDensityChanged;
         _native.Closed -= OnClosed;
         _root.Loaded -= OnRootLoaded;
-        _root.LayoutUpdated -= OnRootLayoutUpdated;
         _root.KeyboardAccelerators.Remove(_fullscreenKey);
         _root.KeyboardAccelerators.Remove(_escapeKey);
         _root.Children.Remove(_caption);

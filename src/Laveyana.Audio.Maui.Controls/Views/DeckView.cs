@@ -5,6 +5,8 @@ namespace Laveyana.Audio.Maui.Controls;
 /// <summary>Shows a detailed window and an overview of one deck, with commit-on-release scrubbing.</summary>
 public sealed class DeckView : Border
 {
+    private const double DragThreshold = 6;
+    private const double MaxScrubSpeed = 30;
     private readonly NumericSettingInput _trackSpeed = new("Скорость трека", "×", new(.75, 1.25, 1, .125, 3), 1, showSlider: false);
     private readonly Label _name = MixerStyle.Label("", 13, bold: true);
     private readonly Label _time = MixerStyle.Label("", 11, MixerStyle.Muted);
@@ -31,7 +33,7 @@ public sealed class DeckView : Border
         _detail = new GraphicsView { Drawable = _detailDrawable, HeightRequest = 64 };
         _overview = new GraphicsView { Drawable = _overviewDrawable, HeightRequest = 44 };
         SemanticProperties.SetDescription(_detail, "Детальная волна. Удерживай и веди в сторону. Жест вверх отменяет перемотку.");
-        SemanticProperties.SetDescription(_overview, "Обзорная волна. Выбери позицию на всём треке. Жест вверх отменяет перемотку.");
+        SemanticProperties.SetDescription(_overview, "Обзорная волна. Перетащи к нужной позиции. Жест вверх отменяет перемотку.");
         _previewLabel.HorizontalOptions = LayoutOptions.Center;
         _previewLabel.VerticalOptions = LayoutOptions.Center;
         _previewLabel.Padding = new Thickness(7, 3);
@@ -61,7 +63,7 @@ public sealed class DeckView : Border
         _timer.Interval = TimeSpan.FromMilliseconds(25);
         _timer.Tick += (_, _) =>
         {
-            if (_gesture == _detail)
+            if (_gesture == _detail && _moved)
             {
                 AdvancePreview();
                 Redraw();
@@ -139,8 +141,8 @@ public sealed class DeckView : Border
             PlayerSettings.MinimumWaveformDetailSeconds, PlayerSettings.MaximumWaveformDetailSeconds);
         _detailDrawable.Colors = _overviewDrawable.Colors = colors;
         SemanticProperties.SetDescription(_overview, settings.WaveformOverview
-            ? "Обзорная волна. Жест вверх отменяет перемотку."
-            : "Полоса прогресса. Жест вверх отменяет перемотку.");
+            ? "Обзорная волна. Перетащи к нужной позиции. Жест вверх отменяет перемотку."
+            : "Полоса прогресса. Перетащи к нужной позиции. Жест вверх отменяет перемотку.");
         UpdateTitleColor();
         Redraw();
     }
@@ -157,27 +159,16 @@ public sealed class DeckView : Border
         }
 
         _gesture = view;
-        _preview = _position;
         _speed = 0;
         _moved = false;
         _startX = point.X;
-        _lastTick = System.Diagnostics.Stopwatch.GetTimestamp();
-        if (view == _overview)
-        {
-            UpdatePreview(point.X);
-        }
-        else
-        {
-            _timer.Start();
-        }
-        Redraw();
         return true;
     }
 
     /// <summary>Updates a preview or cancels as soon as the finger leaves above the waveform.</summary>
     private void Move(PointF point)
     {
-        if (_gesture is null)
+        if (_gesture is not { } view)
         {
             return;
         }
@@ -188,7 +179,17 @@ public sealed class DeckView : Border
             return;
         }
 
-        UpdatePreview(point.X);
+        if (!_moved)
+        {
+            if (Math.Abs(point.X - _startX) < DragThreshold) return;
+
+            _moved = true;
+            _preview = _position;
+            _lastTick = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (view == _detail) _timer.Start();
+        }
+
+        UpdatePreview(view, point.X);
         Redraw();
     }
 
@@ -201,10 +202,13 @@ public sealed class DeckView : Border
         }
 
         bool inside = point.X >= 0 && point.X <= view.Width && point.Y >= 0 && point.Y <= view.Height;
-        if (inside && (_moved || view == _overview))
+        if (inside && _moved)
         {
-            UpdatePreview(point.X);
-            SeekRequested?.Invoke(track, (long)Math.Round(_preview));
+            UpdatePreview(view, point.X);
+            long target = (long)Math.Round(_preview);
+            CancelScrub();
+            SeekRequested?.Invoke(track, target);
+            return;
         }
 
         CancelScrub();
@@ -224,20 +228,27 @@ public sealed class DeckView : Border
     }
 
     /// <summary>Uses absolute positioning for the overview and signed velocity for the detailed wave.</summary>
-    private void UpdatePreview(float x)
+    private void UpdatePreview(GraphicsView view, float x)
     {
-        var fraction = Math.Clamp(x / Math.Max(1, _gesture!.Width), 0, 1);
-        if (_gesture == _overview)
+        if (view == _overview)
         {
+            double fraction = Math.Clamp(x / Math.Max(1, view.Width), 0, 1);
             _preview = fraction * _track!.Waveform.TotalFrames;
             return;
         }
 
         AdvancePreview();
-        _moved |= Math.Abs(x - _startX) >= 6;
-        double offset = 2 * fraction - 1;
-        double strength = Math.Clamp((Math.Abs(offset) - .08) / .92, 0, 1);
-        _speed = _moved ? Math.Sign(offset) * 30 * strength : 0;
+        _speed = ScrubSpeed(_startX, x, view.Width);
+    }
+
+    /// <summary>Uses the press point as neutral and reaches full speed at the edge in either direction.</summary>
+    internal static double ScrubSpeed(double startX, double x, double width)
+    {
+        double offset = x - startX;
+        double available = offset < 0 ? startX : width - startX;
+        double deadZone = Math.Min(3, available / 2);
+        double strength = Math.Clamp((Math.Abs(offset) - deadZone) / Math.Max(1, available - deadZone), 0, 1);
+        return Math.Sign(offset) * MaxScrubSpeed * strength;
     }
 
     /// <summary>Integrates preview velocity using a monotonic clock.</summary>
@@ -256,7 +267,7 @@ public sealed class DeckView : Border
         {
             return;
         }
-        long? preview = _gesture is null ? null : (long)Math.Round(_preview);
+        long? preview = _gesture is not null && _moved ? (long)Math.Round(_preview) : null;
         _detailDrawable.Position = _overviewDrawable.Position = _position;
         _detailDrawable.Preview = _overviewDrawable.Preview = preview;
         long second = _position / PlaybackFormat.SampleRate;
