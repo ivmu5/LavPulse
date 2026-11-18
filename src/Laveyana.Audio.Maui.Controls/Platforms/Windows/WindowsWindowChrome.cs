@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using Microsoft.Maui.Platform;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -38,9 +37,6 @@ public sealed class WindowsWindowChrome
     private const int ToolbarPadding = 3;
     private const int ToolbarRight = 8;
     private const int ToolbarWidth = ButtonWidth * 4 + ButtonSpacing * 3 + ToolbarPadding * 2 + ToolbarRight;
-    private const uint WindowHitTestMessage = 0x0084;
-    private const int ClientAreaHit = 1;
-    private const int CaptionHit = 2;
 
     private readonly MauiWindow _window;
     private readonly NativeWindow _native;
@@ -52,11 +48,9 @@ public sealed class WindowsWindowChrome
     private readonly NativeButton _fullscreen;
     private readonly NativeKeyboardAccelerator _fullscreenKey;
     private readonly NativeKeyboardAccelerator _escapeKey;
-    private readonly nint _hwnd;
-    private readonly WindowSubclass _subclass;
+    private readonly WindowsClientFrame _frame;
     private RectInt32? _restoreBounds;
     private bool _restoreMaximized;
-    private bool _fullscreenActive;
     private WindowRootView? _mauiPageRoot;
     private FrameworkElement? _mauiTitleBar;
     private bool IsFullscreen => _appWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
@@ -87,8 +81,7 @@ public sealed class WindowsWindowChrome
         _root = root;
         _appWindow = native.AppWindow;
         _windowed = windowed;
-        _hwnd = WinRT.Interop.WindowNative.GetWindowHandle(native);
-        _subclass = HitTestCaption;
+        _frame = new WindowsClientFrame(WinRT.Interop.WindowNative.GetWindowHandle(native), ContentInset, ToolbarWidth);
 
         var buttons = new NativeStack { Orientation = Microsoft.UI.Xaml.Controls.Orientation.Horizontal, Spacing = ButtonSpacing };
         buttons.Children.Add(CreateButton("\uE921", "Свернуть", Minimize));
@@ -110,7 +103,12 @@ public sealed class WindowsWindowChrome
             CornerRadius = new Microsoft.UI.Xaml.CornerRadius(8),
             RequestedTheme = ElementTheme.Dark
         };
-        _caption = new NativeGrid { Height = ContentInset, VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Top };
+        _caption = new NativeGrid
+        {
+            Height = ContentInset,
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Top,
+            Background = Brush(255, 11, 16, 32)
+        };
         _caption.Children.Add(CreateBrand(window.Title));
         _caption.Children.Add(toolbar);
         Microsoft.UI.Xaml.Controls.Canvas.SetZIndex(_caption, 1000);
@@ -134,7 +132,7 @@ public sealed class WindowsWindowChrome
         _root.KeyboardAccelerators.Add(_escapeKey);
 
         HideStandardTitleBar();
-        SetWindowSubclass(_hwnd, _subclass, 1, 0);
+        _frame.Refresh();
         ApplyMinimumSize();
         FitInitialWindow();
         _appWindow.Changed += OnWindowChanged;
@@ -168,7 +166,11 @@ public sealed class WindowsWindowChrome
         return brand;
     }
 
-    private void OnRootLoaded(object sender, RoutedEventArgs args) => HideStandardTitleBar();
+    private void OnRootLoaded(object sender, RoutedEventArgs args)
+    {
+        HideStandardTitleBar();
+        _frame.Refresh();
+    }
 
     /// <summary>Conceals the MAUI title placeholder when a page or modal supplies a fresh WinUI root.</summary>
     private void OnRootLayoutUpdated(object? sender, object args)
@@ -253,12 +255,14 @@ public sealed class WindowsWindowChrome
         var position = _appWindow.Position;
         var size = _appWindow.Size;
         _restoreBounds = _restoreMaximized ? null : new RectInt32(position.X, position.Y, size.Width, size.Height);
+        _frame.IsFullscreen = true;
         _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
         UpdateButtons();
     }
 
     private void ExitFullscreen()
     {
+        _frame.IsFullscreen = false;
         _appWindow.SetPresenter(_windowed);
         HideStandardTitleBar();
         if (_restoreMaximized)
@@ -270,16 +274,17 @@ public sealed class WindowsWindowChrome
             _windowed.Restore();
             if (_restoreBounds is { } bounds) _appWindow.MoveAndResize(bounds);
         }
+        _frame.Refresh();
         UpdateButtons();
     }
 
     private void UpdateButtons()
     {
-        _fullscreenActive = IsFullscreen;
-        bool maximized = !_fullscreenActive && _windowed.State == OverlappedPresenterState.Maximized;
+        bool fullscreen = IsFullscreen;
+        bool maximized = !fullscreen && _windowed.State == OverlappedPresenterState.Maximized;
         UpdateButton(_maximize, maximized ? "\uE923" : "\uE922", maximized ? "Восстановить размер окна" : "Развернуть");
-        UpdateButton(_fullscreen, _fullscreenActive ? "\uE92C" : "\uE92D",
-            _fullscreenActive ? "Выйти из полноэкранного режима (F11 / Esc)" : "На весь экран (F11)");
+        UpdateButton(_fullscreen, fullscreen ? "\uE92C" : "\uE92D",
+            fullscreen ? "Выйти из полноэкранного режима (F11 / Esc)" : "На весь экран (F11)");
     }
 
     private void OnWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
@@ -316,30 +321,9 @@ public sealed class WindowsWindowChrome
         _appWindow.MoveAndResize(new RectInt32((area.Width - width) / 2, (area.Height - height) / 2, width, height), display);
     }
 
-    /// <summary>Preserves native window dragging and double-click while leaving the caption buttons interactive.</summary>
-    private nint HitTestCaption(nint hwnd, uint message, nuint wParam, nint lParam, nuint id, nuint data)
-    {
-        var result = DefSubclassProc(hwnd, message, wParam, lParam);
-        if (message != WindowHitTestMessage || result != ClientAreaHit || _fullscreenActive || _root.ActualWidth <= ToolbarWidth)
-        {
-            return result;
-        }
-
-        long coordinates = lParam.ToInt64();
-        var point = new NativePoint { X = unchecked((short)coordinates), Y = unchecked((short)(coordinates >> 16)) };
-        if (!ScreenToClient(hwnd, ref point)) return result;
-
-        double scale = _native.GetDisplayDensity();
-        double x = point.X / scale;
-        double y = point.Y / scale;
-        return x >= 6 && x < _root.ActualWidth - ToolbarWidth && y >= 6 && y < ContentInset
-            ? CaptionHit
-            : result;
-    }
-
     private void OnClosed(object sender, WindowEventArgs args)
     {
-        RemoveWindowSubclass(_hwnd, _subclass, 1);
+        _frame.Dispose();
         _appWindow.Changed -= OnWindowChanged;
         _window.DisplayDensityChanged -= OnDensityChanged;
         _native.Closed -= OnClosed;
@@ -377,29 +361,4 @@ public sealed class WindowsWindowChrome
     }
 
     private static NativeSolidBrush Brush(byte a, byte r, byte g, byte b) => new(NativeColor.FromArgb(a, r, g, b));
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativePoint
-    {
-        public int X;
-        public int Y;
-    }
-
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
-    private delegate nint WindowSubclass(nint hwnd, uint message, nuint wParam, nint lParam, nuint id, nuint data);
-
-    [DllImport("comctl32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetWindowSubclass(nint hwnd, WindowSubclass callback, nuint id, nuint data);
-
-    [DllImport("comctl32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool RemoveWindowSubclass(nint hwnd, WindowSubclass callback, nuint id);
-
-    [DllImport("comctl32.dll")]
-    private static extern nint DefSubclassProc(nint hwnd, uint message, nuint wParam, nint lParam);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool ScreenToClient(nint hwnd, ref NativePoint point);
 }
