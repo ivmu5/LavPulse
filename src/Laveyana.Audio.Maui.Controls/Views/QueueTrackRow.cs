@@ -1,4 +1,3 @@
-using Laveyana.Audio.Playback;
 using Microsoft.Maui.Controls.Shapes;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -18,24 +17,23 @@ internal sealed class QueueTrackRow : Border
     private readonly GraphicsView _graphics;
     private readonly Grid _content;
     private QueueTrackItem? _shown;
-    private readonly bool _played;
+    private bool _played;
+    private bool _current;
     private long _marqueeStart;
     private bool _selected;
     private Color? _accent;
 
-    public QueueTrackRow(TrackFile file, bool played)
+    public QueueTrackRow()
     {
-        File = file;
-        _played = played;
         HeightRequest = RowHeight;
         Padding = new Thickness(7, 5);
         StrokeThickness = 1;
         StrokeShape = new RoundRectangle { CornerRadius = 8 };
         _graphics = new GraphicsView { Drawable = _text, InputTransparent = true };
         DragHandle = new Image { Source = "player_reorder.png", WidthRequest = 24, HeightRequest = 36,
-            VerticalOptions = LayoutOptions.Center, Aspect = Aspect.AspectFit, IsVisible = !played };
+            VerticalOptions = LayoutOptions.Center, Aspect = Aspect.AspectFit };
         SemanticProperties.SetDescription(DragHandle, "Перетащить трек");
-        _content = new Grid { ColumnSpacing = 5, ColumnDefinitions = [new(0), new(GridLength.Star), new(played ? 0 : 24)] };
+        _content = new Grid { ColumnSpacing = 5, ColumnDefinitions = [new(0), new(GridLength.Star), new(24)] };
         _content.Add(_cover);
         _content.Add(_graphics, 1);
         _content.Add(DragHandle, 2);
@@ -43,14 +41,13 @@ internal sealed class QueueTrackRow : Border
         Content = _content;
     }
 
-    public TrackFile File { get; }
     public View DragHandle { get; }
     public bool IsPlayed => _played;
 
     /// <summary>Updates only changed tags or colors so pending rows can stay under the pointer.</summary>
-    public void Show(QueueTrackItem item, bool selected, Color accent)
+    public void Show(QueueTrackItem item, bool current, bool played, bool selected, Color accent)
     {
-        if (_shown == item && _selected == selected && _accent == accent)
+        if (_shown == item && _current == current && _played == played && _selected == selected && _accent == accent)
         {
             return;
         }
@@ -72,14 +69,19 @@ internal sealed class QueueTrackRow : Border
             _text.Seconds = 0;
         }
         _shown = item;
+        _current = current;
+        _played = played;
         _selected = selected;
         _accent = accent;
         _text.Color = _played ? Colors.LightGray : MixerStyle.TextColor;
-        Stroke = selected ? accent.WithAlpha(.65f) : Colors.Transparent;
-        BackgroundColor = selected ? MixerStyle.SelectedBackground : _played ? Color.FromArgb("#3B3E47") : MixerStyle.ButtonBackground;
+        _text.Status = current ? "Играет" : null;
+        _text.StatusColor = accent;
+        Stroke = current ? accent : selected ? accent.WithAlpha(.65f) : Colors.Transparent;
+        BackgroundColor = current || selected ? MixerStyle.SelectedBackground : _played ? Color.FromArgb("#3B3E47") : MixerStyle.ButtonBackground;
         SemanticProperties.SetDescription(this, string.Join(". ", new[]
         {
-            item.Title, item.Artist, _played ? "Проигран. Нажми, чтобы начать отсюда." :
+            item.Title, item.Artist, current ? "Играет" :
+                _played ? "До текущего трека. Нажми, чтобы начать отсюда." :
                 selected ? "Следующий трек. Повторное нажатие запускает сведение." : null,
             item.IsAnalyzing ? "Анализируется" : null
         }.Where(text => !string.IsNullOrWhiteSpace(text))));
@@ -112,6 +114,8 @@ internal sealed class QueueTrackRow : Border
         public string Title { get; set; } = "";
         public string? Artist { get; set; }
         public Color Color { get; set; } = Colors.White;
+        public string? Status { get; set; }
+        public Color StatusColor { get; set; } = Colors.White;
         public double Seconds { get; set; }
         public bool IsOverflowing { get; private set; }
 
@@ -124,7 +128,17 @@ internal sealed class QueueTrackRow : Border
             }
             canvas.SaveState();
             canvas.ClipRectangle(bounds);
-            if (string.IsNullOrWhiteSpace(Artist))
+            if (Status is { } status)
+            {
+                float lineHeight = bounds.Height / (string.IsNullOrWhiteSpace(Artist) ? 2 : 3);
+                DrawLine(canvas, new(bounds.X, bounds.Y, bounds.Width, lineHeight), status, ArtistFont, 10, StatusColor);
+                DrawLine(canvas, new(bounds.X, bounds.Y + lineHeight, bounds.Width, lineHeight), Title, TitleFont, 12, Color);
+                if (!string.IsNullOrWhiteSpace(Artist))
+                {
+                    DrawLine(canvas, new(bounds.X, bounds.Y + 2 * lineHeight, bounds.Width, lineHeight), Artist, ArtistFont, 10, MixerStyle.Muted);
+                }
+            }
+            else if (string.IsNullOrWhiteSpace(Artist))
             {
                 DrawLine(canvas, bounds, Title, TitleFont, 13, Color);
             }

@@ -17,6 +17,9 @@ public enum SpectrumColorMode
 /// <summary>Contains the user-facing preferences for playback and the player visuals.</summary>
 public sealed record PlayerSettings
 {
+    public const int MinimumWaveformDetailSeconds = 5;
+    public const int DefaultWaveformDetailSeconds = 15;
+    public const int MaximumWaveformDetailSeconds = 60;
     public const int MaximumSpectrumPaddingRows = 28;
     public const int MaximumSpectrumWidthPercent = 45;
 
@@ -25,6 +28,7 @@ public sealed record PlayerSettings
     public int CrossfadeMilliseconds { get; init; } = 6000;
     public bool AutoMix { get; init; } = true;
     public bool WaveformOverview { get; init; }
+    public int WaveformDetailSeconds { get; init; } = DefaultWaveformDetailSeconds;
     public PlayerPalette Palette { get; init; }
     public SpectrumColorMode SpectrumColors { get; init; }
     public bool SpectrumLevelBrightness { get; init; }

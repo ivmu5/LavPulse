@@ -132,11 +132,13 @@ public sealed class DeckView : Border
     }
 
     /// <summary>Restyles both timelines while retaining position and seek gestures.</summary>
-    internal void SetAppearance(bool waveformOverview, PlayerColors colors)
+    internal void SetAppearance(PlayerSettings settings, PlayerColors colors)
     {
-        _overviewDrawable.UseProgressBar = !waveformOverview;
+        _overviewDrawable.UseProgressBar = !settings.WaveformOverview;
+        _detailDrawable.DetailWindowSeconds = _overviewDrawable.DetailWindowSeconds = Math.Clamp(settings.WaveformDetailSeconds,
+            PlayerSettings.MinimumWaveformDetailSeconds, PlayerSettings.MaximumWaveformDetailSeconds);
         _detailDrawable.Colors = _overviewDrawable.Colors = colors;
-        SemanticProperties.SetDescription(_overview, waveformOverview
+        SemanticProperties.SetDescription(_overview, settings.WaveformOverview
             ? "Обзорная волна. Жест вверх отменяет перемотку."
             : "Полоса прогресса. Жест вверх отменяет перемотку.");
         UpdateTitleColor();

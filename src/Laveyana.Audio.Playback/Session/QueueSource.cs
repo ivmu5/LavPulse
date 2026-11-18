@@ -43,11 +43,15 @@ internal sealed class QueueSource : IPcmSource, IDisposable
     }
 
     /// <summary>Preloads the candidate reader so the audio writer can switch without opening a file.</summary>
-    public bool SetNext(CachedTrack? track)
+    public bool SetNext(CachedTrack? track, CachedTrack? expectedCurrent = null)
     {
         lock (_gate)
         {
             if (_current is null || _fadeLength != 0 || ReferenceEquals(_current.Track, track))
+            {
+                return false;
+            }
+            if (expectedCurrent is not null && (_manual || !ReferenceEquals(_current.Track, expectedCurrent)))
             {
                 return false;
             }
