@@ -13,7 +13,8 @@ try
     CheckShortTrack();
     await CheckStartupAndRate(first, second);
     await CheckFeedSelection(first, second);
-    Console.WriteLine("OK: startup/pause envelopes, resume, per-track speed, mix seek lock, and queue feed selection.");
+    await CheckReplaceSuccessor(first, second);
+    Console.WriteLine("OK: startup/pause envelopes, resume, per-track speed, mix seek lock, queue feed selection and successor replacement.");
 }
 finally
 {
@@ -153,6 +154,33 @@ static async Task CheckFeedSelection(CachedTrack first, CachedTrack second)
     await session.RunAsync(new InMemoryOutput(source =>
     {
         Require(source.Render(block) == BlockSize && session.Snapshot.Current?.Track == second, "Re-enabling the queue did not restore the next track.");
+    }), 0, CancellationToken.None);
+}
+
+/// <summary>Checks that moving the active row to the end clears its successor without seeking.</summary>
+static async Task CheckReplaceSuccessor(CachedTrack first, CachedTrack second)
+{
+    using var session = new QueuePlaybackSession();
+    session.SetFirst(first);
+    Require(session.SetNext(second, first), "Could not set a successor for the active track.");
+    Require(session.Seek(first, first.Waveform.TotalFrames - 1), "Could not seek to the last frame.");
+    var before = session.Snapshot.Current;
+    Require(session.SetNext(null, first), "Could not clear the successor after moving the active row.");
+    Require(session.Snapshot.Current == before && !session.RequestMix(), "Clearing the successor changed the cursor or left a pending mix.");
+    var block = new float[BlockSize * PlaybackFormat.Channels];
+    await session.RunAsync(new InMemoryOutput(source =>
+    {
+        Require(source.Render(block) == 1 && source.Render(block) == 0 && session.Snapshot.Current?.Track == first,
+            "A cleared successor was still played.");
+    }), 0, CancellationToken.None);
+
+    Require(session.SetNext(second, first) && session.RequestMix(), "Moving the active row back could not restore the successor.");
+    Require(!session.SetNext(null, first), "Changing the queue undid an accepted transition request.");
+    await session.RunAsync(new InMemoryOutput(source =>
+    {
+        Require(source.Render(block) == BlockSize && session.Snapshot.Current?.Track == second,
+            "The restored successor was not promoted.");
+        Require(!session.SetNext(first, first), "A stale request changed the new track's successor.");
     }), 0, CancellationToken.None);
 }
 

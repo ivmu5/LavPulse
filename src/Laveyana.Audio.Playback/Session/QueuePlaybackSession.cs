@@ -18,6 +18,9 @@ public sealed class QueuePlaybackSession : IDisposable
     /// <summary>Sets the next prepared track without disturbing the playing deck.</summary>
     public bool SetNext(CachedTrack? track) => _queue.SetNext(track);
 
+    /// <summary>Changes the successor only while the expected track is active and no mix has been requested.</summary>
+    public bool SetNext(CachedTrack? track, CachedTrack expectedCurrent) => _queue.SetNext(track, expectedCurrent);
+
     /// <summary>Starts a transition on the next rendered block.</summary>
     public bool RequestMix() => _queue.RequestMix();
 

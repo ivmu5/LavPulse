@@ -157,13 +157,13 @@ public sealed class PlayerView : Grid
         var colors = PlayerColors.For(settings.Palette);
         _play.BackgroundColor = colors.Accent;
         _queue.Accent = colors.Accent;
-        CurrentDeck.SetAppearance(settings.WaveformOverview, colors);
-        IncomingDeck.SetAppearance(settings.WaveformOverview, colors);
+        CurrentDeck.SetAppearance(settings, colors);
+        IncomingDeck.SetAppearance(settings, colors);
         Spectrum.SetAppearance(colors, settings);
     }
 
-    public void ShowQueue(IReadOnlyList<TrackFile> upcoming, IReadOnlyList<TrackFile> played, Func<TrackFile, QueueTrackItem> read)
-        => _queue.ShowQueue(upcoming, played, read);
+    public void ShowQueue(IReadOnlyList<TrackFile> tracks, TrackFile? current, TrackFile? next, Func<TrackFile, QueueTrackItem> read)
+        => _queue.ShowQueue(tracks, current, next, read);
 
     /// <summary>Moves physical deck views without replacing the outgoing waveform during its exit.</summary>
     public void ShowDecks(QueueSnapshot snapshot, bool canSeek, bool showOverview)

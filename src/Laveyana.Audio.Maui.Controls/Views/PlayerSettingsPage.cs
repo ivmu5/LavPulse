@@ -31,6 +31,9 @@ public sealed class PlayerSettingsPage : ContentPage
         var autoMix = Toggle("Автомикс", settings.AutoMix, value => _settings = _settings with { AutoMix = value });
         var overview = Select("Полная дорожка", ["Полоса прогресса", "Цветная волна"], settings.WaveformOverview ? 1 : 0,
             index => _settings = _settings with { WaveformOverview = index == 1 });
+        var detail = Number("Длительность верхней волны", "с",
+            new(PlayerSettings.MinimumWaveformDetailSeconds, PlayerSettings.MaximumWaveformDetailSeconds, defaults.WaveformDetailSeconds, 1),
+            settings.WaveformDetailSeconds, value => _settings = _settings with { WaveformDetailSeconds = value });
         var palette = Select("Цвета", ["LavPulse", "Океан", "Тёплая"], (int)settings.Palette,
             index => _settings = _settings with { Palette = (PlayerPalette)index });
         var spectrum = Toggle("Показывать мастер-спектр", settings.ShowSpectrum, value => _settings = _settings with { ShowSpectrum = value });
@@ -51,7 +54,7 @@ public sealed class PlayerSettingsPage : ContentPage
             settings.SpectrumBottomPaddingRows, value => _settings = _settings with { SpectrumBottomPaddingRows = value });
         var width = Number("Ширина с каждой стороны", "%", new(0, PlayerSettings.MaximumSpectrumWidthPercent, defaults.SpectrumWidthPercent, 1),
             settings.SpectrumWidthPercent, value => _settings = _settings with { SpectrumWidthPercent = value });
-        NumericSettingInput[] numbers = [fadeIn.Input, fadeOut.Input, crossfade.Input, brightness.Input, fullBrightness.Input,
+        NumericSettingInput[] numbers = [fadeIn.Input, fadeOut.Input, crossfade.Input, detail.Input, brightness.Input, fullBrightness.Input,
             topPadding.Input, bottomPadding.Input, width.Input];
         var adaptiveBrightness = new CheckBox { IsChecked = settings.SpectrumLevelBrightness, Color = MixerStyle.Accent };
         SemanticProperties.SetDescription(adaptiveBrightness, "Яркость по уровню частоты");
@@ -72,7 +75,7 @@ public sealed class PlayerSettingsPage : ContentPage
             ("Воспроизведение", Page(
                 Section("Плавный старт и пауза", Pair(fadeIn.Row, fadeOut.Row)),
                 Section("Переход между треками", autoMix.Row, crossfade.Row))),
-            ("Оформление", Page(Section("Плеер и деки", Pair(palette.Row, overview.Row)))),
+            ("Оформление", Page(Section("Плеер и деки", palette.Row, Pair(detail.Row, overview.Row)))),
             ("Спектр", Page(
                 Section("Геометрия и видимость", Pair(spectrum.Row, peaks.Row), width.Row, Pair(topPadding.Row, bottomPadding.Row)),
                 Section("Цвет и яркость", spectrumColors.Row, brightnessToggle, brightnessOptions))),

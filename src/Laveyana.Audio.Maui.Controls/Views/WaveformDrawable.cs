@@ -9,6 +9,7 @@ internal sealed class WaveformDrawable : IDrawable
 
     public TrackWaveform? Waveform { get; set; }
     public bool Detailed { get; init; }
+    public int DetailWindowSeconds { get; set; } = PlayerSettings.DefaultWaveformDetailSeconds;
     public long Position { get; set; }
     public long? Preview { get; set; }
 
@@ -46,15 +47,15 @@ internal sealed class WaveformDrawable : IDrawable
             return;
         }
 
-        long length = Detailed ? Math.Min(waveform.TotalFrames, 15L * PlaybackFormat.SampleRate) : waveform.TotalFrames;
-        long windowStart = Detailed ? Math.Clamp((Preview ?? Position) - length / 2, 0, waveform.TotalFrames - length) : 0;
+        long detailLength = Math.Min(waveform.TotalFrames, (long)DetailWindowSeconds * PlaybackFormat.SampleRate);
+        long detailStart = Math.Clamp((Preview ?? Position) - detailLength / 2, 0, waveform.TotalFrames - detailLength);
+        long length = Detailed ? detailLength : waveform.TotalFrames;
+        long windowStart = Detailed ? detailStart : 0;
         if (!Detailed)
         {
-            long span = Math.Min(waveform.TotalFrames, 15L * PlaybackFormat.SampleRate);
-            long start = Math.Clamp((Preview ?? Position) - span / 2, 0, waveform.TotalFrames - span);
             canvas.FillColor = Colors.Accent.WithAlpha(.16f);
-            canvas.FillRectangle(x + width * start / waveform.TotalFrames, bounds.Y + 4,
-                width * span / waveform.TotalFrames, bounds.Height - 8);
+            canvas.FillRectangle(x + width * detailStart / waveform.TotalFrames, bounds.Y + 4,
+                width * detailLength / waveform.TotalFrames, bounds.Height - 8);
         }
 
         int columns = Math.Max(1, (int)(width / 1.65f));

@@ -2,55 +2,39 @@ using Laveyana.Audio.Playback;
 
 namespace Laveyana.Audio.Maui.Tracks;
 
-/// <summary>Maintains upcoming order and a reversible boundary between played and upcoming tracks.</summary>
+/// <summary>Maintains one ordered playlist with playback anchored to a track, even when it moves.</summary>
 internal sealed class PlaybackQueue
 {
-    private readonly List<TrackFile> _upcoming = [];
-    private readonly List<TrackFile> _played = [];
+    private readonly List<TrackFile> _tracks = [];
+    private int CurrentIndex => Current is { } track ? _tracks.IndexOf(track) : -1;
 
-    public IReadOnlyList<TrackFile> Upcoming => _upcoming;
-    public IReadOnlyList<TrackFile> Played => _played;
-    public TrackFile? Next => _upcoming.FirstOrDefault();
+    public IReadOnlyList<TrackFile> Tracks => _tracks;
+    public TrackFile? Current { get; private set; }
+    public TrackFile? Next => At(CurrentIndex + 1);
+    public TrackFile? Previous => CurrentIndex is > 0 and var index ? _tracks[index - 1] : null;
 
-    public void AddRange(IEnumerable<TrackFile> files) => _upcoming.AddRange(files);
-    public void Remove(TrackFile file) => _upcoming.Remove(file);
+    public void AddRange(IEnumerable<TrackFile> files) => _tracks.AddRange(files);
+    public void Remove(TrackFile file) => _tracks.Remove(file);
+    public void SetCurrent(TrackFile file) => Current = file;
 
-    /// <summary>Makes a selected track next without changing the order of the other tracks.</summary>
-    public void Select(TrackFile file)
+    public bool IsBeforeCurrent(TrackFile file)
     {
-        _upcoming.Remove(file);
-        _upcoming.Insert(0, file);
+        int index = _tracks.IndexOf(file);
+        return index >= 0 && index < CurrentIndex;
     }
 
-    public void MarkPlayed(TrackFile file)
+    /// <summary>Moves an explicitly chosen upcoming track directly after the active track.</summary>
+    public void SelectNext(TrackFile file)
     {
-        _played.Remove(file);
-        _played.Add(file);
+        _tracks.Remove(file);
+        _tracks.Insert(CurrentIndex + 1, file);
     }
 
-    /// <summary>Requeues the selected history entry and all later entries in listening order.</summary>
-    public bool ReplayFrom(TrackFile file)
+    /// <summary>Moves any row without restarting playback. Commits only if a changed successor can be armed.</summary>
+    public bool Move(TrackFile from, TrackFile to, bool after, Func<TrackFile?, bool> changeNext)
     {
-        int from = _played.IndexOf(file);
-        if (from < 0)
-        {
-            return false;
-        }
-        var replay = _played.GetRange(from, _played.Count - from);
-        _played.RemoveRange(from, replay.Count);
-        foreach (var replayed in replay)
-        {
-            _upcoming.Remove(replayed);
-        }
-        _upcoming.InsertRange(0, replay);
-        return true;
-    }
-
-    /// <summary>Moves an upcoming row only after the player agrees to replace the next PCM reader.</summary>
-    public bool Move(TrackFile from, TrackFile to, bool after, Func<TrackFile, bool> changeNext)
-    {
-        int source = _upcoming.IndexOf(from);
-        int target = _upcoming.IndexOf(to);
+        int source = _tracks.IndexOf(from);
+        int target = _tracks.IndexOf(to);
         if (source < 0 || target < 0 || source == target)
         {
             return false;
@@ -60,12 +44,20 @@ internal sealed class PlaybackQueue
         {
             return false;
         }
-        if (position == 0 && !changeNext(from) || source == 0 && !changeNext(_upcoming[1]))
+
+        var previousNext = Next;
+        _tracks.RemoveAt(source);
+        _tracks.Insert(position, from);
+        var next = Next;
+        if (ReferenceEquals(previousNext, next) || changeNext(next))
         {
-            return false;
+            return true;
         }
-        _upcoming.RemoveAt(source);
-        _upcoming.Insert(position, from);
-        return true;
+
+        _tracks.RemoveAt(position);
+        _tracks.Insert(source, from);
+        return false;
     }
+
+    private TrackFile? At(int index) => (uint)index < (uint)_tracks.Count ? _tracks[index] : null;
 }
