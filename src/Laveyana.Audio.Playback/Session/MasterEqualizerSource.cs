@@ -3,11 +3,12 @@ namespace Laveyana.Audio.Playback;
 /// <summary>Filters the mixed stereo signal using a cascade of peaking filters.</summary>
 internal sealed class MasterEqualizerSource(IPcmSource source) : IPcmSource
 {
-    private static readonly Coefficients[] Bypass = [];
+    private sealed record Profile(Coefficients[] Filters, double Gain);
+    private static readonly Profile Bypass = new([], 1);
     private readonly int _rampFrames = Math.Max(1, source.SampleRate / 100);
     private readonly FilterBank _first = new();
     private readonly FilterBank _second = new();
-    private Coefficients[] _requested = Bypass;
+    private Profile _requested = Bypass;
     private bool _firstIsActive = true;
     private int _remaining;
 
@@ -33,7 +34,8 @@ internal sealed class MasterEqualizerSource(IPcmSource source) : IPcmSource
                 filters.Add(Coefficients.Peaking(SampleRate, center, center / (upper - lower), gain));
             }
         }
-        Volatile.Write(ref _requested, filters.Count == 0 ? Bypass : filters.ToArray());
+        var outputGain = settings.Enabled ? Math.Pow(10, settings.OutputGainDb / 20) : 1;
+        Volatile.Write(ref _requested, filters.Count == 0 && outputGain == 1 ? Bypass : new Profile(filters.ToArray(), outputGain));
     }
 
     /// <summary>Starts a new output run with fresh filter state and the latest settings.</summary>
@@ -54,7 +56,7 @@ internal sealed class MasterEqualizerSource(IPcmSource source) : IPcmSource
         var active = _firstIsActive ? _first : _second;
         var target = _firstIsActive ? _second : _first;
         var requested = Volatile.Read(ref _requested);
-        if (_remaining == 0 && !ReferenceEquals(active.Filters, requested))
+        if (_remaining == 0 && !ReferenceEquals(active.Settings, requested))
         {
             target.Use(requested);
             _remaining = _rampFrames;
@@ -77,7 +79,7 @@ internal sealed class MasterEqualizerSource(IPcmSource source) : IPcmSource
             }
         }
 
-        if (active.Filters.Length != 0)
+        if (!ReferenceEquals(active.Settings, Bypass))
         {
             for (int sample = frame * PlaybackFormat.Channels; sample < frames * PlaybackFormat.Channels; sample += PlaybackFormat.Channels)
             {
@@ -119,23 +121,24 @@ internal sealed class MasterEqualizerSource(IPcmSource source) : IPcmSource
     {
         private readonly FilterState[] _left = new FilterState[EqualizerSettings.Frequencies.Count];
         private readonly FilterState[] _right = new FilterState[EqualizerSettings.Frequencies.Count];
-        public Coefficients[] Filters { get; private set; } = Bypass;
+        public Profile Settings { get; private set; } = Bypass;
 
-        public void Use(Coefficients[] filters)
+        public void Use(Profile settings)
         {
-            Filters = filters;
+            Settings = settings;
             Array.Clear(_left);
             Array.Clear(_right);
         }
 
         public void Process(ref float left, ref float right)
         {
-            double a = left;
-            double b = right;
-            for (int band = 0; band < Filters.Length; band++)
+            double a = left * Settings.Gain;
+            double b = right * Settings.Gain;
+            var filters = Settings.Filters;
+            for (int band = 0; band < filters.Length; band++)
             {
-                a = _left[band].Process(a, in Filters[band]);
-                b = _right[band].Process(b, in Filters[band]);
+                a = _left[band].Process(a, in filters[band]);
+                b = _right[band].Process(b, in filters[band]);
             }
             left = (float)a;
             right = (float)b;

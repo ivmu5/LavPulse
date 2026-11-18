@@ -14,15 +14,20 @@ public sealed partial class MasterSpectrumView : ContentView
     public MasterSpectrumView()
     {
         InputTransparent = true;
+        QueueDrawable = new QueueSpectrum(_drawable);
         _graphics = new GraphicsView { Drawable = _drawable, InputTransparent = true };
         Content = _graphics;
     }
+
+    internal IDrawable QueueDrawable { get; }
+    internal event Action? VisualizationChanged;
 
     internal void SetAppearance(PlayerColors colors, PlayerSettings settings)
     {
         _drawable.SetAppearance(colors, settings);
         IsVisible = settings.ShowSpectrum && settings.SpectrumWidthPercent > 0;
         _graphics.Invalidate();
+        VisualizationChanged?.Invoke();
     }
 
     /// <summary>Subscribes to a display clock and obtains spectrum snapshots during playback.</summary>
@@ -52,6 +57,7 @@ public sealed partial class MasterSpectrumView : ContentView
         Array.Clear(_levels);
         _drawable.Reset();
         _graphics.Invalidate();
+        VisualizationChanged?.Invoke();
     }
 
     /// <summary>Reads the next audible spectrum and applies elapsed-time smoothing.</summary>
@@ -73,7 +79,13 @@ public sealed partial class MasterSpectrumView : ContentView
         if (_drawable.Advance(_levels, elapsed))
         {
             _graphics.Invalidate();
+            VisualizationChanged?.Invoke();
         }
+    }
+
+    private sealed class QueueSpectrum(SpectrumDrawable source) : IDrawable
+    {
+        public void Draw(ICanvas canvas, RectF dirtyRect) => source.DrawQueueBackground(canvas, dirtyRect);
     }
 
     /// <summary>Starts the display clock for the current platform.</summary>

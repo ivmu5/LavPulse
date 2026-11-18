@@ -16,6 +16,7 @@ internal sealed class SpectrumDrawable : IDrawable
     private int _topPaddingRows;
     private int _bottomPaddingRows;
     private float _widthFraction;
+    private bool _showSpectrum;
 
     public SpectrumDrawable() => SetAppearance(PlayerColors.For(PlayerPalette.LavPulse), new PlayerSettings());
 
@@ -23,6 +24,7 @@ internal sealed class SpectrumDrawable : IDrawable
     public void SetAppearance(PlayerColors colors, PlayerSettings settings)
     {
         _showPeaks = settings.ShowPeaks;
+        _showSpectrum = settings.ShowSpectrum;
         _fullBrightnessLevel = Math.Clamp(settings.SpectrumFullBrightnessPercent, 1, 100) / 100f;
         _topPaddingRows = Math.Clamp(settings.SpectrumTopPaddingRows, 0, PlayerSettings.MaximumSpectrumPaddingRows);
         _bottomPaddingRows = Math.Clamp(settings.SpectrumBottomPaddingRows, 0, PlayerSettings.MaximumSpectrumPaddingRows);
@@ -45,6 +47,26 @@ internal sealed class SpectrumDrawable : IDrawable
                 : Interpolate(colors.WaveMid, colors.Alternate, position * 2 - 1);
             _paint[band] = CreatePaint(color, color, minimum);
         }
+    }
+
+    /// <summary>Paints the same audible bands as a subdued background in the active queue row.</summary>
+    public void DrawQueueBackground(ICanvas canvas, RectF bounds)
+    {
+        if (!_showSpectrum || _widthFraction <= 0 || bounds.Width <= 0 || bounds.Height <= 0) return;
+        float spacing = bounds.Width / _bars.Length;
+        float width = spacing * .62f;
+        canvas.SaveState();
+        canvas.ClipRectangle(bounds);
+        canvas.Alpha = .48f;
+        for (int band = 0; band < _bars.Length; band++)
+        {
+            float level = _bars[band];
+            if (level <= 0) continue;
+            float height = bounds.Height * level;
+            canvas.FillColor = PaintAtLevel(_paint[band], level).LeftBar;
+            canvas.FillRoundedRectangle(bounds.Left + band * spacing, bounds.Bottom - height, width, height, Math.Min(width, height) / 2);
+        }
+        canvas.RestoreState();
     }
 
     private static Color Interpolate(Color from, Color to, float progress) => new(

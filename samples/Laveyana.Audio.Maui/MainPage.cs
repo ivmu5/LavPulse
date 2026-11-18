@@ -10,6 +10,10 @@ namespace Laveyana.Audio.Maui;
 public sealed class MainPage : ContentPage
 {
     private readonly PlayerView _view = new();
+#if WINDOWS
+    private readonly Grid _pageRoot = new();
+    private ContentView? _overlay;
+#endif
     private readonly QueuePlaybackSession _playback = new();
     private readonly CancellationTokenSource _lifetime = new();
     private readonly PlayerLibrary _library;
@@ -40,7 +44,12 @@ public sealed class MainPage : ContentPage
         _library = new PlayerLibrary(new TrackPreparation(FileSystem.CacheDirectory), _lifetime.Token);
         SafeAreaEdges = new SafeAreaEdges(SafeAreaRegions.None, SafeAreaRegions.Container, SafeAreaRegions.None, SafeAreaRegions.Container);
         BackgroundColor = _view.BackgroundColor;
+#if WINDOWS
+        _pageRoot.Children.Add(_view);
+        Content = _pageRoot;
+#else
         Content = _view;
+#endif
 
         _view.PlayRequested += async () => await TogglePlaybackAsync();
         _view.NextRequested += async () => await StartMixAsync();
@@ -53,6 +62,7 @@ public sealed class MainPage : ContentPage
         _view.QueueRequested += async file => await ChooseAsync(file);
         _view.HistoryRequested += async file => await ReplayHistoryAsync(file);
         _view.QueueMoveRequested += async (from, to, after) => await MoveQueueAsync(from, to, after);
+        _view.QueueRemoveRequested += async file => await RemoveQueueTrackAsync(file);
         _view.BindFileDrops(() => !_closed, AddFilesAsync);
         _view.CurrentDeck.SeekRequested += Seek;
         _view.IncomingDeck.SeekRequested += Seek;
@@ -124,7 +134,7 @@ public sealed class MainPage : ContentPage
             return;
         }
 
-        var added = _library.Add(files);
+        var added = _library.Add(files, _queue.Tracks);
         _queue.AddRange(added);
         foreach (var file in added)
         {
@@ -257,6 +267,24 @@ public sealed class MainPage : ContentPage
         if (_selected is { } next && !ReferenceEquals(_armed, next))
         {
             await ArmAsync(next);
+        }
+    }
+
+    private async Task RemoveQueueTrackAsync(TrackFile file)
+    {
+        if (_closed || _loadingFirst || _recommendations || IsTransitioning(_playback.Snapshot) ||
+            !_queue.TryRemove(file, next => _shownCurrent is null || TrySetSelection(next)))
+        {
+            return;
+        }
+        if (_repeatOne && ReferenceEquals(file, _queue.Current))
+        {
+            ToggleRepeatOne();
+        }
+        UpdateQueue();
+        if (_selected is { } nextTrack && !ReferenceEquals(_armed, nextTrack))
+        {
+            await ArmAsync(nextTrack);
         }
     }
 
@@ -570,7 +598,7 @@ public sealed class MainPage : ContentPage
     }
 
     private Task OpenEqualizerAsync() =>
-        OpenModalAsync(() => new EqualizerPage(_equalizer, ApplyEqualizer, PlayerPreferences.SaveEqualizer));
+        OpenModalAsync(dismiss => new EqualizerPage(_equalizer, ApplyEqualizer, PlayerPreferences.SaveEqualizer, dismiss));
 
     private void SelectRecommendations(bool enabled)
     {
@@ -580,9 +608,9 @@ public sealed class MainPage : ContentPage
     }
 
     private Task OpenSettingsAsync() =>
-        OpenModalAsync(() => new PlayerSettingsPage(_settings, value => ApplySettings(value), PickFilesAsync, PickFolderAsync));
+        OpenModalAsync(dismiss => new PlayerSettingsPage(_settings, value => ApplySettings(value), PickFilesAsync, PickFolderAsync, dismiss));
 
-    private async Task OpenModalAsync(Func<Page> createPage)
+    private async Task OpenModalAsync(Func<Func<Task>?, ContentPage> createPage)
     {
         if (_closed || _openingSettings || Navigation.ModalStack.Count > 0)
         {
@@ -592,13 +620,38 @@ public sealed class MainPage : ContentPage
         _openingSettings = true;
         try
         {
-            await Navigation.PushModalAsync(createPage());
+#if WINDOWS
+            // Switching native MAUI window roots can reactivate an AppWindow title bar that is disabled.
+            if (_overlay is not null) return;
+            var page = createPage(CloseOverlayAsync);
+            var content = page.Content;
+            page.Content = null;
+            _overlay = new ContentView { Content = content, BackgroundColor = page.BackgroundColor };
+            _view.IsEnabled = false;
+            _pageRoot.Children.Add(_overlay);
+            await Task.CompletedTask;
+#else
+            await Navigation.PushModalAsync(createPage(null));
+#endif
         }
         finally
         {
             _openingSettings = false;
         }
     }
+
+#if WINDOWS
+    private Task CloseOverlayAsync()
+    {
+        if (_overlay is { } overlay)
+        {
+            _pageRoot.Children.Remove(overlay);
+            _overlay = null;
+            _view.IsEnabled = true;
+        }
+        return Task.CompletedTask;
+    }
+#endif
 
     private void ApplySettings(PlayerSettings value, bool save = true)
     {
@@ -615,7 +668,7 @@ public sealed class MainPage : ContentPage
 
     private void UpdateQueue()
     {
-        _view.ShowQueue(_queue.Tracks, _queue.Current, _selected ?? _queue.Next, ReadQueueItem);
+        _view.ShowQueue(_queue.Tracks, _queue.Current, _selected ?? _queue.Next, _queue.PlayedCount, ReadQueueItem);
         UpdateTransport();
     }
 

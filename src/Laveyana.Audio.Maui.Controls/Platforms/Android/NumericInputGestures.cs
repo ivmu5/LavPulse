@@ -7,7 +7,7 @@ namespace Laveyana.Audio.Maui.Controls;
 internal static class NumericInputGestures
 {
     /// <summary>Supports a hardware mouse and distinguishes a slider double tap from two drags.</summary>
-    public static void Attach(MauiView view, Func<double, bool> scroll, Action? reset = null)
+    public static void Attach(MauiView view, Func<double, bool> scroll, Action? reset = null, bool vertical = false)
     {
         PointF? press = null;
         PointF? previousTap = null;
@@ -33,6 +33,12 @@ internal static class NumericInputGestures
             }
 
             var position = new PointF(motion.GetX(), motion.GetY());
+            if (vertical)
+            {
+                if (motion.ActionMasked == MotionEventActions.Down) native.Parent?.RequestDisallowInterceptTouchEvent(true);
+                if (motion.ActionMasked is MotionEventActions.Up or MotionEventActions.Cancel)
+                    native.Parent?.RequestDisallowInterceptTouchEvent(false);
+            }
             switch (motion.ActionMasked)
             {
                 case MotionEventActions.Down:
@@ -82,6 +88,7 @@ internal static class NumericInputGestures
                 native.GenericMotion -= Wheel;
                 if (reset is not null)
                 {
+                    if (vertical) native.Parent?.RequestDisallowInterceptTouchEvent(false);
                     native.Touch -= Touch;
                     press = previousTap = null;
                 }

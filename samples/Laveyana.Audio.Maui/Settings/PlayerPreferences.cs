@@ -9,7 +9,8 @@ internal static class PlayerPreferences
     /// <summary>Loads the saved master EQ without changing the default bypass for new installs.</summary>
     public static EqualizerSettings LoadEqualizer()
     {
-        var settings = EqualizerSettings.Flat.WithEnabled(Preferences.Default.Get("equalizer-enabled", false));
+        var settings = EqualizerSettings.Flat.WithEnabled(Preferences.Default.Get("equalizer-enabled", false))
+            .WithOutputGain(Preferences.Default.Get("equalizer-output-gain", 0d));
         for (int band = 0; band < EqualizerSettings.Frequencies.Count; band++)
         {
             settings = settings.WithGain(band, Preferences.Default.Get($"equalizer-gain-{band}", 0d));
@@ -20,6 +21,7 @@ internal static class PlayerPreferences
     public static void SaveEqualizer(EqualizerSettings settings)
     {
         Preferences.Default.Set("equalizer-enabled", settings.Enabled);
+        Preferences.Default.Set("equalizer-output-gain", settings.OutputGainDb);
         for (int band = 0; band < EqualizerSettings.Frequencies.Count; band++)
         {
             Preferences.Default.Set($"equalizer-gain-{band}", settings.GainAt(band));

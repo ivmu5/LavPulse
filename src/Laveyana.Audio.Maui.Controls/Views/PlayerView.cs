@@ -34,6 +34,36 @@ public sealed class PlayerView : Grid
         _body.Add(player);
         this.Add(_body);
 
+        _queue.SetMasterSpectrum(Spectrum.QueueDrawable);
+        Spectrum.VisualizationChanged += _queue.InvalidateMasterSpectrum;
+        var removeLabel = MixerStyle.Label("Убрать", 11);
+        removeLabel.HorizontalTextAlignment = TextAlignment.Center;
+        var removeTarget = new Border
+        {
+            WidthRequest = 24, HorizontalOptions = LayoutOptions.End, Margin = new Thickness(0, 52, 0, 0),
+            BackgroundColor = Color.FromArgb("#BF882F44"), StrokeThickness = 0, Opacity = 0, InputTransparent = true,
+            Content = new VerticalStackLayout
+            {
+                VerticalOptions = LayoutOptions.Center, Spacing = 4,
+                Children =
+                {
+                    new Image { Source = "player_cancel.png", WidthRequest = 16, HeightRequest = 16, HorizontalOptions = LayoutOptions.Center },
+                    removeLabel
+                }
+            }
+        };
+        removeLabel.IsVisible = false;
+        SizeChanged += (_, _) =>
+        {
+            // Leave the drag handle's column available for ordinary vertical moves.
+            bool wide = Width >= 860;
+            removeTarget.WidthRequest = wide ? 58 : 24;
+            removeLabel.IsVisible = wide;
+        };
+        SemanticProperties.SetDescription(removeTarget, "Отпусти правее, чтобы убрать трек из очереди.");
+        _queue.AttachRemovalTarget(removeTarget);
+        this.Add(removeTarget);
+
         _queue.ShowCurrent(null);
         CurrentDeck.Show(null, false);
         IncomingDeck.Show(null, false);
@@ -113,6 +143,11 @@ public sealed class PlayerView : Grid
         add => _queue.MoveRequested += value;
         remove => _queue.MoveRequested -= value;
     }
+    public event Action<TrackFile>? QueueRemoveRequested
+    {
+        add => _queue.RemoveRequested += value;
+        remove => _queue.RemoveRequested -= value;
+    }
     public event Action? SettingsRequested;
     public event Action<bool>? RecommendationsSelected
     {
@@ -187,8 +222,8 @@ public sealed class PlayerView : Grid
         Spectrum.SetAppearance(colors, settings);
     }
 
-    public void ShowQueue(IReadOnlyList<TrackFile> tracks, TrackFile? current, TrackFile? next, Func<TrackFile, QueueTrackItem> read)
-        => _queue.ShowQueue(tracks, current, next, read);
+    public void ShowQueue(IReadOnlyList<TrackFile> tracks, TrackFile? current, TrackFile? next, int playedCount, Func<TrackFile, QueueTrackItem> read)
+        => _queue.ShowQueue(tracks, current, next, playedCount, read);
 
     /// <summary>Moves physical deck views without replacing the outgoing waveform during its exit.</summary>
     public void ShowDecks(QueueSnapshot snapshot, bool canSeek, bool showOverview)
