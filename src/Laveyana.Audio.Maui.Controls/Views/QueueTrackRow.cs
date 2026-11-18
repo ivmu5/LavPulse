@@ -158,22 +158,22 @@ internal sealed class QueueTrackRow : Border
             if (Status is { } status)
             {
                 float lineHeight = bounds.Height / (string.IsNullOrWhiteSpace(Artist) ? 2 : 3);
-                DrawLine(canvas, new(bounds.X, bounds.Y, bounds.Width, lineHeight), status, ArtistFont, 10, StatusColor);
-                DrawLine(canvas, new(bounds.X, bounds.Y + lineHeight, bounds.Width, lineHeight), Title, TitleFont, 12, Color);
+                DrawLine(canvas, new(bounds.X, bounds.Y, bounds.Width, lineHeight), status, ArtistFont, (float)MixerStyle.PhoneFont(10, 9), StatusColor);
+                DrawLine(canvas, new(bounds.X, bounds.Y + lineHeight, bounds.Width, lineHeight), Title, TitleFont, (float)MixerStyle.PhoneFont(12, 11), Color);
                 if (!string.IsNullOrWhiteSpace(Artist))
                 {
-                    DrawLine(canvas, new(bounds.X, bounds.Y + 2 * lineHeight, bounds.Width, lineHeight), Artist, ArtistFont, 10, MixerStyle.Muted);
+                    DrawLine(canvas, new(bounds.X, bounds.Y + 2 * lineHeight, bounds.Width, lineHeight), Artist, ArtistFont, (float)MixerStyle.PhoneFont(10, 9), MixerStyle.Muted);
                 }
             }
             else if (string.IsNullOrWhiteSpace(Artist))
             {
-                DrawLine(canvas, bounds, Title, TitleFont, 13, Color);
+                DrawLine(canvas, bounds, Title, TitleFont, (float)MixerStyle.PhoneFont(13, 12), Color);
             }
             else
             {
                 float center = bounds.Center.Y;
-                DrawLine(canvas, new(bounds.X, center - 17, bounds.Width, 18), Title, TitleFont, 13, Color);
-                DrawLine(canvas, new(bounds.X, center + 1, bounds.Width, 17), Artist, ArtistFont, 11, MixerStyle.Muted);
+                DrawLine(canvas, new(bounds.X, center - 17, bounds.Width, 18), Title, TitleFont, (float)MixerStyle.PhoneFont(13, 12), Color);
+                DrawLine(canvas, new(bounds.X, center + 1, bounds.Width, 17), Artist, ArtistFont, (float)MixerStyle.PhoneFont(11, 10), MixerStyle.Muted);
             }
             canvas.RestoreState();
         }

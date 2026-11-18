@@ -28,6 +28,9 @@ public sealed class PlayerView : Grid
         BackgroundColor = MixerStyle.Background;
         IsClippedToBounds = true;
         this.Add(Spectrum);
+        Spectrum.FrameRateHost = this;
+        Spectrum.PlaybackFrame += DrawPlayheads;
+        _automix.FontSize = _settings.FontSize = MixerStyle.PhoneFont(12, 10.5);
         _decks.Children.Add(CurrentDeck);
         _decks.Children.Add(IncomingDeck);
         var player = CreatePlayerLayout();
@@ -72,11 +75,6 @@ public sealed class PlayerView : Grid
     /// <summary>Keeps playback controls at the bottom and gives the waves room to scroll in short windows.</summary>
     private View CreatePlayerLayout()
     {
-        var upper = new ScrollView
-        {
-            VerticalScrollBarVisibility = ScrollBarVisibility.Never,
-            Content = _queue
-        };
         var deckScroll = new ScrollView
         {
             VerticalScrollBarVisibility = ScrollBarVisibility.Never,
@@ -86,15 +84,16 @@ public sealed class PlayerView : Grid
 #if WINDOWS
         topPadding += WindowsWindowChrome.ContentInset;
 #endif
+        int sidePadding = MixerStyle.IsPhone ? 12 : 16;
         var player = new Grid
         {
             HorizontalOptions = LayoutOptions.Center,
             MaximumWidthRequest = 760,
-            Padding = new Thickness(16, topPadding, 16, 12),
+            Padding = new Thickness(sidePadding, topPadding, sidePadding, 12),
             RowSpacing = 8,
             RowDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto)]
         };
-        player.Add(upper);
+        player.Add(_queue);
         player.Add(deckScroll, row: 1);
         player.Add(new VerticalStackLayout { Spacing = 5, Children = { Status, CreateTransport() } }, row: 2);
         Status.IsVisible = false;
@@ -224,6 +223,34 @@ public sealed class PlayerView : Grid
 
     public void ShowQueue(IReadOnlyList<TrackFile> tracks, TrackFile? current, TrackFile? next, int playedCount, Func<TrackFile, QueueTrackItem> read)
         => _queue.ShowQueue(tracks, current, next, playedCount, read);
+
+    /// <summary>Starts both playhead animation and spectrum rendering on the same display clock.</summary>
+    public void StartPlaybackVisuals(Func<ISpectrumSource?> getSpectrum)
+    {
+        CurrentDeck.SetPlayheadAnimation(true);
+        IncomingDeck.SetPlayheadAnimation(true);
+        Spectrum.Start(getSpectrum);
+    }
+
+    public void StopPlaybackVisuals()
+    {
+        Spectrum.Stop();
+        CurrentDeck.SetPlayheadAnimation(false);
+        IncomingDeck.SetPlayheadAnimation(false);
+    }
+
+    public void SnapPlayheadsOnNextPosition()
+    {
+        CurrentDeck.SnapOnNextPosition();
+        IncomingDeck.SnapOnNextPosition();
+    }
+
+    private void DrawPlayheads()
+    {
+        double time = DeckPlayhead.Now;
+        CurrentDeck.DrawPlayhead(time);
+        if (!ReferenceEquals(IncomingDeck, _leavingDeck)) IncomingDeck.DrawPlayhead(time);
+    }
 
     /// <summary>Moves physical deck views without replacing the outgoing waveform during its exit.</summary>
     public void ShowDecks(QueueSnapshot snapshot, bool canSeek, bool showOverview)
