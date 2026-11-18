@@ -25,16 +25,9 @@ internal sealed class TrackQueueView : Grid
         ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)];
         ColumnSpacing = 16;
         MinimumHeightRequest = 208;
-        var tabs = new Grid { ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Star)], ColumnSpacing = 4 };
-        _queueTab.FontSize = _recommendationsTab.FontSize = 10;
-        _queueTab.Padding = _recommendationsTab.Padding = new Thickness(4, 4);
-        _queueTab.Clicked += (_, _) => SelectRecommendations(false);
-        _recommendationsTab.Clicked += (_, _) => SelectRecommendations(true);
-        tabs.Add(_queueTab);
-        tabs.Add(_recommendationsTab, 1);
         _queueScroll = new ScrollView { Content = _rows, MaximumHeightRequest = 176 };
         _recommendations.IsVisible = false;
-        _queue = new VerticalStackLayout { Spacing = 7, Children = { tabs, _queueScroll, _recommendations } };
+        _queue = new VerticalStackLayout { Spacing = 7, Children = { CreateFeedSelector(), _queueScroll, _recommendations } };
         SetTabColors();
         _right = new Grid { Children = { _queue, _incoming } };
         _incoming.IsVisible = false;
@@ -52,6 +45,28 @@ internal sealed class TrackQueueView : Grid
     public event Action<bool>? RecommendationsSelected;
     public Color Accent { get; set; } = MixerStyle.Accent;
 
+    /// <summary>Groups the two playback sources in a single segmented control.</summary>
+    private Border CreateFeedSelector()
+    {
+        _queueTab.FontSize = _recommendationsTab.FontSize = 10;
+        _queueTab.Padding = _recommendationsTab.Padding = new Thickness(4, 2);
+        _queueTab.CornerRadius = _recommendationsTab.CornerRadius = 7;
+        _queueTab.Clicked += (_, _) => SelectRecommendations(false);
+        _recommendationsTab.Clicked += (_, _) => SelectRecommendations(true);
+        var segments = new Grid { ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Star)] };
+        segments.Add(_queueTab);
+        segments.Add(_recommendationsTab, 1);
+        return new Border
+        {
+            BackgroundColor = MixerStyle.Surface,
+            Stroke = MixerStyle.BorderColor,
+            StrokeThickness = 1,
+            StrokeShape = new RoundRectangle { CornerRadius = 10 },
+            Padding = 2,
+            Content = segments
+        };
+    }
+
     /// <summary>Switches the visible feed and tells playback which source to use.</summary>
     private void SelectRecommendations(bool show)
     {
@@ -68,8 +83,10 @@ internal sealed class TrackQueueView : Grid
 
     private void SetTabColors()
     {
-        _queueTab.BackgroundColor = _showRecommendations ? MixerStyle.ButtonBackground : MixerStyle.SelectedBackground;
-        _recommendationsTab.BackgroundColor = _showRecommendations ? MixerStyle.SelectedBackground : MixerStyle.ButtonBackground;
+        _queueTab.BackgroundColor = _showRecommendations ? Colors.Transparent : MixerStyle.SelectedBackground;
+        _recommendationsTab.BackgroundColor = _showRecommendations ? MixerStyle.SelectedBackground : Colors.Transparent;
+        _queueTab.TextColor = _showRecommendations ? MixerStyle.Muted : MixerStyle.TextColor;
+        _recommendationsTab.TextColor = _showRecommendations ? MixerStyle.TextColor : MixerStyle.Muted;
         SemanticProperties.SetDescription(_queueTab, _showRecommendations ? "Очередь" : "Очередь, выбрана");
         SemanticProperties.SetDescription(_recommendationsTab, _showRecommendations ? "Рекомендации, выбраны" : "Рекомендации");
     }
@@ -107,8 +124,9 @@ internal sealed class TrackQueueView : Grid
     /// <summary>Expands the selected row into the full incoming card over the queue.</summary>
     public async Task BeginMixAsync(CachedTrack track, TrackFile? file)
     {
-        int animation = ++_animation;
+        _animation++;
         _queue.InputTransparent = true;
+        _queue.Opacity = 0;
         _incoming.Show(track, "Сведение");
         var row = file is not null && _buttons.TryGetValue(file, out var button) ? button : null;
         double originY = row is null ? 0 : Math.Clamp(_queueScroll.Y + row.Y - _queueScroll.ScrollY, 0, Math.Max(0, _right.Height - 44));
@@ -123,11 +141,6 @@ internal sealed class TrackQueueView : Grid
             _incoming.TranslateToAsync(0, 0, 260, Easing.CubicOut),
             _incoming.ScaleXToAsync(1, 260, Easing.CubicOut),
             _incoming.ScaleYToAsync(1, 260, Easing.CubicOut));
-        if (animation == _animation)
-        {
-            _queue.Opacity = 0;
-        }
-
     }
 
     /// <summary>Replaces the outgoing cover, then brings the next list in from the right edge.</summary>
@@ -139,7 +152,6 @@ internal sealed class TrackQueueView : Grid
         _incoming.Show(track);
         _incoming.ScaleX = _incoming.ScaleY = 1;
         _incoming.TranslationY = 0;
-        _incoming.BackgroundColor = Colors.Transparent;
         _incoming.IsVisible = true;
         _queue.Opacity = 0;
         // The right-aligned artwork has its own inset within the second column.
@@ -158,7 +170,6 @@ internal sealed class TrackQueueView : Grid
         _current.TranslationX = _current.TranslationY = 0;
         _incoming.IsVisible = false;
         _incoming.TranslationX = 0;
-        _incoming.BackgroundColor = MixerStyle.Overlay;
         refreshQueue();
 
         // The parent page clips the content beyond the device's right edge.
@@ -227,10 +238,6 @@ internal sealed class TrackQueueView : Grid
             Children.Add(_cover);
             Children.Add(_title);
             Children.Add(_artist);
-            if (right)
-            {
-                BackgroundColor = MixerStyle.Overlay;
-            }
         }
 
         /// <summary>Shows imported tags and artwork, or a gradient for a file without cover art.</summary>

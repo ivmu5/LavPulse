@@ -11,6 +11,7 @@ public sealed class PlayerView : Grid
     private readonly ImageButton _previous = MixerStyle.IconButton("player_previous.png", 44);
     private readonly ImageButton _next = MixerStyle.IconButton("player_next.png", 44);
     private readonly Button _automix = MixerStyle.Button("Автомикс");
+    private readonly Button _settings = MixerStyle.Button("Настройки");
     private readonly TrackQueueView _queue = new();
     private readonly Grid _body = new() { IsClippedToBounds = true };
 
@@ -34,7 +35,7 @@ public sealed class PlayerView : Grid
         var upper = new ScrollView
         {
             VerticalScrollBarVisibility = ScrollBarVisibility.Never,
-            Content = new VerticalStackLayout { Spacing = 10, Children = { CreateHeader(), CreateImportActions(), _queue } }
+            Content = new VerticalStackLayout { Spacing = 10, Children = { CreateHeader(), _queue } }
         };
         var deckScroll = new ScrollView
         {
@@ -77,8 +78,6 @@ public sealed class PlayerView : Grid
     public DeckView CurrentDeck { get; } = new();
     public DeckView IncomingDeck { get; } = new();
     public Label Status { get; } = MixerStyle.Label("", 12, MixerStyle.Muted);
-    public Button AddFiles { get; } = MixerStyle.Button("Добавить MP3", primary: true);
-    public Button AddFolder { get; } = MixerStyle.Button("Выбрать папку");
 
     public event Action? PlayRequested;
     public event Action? PreviousRequested;
@@ -109,12 +108,7 @@ public sealed class PlayerView : Grid
         var name = MixerStyle.Label("LavPulse", 20, bold: true);
         name.VerticalOptions = LayoutOptions.Center;
         SemanticProperties.SetHeadingLevel(name, SemanticHeadingLevel.Level1);
-        var settings = MixerStyle.Button("Настройки");
-        settings.Clicked += (_, _) => SettingsRequested?.Invoke();
-        var header = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
-        header.Add(new HorizontalStackLayout { Spacing = 9, Children = { mark, name } });
-        header.Add(settings, 1);
-        return header;
+        return new HorizontalStackLayout { IsVisible = false, Spacing = 9, Children = { mark, name } };
     }
 
     /// <summary>Creates the centered transport and its accessible actions.</summary>
@@ -125,9 +119,12 @@ public sealed class PlayerView : Grid
             ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Star)]
         };
         _automix.HorizontalOptions = LayoutOptions.Start;
-        _automix.Padding = new Thickness(5, 5);
-        _automix.FontSize = 11;
+        _settings.HorizontalOptions = LayoutOptions.End;
+        _automix.VerticalOptions = _settings.VerticalOptions = LayoutOptions.Center;
+        _automix.Padding = _settings.Padding = new Thickness(5, 5);
+        _automix.FontSize = _settings.FontSize = 11;
         _automix.Clicked += (_, _) => AutoMixChanged?.Invoke();
+        _settings.Clicked += (_, _) => SettingsRequested?.Invoke();
         _play.Clicked += (_, _) => PlayRequested?.Invoke();
         _previous.Clicked += (_, _) => PreviousRequested?.Invoke();
         _next.Clicked += (_, _) => NextRequested?.Invoke();
@@ -135,27 +132,19 @@ public sealed class PlayerView : Grid
         SemanticProperties.SetDescription(_previous, "Предыдущий трек");
         controls.Add(_automix);
         controls.Add(new HorizontalStackLayout { Spacing = 5, Children = { _previous, _play, _next } }, 1);
+        controls.Add(_settings, 2);
         return controls;
-    }
-
-    /// <summary>Keeps file and folder import above the queue on both platforms.</summary>
-    private View CreateImportActions()
-    {
-        var row = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)], ColumnSpacing = 8 };
-        row.Add(AddFiles);
-        row.Add(AddFolder, 1);
-        return row;
     }
 
     /// <summary>Applies the saved palette and timeline settings to the player.</summary>
     public void ApplyAppearance(PlayerSettings settings)
     {
         var colors = PlayerColors.For(settings.Palette);
-        _play.BackgroundColor = AddFiles.BackgroundColor = colors.Accent;
+        _play.BackgroundColor = colors.Accent;
         _queue.Accent = colors.Accent;
         CurrentDeck.SetAppearance(settings.WaveformOverview, colors);
         IncomingDeck.SetAppearance(settings.WaveformOverview, colors);
-        Spectrum.SetAppearance(colors, settings.ShowSpectrum, settings.ShowPeaks);
+        Spectrum.SetAppearance(colors, settings.SpectrumColors, settings.ShowSpectrum, settings.ShowPeaks);
     }
 
     public void ShowQueue(IReadOnlyList<TrackFile> files, TrackFile? selected, Func<TrackFile, string> name) => _queue.ShowQueue(files, selected, name);

@@ -7,7 +7,7 @@ public sealed class PlayerSettingsPage : ContentPage
     private bool _loading;
     private PlayerSettings _settings;
 
-    public PlayerSettingsPage(PlayerSettings settings, Action<PlayerSettings> apply)
+    public PlayerSettingsPage(PlayerSettings settings, Action<PlayerSettings> apply, Func<Task> pickFiles, Func<Task> pickFolder)
     {
         _settings = settings;
         BackgroundColor = MixerStyle.Background;
@@ -33,14 +33,17 @@ public sealed class PlayerSettingsPage : ContentPage
         var palette = Select("Цвета", ["LavPulse", "Океан", "Тёплая"], (int)settings.Palette,
             index => _settings = _settings with { Palette = (PlayerPalette)index });
         var spectrum = Toggle("Показывать мастер-спектр", settings.ShowSpectrum, value => _settings = _settings with { ShowSpectrum = value });
+        var spectrumColors = Select("Цвет мастер-спектра", ["Два цвета", "Градиент по частотам", "Однотонный"],
+            (int)settings.SpectrumColors, index => _settings = _settings with { SpectrumColors = (SpectrumColorMode)index });
         var peaks = Toggle("Показывать пиковые метки", settings.ShowPeaks, value => _settings = _settings with { ShowPeaks = value });
 
         View[] sections =
         [
+            CreateLibrarySection(pickFiles, pickFolder),
             Section("Воспроизведение", fadeIn.Row, fadeOut.Row),
             Section("Сведение", autoMix.Row, crossfade.Row),
             Section("Дорожки", overview.Row),
-            Section("Оформление и спектр", palette.Row, spectrum.Row, peaks.Row)
+            Section("Оформление и спектр", palette.Row, spectrum.Row, spectrumColors.Row, peaks.Row)
         ];
         reset.Clicked += (_, _) =>
         {
@@ -51,6 +54,7 @@ public sealed class PlayerSettingsPage : ContentPage
             autoMix.Switch.IsToggled = defaults.AutoMix;
             overview.Picker.SelectedIndex = defaults.WaveformOverview ? 1 : 0;
             palette.Picker.SelectedIndex = (int)defaults.Palette;
+            spectrumColors.Picker.SelectedIndex = (int)defaults.SpectrumColors;
             spectrum.Switch.IsToggled = defaults.ShowSpectrum;
             peaks.Switch.IsToggled = defaults.ShowPeaks;
             _settings = defaults;
@@ -80,6 +84,32 @@ public sealed class PlayerSettingsPage : ContentPage
         layout.Add(actions, row: 2);
         SizeChanged += (_, _) => { if (Width > 0) layout.WidthRequest = Math.Min(Width, 660); };
         Content = layout;
+    }
+
+    /// <summary>Keeps native file and folder import available from settings.</summary>
+    private static Border CreateLibrarySection(Func<Task> pickFiles, Func<Task> pickFolder)
+    {
+        var files = MixerStyle.Button("Открыть файлы");
+        var folder = MixerStyle.Button("Открыть папку");
+        files.Clicked += async (_, _) => await ImportAsync(pickFiles);
+        folder.Clicked += async (_, _) => await ImportAsync(pickFolder);
+        var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)], ColumnSpacing = 8 };
+        actions.Add(files);
+        actions.Add(folder, 1);
+        return Section("Медиатека", actions);
+
+        async Task ImportAsync(Func<Task> pick)
+        {
+            files.IsEnabled = folder.IsEnabled = false;
+            try
+            {
+                await pick();
+            }
+            finally
+            {
+                files.IsEnabled = folder.IsEnabled = true;
+            }
+        }
     }
 
     private async Task CloseAsync(Action? apply)
