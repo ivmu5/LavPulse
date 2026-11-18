@@ -10,8 +10,8 @@ public sealed class PlayerView : Grid
     private readonly ImageButton _play = MixerStyle.IconButton(PlayIcon, 56, primary: true);
     private readonly ImageButton _previous = MixerStyle.IconButton("player_previous.png", 44);
     private readonly ImageButton _next = MixerStyle.IconButton("player_next.png", 44);
-    private readonly Button _automix = MixerStyle.Button("Автомикс");
-    private readonly Button _settings = MixerStyle.Button("Настройки");
+    private readonly Button _automix = MixerStyle.Button("Автомикс", icon: "player_automix.png", stacked: true);
+    private readonly Button _settings = MixerStyle.Button("Настройки", icon: "player_settings.png", stacked: true);
     private readonly TrackQueueView _queue = new();
     private readonly Grid _body = new() { IsClippedToBounds = true };
 
@@ -121,8 +121,6 @@ public sealed class PlayerView : Grid
         _automix.HorizontalOptions = LayoutOptions.Start;
         _settings.HorizontalOptions = LayoutOptions.End;
         _automix.VerticalOptions = _settings.VerticalOptions = LayoutOptions.Center;
-        _automix.Padding = _settings.Padding = new Thickness(5, 5);
-        _automix.FontSize = _settings.FontSize = 11;
         _automix.Clicked += (_, _) => AutoMixChanged?.Invoke();
         _settings.Clicked += (_, _) => SettingsRequested?.Invoke();
         _play.Clicked += (_, _) => PlayRequested?.Invoke();
@@ -131,7 +129,7 @@ public sealed class PlayerView : Grid
         SemanticProperties.SetDescription(_next, "Свести со следующим треком");
         SemanticProperties.SetDescription(_previous, "Предыдущий трек");
         controls.Add(_automix);
-        controls.Add(new HorizontalStackLayout { Spacing = 5, Children = { _previous, _play, _next } }, 1);
+        controls.Add(new HorizontalStackLayout { Spacing = 4, Children = { _previous, _play, _next } }, 1);
         controls.Add(_settings, 2);
         return controls;
     }
