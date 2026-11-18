@@ -417,6 +417,7 @@ public sealed class MainPage : ContentPage
     {
         if (!_closed && !IsStopping && !IsTransitioning(_playback.Snapshot) && _playback.Seek(track, frame))
         {
+            _view.SnapPlayheadsOnNextPosition();
             UpdatePositions();
         }
     }
@@ -462,7 +463,7 @@ public sealed class MainPage : ContentPage
         using var stop = new CancellationTokenSource();
         _stop = stop;
         _positions.Start();
-        _view.Spectrum.Start(() => _playback.Spectrum);
+        _view.StartPlaybackVisuals(() => _playback.Spectrum);
         _view.Status.Text = "";
         _worker = _playback.RunAsync(new PlatformAudioOutput(), _settings.FadeInMilliseconds, stop.Token);
         UpdateTransport();
@@ -484,7 +485,7 @@ public sealed class MainPage : ContentPage
             _stop = null;
             _pausing = false;
             _positions.Stop();
-            _view.Spectrum.Stop();
+            _view.StopPlaybackVisuals();
             if (!_closed)
             {
                 UpdatePositions();
@@ -498,7 +499,7 @@ public sealed class MainPage : ContentPage
         if (_stop is { IsCancellationRequested: false } stop)
         {
             stop.Cancel();
-            _view.Spectrum.Stop();
+            _view.StopPlaybackVisuals();
             if (!_closed) UpdateTransport();
         }
     }

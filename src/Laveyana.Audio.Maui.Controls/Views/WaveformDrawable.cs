@@ -27,21 +27,14 @@ internal sealed class WaveformDrawable : IDrawable
     private long _cachedStart;
     private long _cachedLength;
     private PathF[]? _bands;
+    private readonly PathF _cursorTip = CreateCursorTip();
 
     public IDrawable CreateCursor() => new Playhead(this);
 
-    /// <summary>Snaps the scrolling detail to one visible column while keeping the cursor frame-accurate.</summary>
-    public long WindowStart(double viewWidth)
-    {
-        if (!Detailed || Waveform is not { TotalFrames: > 0 } waveform) return 0;
-
-        long length = DetailLength(waveform);
-        long end = waveform.TotalFrames - length;
-        long start = Math.Clamp((Preview ?? Position) - length / 2, 0, end);
-        int columns = Columns((float)viewWidth - 8);
-        long step = Math.Max(1, length / columns);
-        return start == end ? start : start / step * step;
-    }
+    /// <summary>Centers the playhead in the cached detail wave, using a frame-accurate offset.</summary>
+    public long WindowStart() => Detailed && Waveform is { TotalFrames: > 0 } waveform
+        ? Math.Clamp((Preview ?? Position) - DetailLength(waveform) / 2, 0, waveform.TotalFrames - DetailLength(waveform))
+        : 0;
 
     private long DetailLength(TrackWaveform waveform) =>
         Math.Min(waveform.TotalFrames, (long)DetailWindowSeconds * PlaybackFormat.SampleRate);
@@ -74,7 +67,7 @@ internal sealed class WaveformDrawable : IDrawable
 
         if (Waveform is not { TotalFrames: > 0 } waveform || waveform.Points.Count == 0) return;
 
-        long start = WindowStart(bounds.Width);
+        long start = WindowStart();
         long length = Detailed ? DetailLength(waveform) : waveform.TotalFrames;
         int columns = Columns(width);
         float spacing = width / columns;
@@ -164,7 +157,7 @@ internal sealed class WaveformDrawable : IDrawable
         float x = bounds.Left + 4;
         float width = bounds.Width - 8;
         long detailLength = DetailLength(waveform);
-        long start = WindowStart(bounds.Width);
+        long start = WindowStart();
         long length = Detailed ? detailLength : waveform.TotalFrames;
         if (!Detailed)
         {
@@ -191,13 +184,21 @@ internal sealed class WaveformDrawable : IDrawable
             canvas.StrokeSize = 2;
             canvas.DrawLine(marker, bounds.Y + 3, marker, bounds.Bottom - 3);
             canvas.FillColor = MixerStyle.TextColor;
-            using var triangle = new PathF();
-            triangle.MoveTo(marker - 4, bounds.Y + 3);
-            triangle.LineTo(marker + 4, bounds.Y + 3);
-            triangle.LineTo(marker, bounds.Y + 10);
-            triangle.Close();
-            canvas.FillPath(triangle);
+            canvas.SaveState();
+            canvas.Translate(marker, bounds.Y + 3);
+            canvas.FillPath(_cursorTip);
+            canvas.RestoreState();
         }
+    }
+
+    private static PathF CreateCursorTip()
+    {
+        var triangle = new PathF();
+        triangle.MoveTo(-4, 0);
+        triangle.LineTo(4, 0);
+        triangle.LineTo(0, 7);
+        triangle.Close();
+        return triangle;
     }
 
     private void DrawProgress(ICanvas canvas, RectF bounds, long frames)

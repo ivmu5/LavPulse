@@ -1,4 +1,5 @@
 using Microsoft.Maui.Controls.Shapes;
+using Microsoft.Maui.Devices;
 
 namespace Laveyana.Audio.Maui.Controls;
 
@@ -21,6 +22,9 @@ internal static class MixerStyle
     public static readonly Color Alternate = Color.FromArgb("#FF9B65");
     public static readonly Color Preview = Color.FromArgb("#FFD0A0");
     private const double ButtonFontSize = 12;
+
+    internal static bool IsPhone { get; } = DeviceInfo.Idiom == DeviceIdiom.Phone;
+    internal static double PhoneFont(double regular, double compact) => IsPhone ? compact : regular;
 
     /// <summary>Creates a text control with the mixer font and color palette.</summary>
     public static Label Label(string text, double size, Color? color = null, bool bold = false)

@@ -8,9 +8,9 @@ public sealed class DeckView : Border
     private const double DragThreshold = 6;
     private const double MaxScrubSpeed = 30;
     private readonly NumericSettingInput _trackSpeed = new("Скорость трека", "×", new(.75, 1.25, 1, .125, 3), 1, showSlider: false);
-    private readonly Label _name = MixerStyle.Label("", 13, bold: true);
-    private readonly Label _time = MixerStyle.Label("", 11, MixerStyle.Muted);
-    private readonly Label _previewLabel = MixerStyle.Label("", 12);
+    private readonly Label _name = MixerStyle.Label("", MixerStyle.PhoneFont(13, 12), bold: true);
+    private readonly Label _time = MixerStyle.Label("", MixerStyle.PhoneFont(11, 10), MixerStyle.Muted);
+    private readonly Label _previewLabel = MixerStyle.Label("", MixerStyle.PhoneFont(12, 11));
     private readonly WaveformDrawable _detailDrawable = new() { Detailed = true };
     private readonly WaveformDrawable _overviewDrawable = new() { UseProgressBar = true };
     private readonly GraphicsView _detail;
@@ -23,6 +23,10 @@ public sealed class DeckView : Border
     private CachedTrack? _track;
     private GraphicsView? _gesture;
     private long _position;
+    private long _displayPosition;
+    private DeckPlayhead _playhead;
+    private bool _animatePlayhead;
+    private bool _snapPlayhead;
     private long _shownSecond = -1;
     private double _preview;
     private double _speed;
@@ -84,6 +88,29 @@ public sealed class DeckView : Border
     public event Action<CachedTrack, double>? SpeedRequested;
     internal CachedTrack? DisplayedTrack => _track;
 
+    internal void SetPlayheadAnimation(bool enabled)
+    {
+        _animatePlayhead = enabled;
+        _snapPlayhead = true;
+        if (!enabled && _displayPosition != _position)
+        {
+            _displayPosition = _position;
+            Redraw();
+        }
+    }
+
+    internal void SnapOnNextPosition() => _snapPlayhead = true;
+
+    /// <summary>Redraws the timeline from the visual position without updating the deck controls.</summary>
+    internal void DrawPlayhead(double time)
+    {
+        if (!_animatePlayhead || _snapPlayhead || _track is not { } track) return;
+        long position = _playhead.Advance(time, track.Waveform.TotalFrames);
+        if (_displayPosition == position) return;
+        _displayPosition = position;
+        Redraw();
+    }
+
     /// <summary>Keeps the last visible playhead while the deck leaves the screen.</summary>
     internal void FreezeForExit()
     {
@@ -134,9 +161,15 @@ public sealed class DeckView : Border
             UpdateTitleColor();
         }
 
-        if (trackChanged || _position != deck.Position || revealOverview)
+        bool snap = trackChanged || _snapPlayhead || !_animatePlayhead;
+        _snapPlayhead = false;
+        _position = deck.Position;
+        double time = DeckPlayhead.Now;
+        _playhead.Observe(_position, deck.Speed, time, snap);
+        long display = snap ? _position : _playhead.DisplayPosition;
+        if (trackChanged || revealOverview || _displayPosition != display)
         {
-            _position = deck.Position;
+            _displayPosition = display;
             Redraw();
         }
     }
@@ -193,7 +226,7 @@ public sealed class DeckView : Border
             if (Math.Abs(point.X - _startX) < DragThreshold) return;
 
             _moved = true;
-            _preview = _position;
+            _preview = _displayPosition;
             _lastTick = System.Diagnostics.Stopwatch.GetTimestamp();
             if (view == _detail) _timer.Start();
         }
@@ -277,20 +310,20 @@ public sealed class DeckView : Border
             return;
         }
         long? preview = _gesture is not null && _moved ? (long)Math.Round(_preview) : null;
-        _detailDrawable.Position = _overviewDrawable.Position = _position;
+        _detailDrawable.Position = _overviewDrawable.Position = _displayPosition;
         _detailDrawable.Preview = _overviewDrawable.Preview = preview;
-        long second = _position / PlaybackFormat.SampleRate;
+        long second = _displayPosition / PlaybackFormat.SampleRate;
         if (second != _shownSecond)
         {
             _shownSecond = second;
-            _time.Text = $"{FormatTime(_position)} / {FormatTime(_track.Waveform.TotalFrames)}";
+            _time.Text = $"{FormatTime(_displayPosition)} / {FormatTime(_track.Waveform.TotalFrames)}";
         }
         _previewLabel.IsVisible = preview.HasValue;
         if (preview is long frame)
         {
             _previewLabel.Text = _gesture == _detail ? $"{FormatTime(frame)}   {_speed:+0;-0;0} с/с" : FormatTime(frame);
         }
-        long start = _detailDrawable.WindowStart(_detail.Width);
+        long start = _detailDrawable.WindowStart();
         if (start != _detailStart)
         {
             _detailStart = start;

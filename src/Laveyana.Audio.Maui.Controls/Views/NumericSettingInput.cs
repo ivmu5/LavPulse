@@ -24,7 +24,7 @@ internal sealed class NumericSettingInput : Grid
         _entry = new Entry
         {
             Keyboard = Keyboard.Numeric, ReturnType = ReturnType.Done, HorizontalTextAlignment = TextAlignment.End,
-            FontFamily = "Inter", FontSize = vertical ? 12 : showSlider ? 14 : 12,
+            FontFamily = "Inter", FontSize = vertical ? 12 : showSlider ? 14 : MixerStyle.PhoneFont(12, 11),
             WidthRequest = vertical ? 48 : showSlider ? 76 : 66, TextColor = MixerStyle.TextColor,
             BackgroundColor = MixerStyle.Overlay
         };

@@ -11,15 +11,17 @@ internal sealed class TrackQueueView : Grid
     private const int RowStride = QueueTrackRow.RowHeight + 5;
     private const int ViewportHeight = 236;
     private const int OverscanRows = 2;
+    private const int CoverInfoGap = 8;
     private readonly TrackCard _current = new(TextAlignment.Start, showAudioInfo: true);
     private readonly TrackCard _incoming = new(TextAlignment.End);
     private readonly AbsoluteLayout _rows = new();
     private readonly VerticalStackLayout _queue;
+    private readonly View _feedSelector;
     private readonly Grid _right;
     private readonly Button _queueTab = MixerStyle.Button("Очередь", icon: "player_queue.png", stacked: true);
     private readonly Button _recommendationsTab = MixerStyle.Button("Рекомендации", icon: "player_recommendations.png", stacked: true);
     private readonly ScrollView _queueScroll;
-    private readonly Label _recommendations = MixerStyle.Label("В разработке", 13, MixerStyle.Muted);
+    private readonly Label _recommendations = MixerStyle.Label("В разработке", MixerStyle.PhoneFont(13, 11), MixerStyle.Muted);
     private readonly Dictionary<TrackFile, QueueTrackRow> _trackRows = new();
     private readonly Stack<QueueTrackRow> _availableRows = new();
     private readonly List<TrackFile> _leavingRows = new();
@@ -29,7 +31,7 @@ internal sealed class TrackQueueView : Grid
     private int _playedCount;
     private int _firstRow = -1;
     private int _endRow = -1;
-    private readonly Label _empty = MixerStyle.Label("Очередь пуста", 12, MixerStyle.Muted);
+    private readonly Label _empty = MixerStyle.Label("Очередь пуста", MixerStyle.PhoneFont(12, 11), MixerStyle.Muted);
     private readonly IDispatcherTimer _rowClock;
     private readonly long _start = Stopwatch.GetTimestamp();
     private TrackFile? _currentTrack;
@@ -49,8 +51,8 @@ internal sealed class TrackQueueView : Grid
     public TrackQueueView()
     {
         ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)];
-        ColumnSpacing = 16;
-        MinimumHeightRequest = 208;
+        ColumnSpacing = MixerStyle.IsPhone ? 12 : 16;
+        IsClippedToBounds = true;
         _queueScroll = new ScrollView { Content = _rows, MaximumHeightRequest = ViewportHeight };
         _rowClock = Dispatcher.CreateTimer();
         _rowClock.Interval = TimeSpan.FromMilliseconds(40);
@@ -62,7 +64,9 @@ internal sealed class TrackQueueView : Grid
         };
         Unloaded += (_, _) => _rowClock.Stop();
         _recommendations.IsVisible = false;
-        _queue = new VerticalStackLayout { Spacing = 7, Children = { CreateFeedSelector(), _queueScroll, _recommendations } };
+        _feedSelector = CreateFeedSelector();
+        _queue = new VerticalStackLayout { Spacing = 7, Children = { _feedSelector, _queueScroll, _recommendations } };
+        _feedSelector.SizeChanged += (_, _) => UpdateQueueViewport();
         _queueScroll.Scrolled += (_, _) => RefreshRows();
         _queueScroll.SizeChanged += (_, _) =>
         {
@@ -76,11 +80,24 @@ internal sealed class TrackQueueView : Grid
         this.Add(_right, 1);
         SizeChanged += (_, _) =>
         {
+            UpdateQueueViewport();
             double columnWidth = Math.Max(0, (Width - ColumnSpacing) / 2);
-            double size = Math.Min(columnWidth, Math.Clamp(Width * .29, 116, 202) * 1.1);
-            _current.ResizeCover(size);
-            _incoming.ResizeCover(size);
+            if (columnWidth <= 0 || Height <= 0) return;
+
+            double preferred = Math.Clamp(Width * .29, 116, 202) * 1.1;
+            double infoWidth = Math.Min(columnWidth * .48, MixerStyle.PhoneFont(94, 70));
+            double side = Math.Max(1, Math.Min(preferred, Math.Min(columnWidth - infoWidth - CoverInfoGap, Height - 52)));
+            _current.ResizeCover(side, columnWidth);
+            _incoming.ResizeCover(side, columnWidth);
         };
+    }
+
+    private void UpdateQueueViewport()
+    {
+        if (_rows.HeightRequest < 0) return;
+        double available = Height > 0 && _feedSelector.Height > 0
+            ? Math.Max(0, Height - _feedSelector.Height - _queue.Spacing) : ViewportHeight;
+        _queueScroll.HeightRequest = Math.Min(_rows.HeightRequest, Math.Min(available, ViewportHeight));
     }
 
     public event Action<TrackFile>? TrackRequested;
@@ -94,6 +111,12 @@ internal sealed class TrackQueueView : Grid
     private Border CreateFeedSelector()
     {
         _queueTab.CornerRadius = _recommendationsTab.CornerRadius = 7;
+        if (MixerStyle.IsPhone)
+        {
+            _queueTab.FontSize = _recommendationsTab.FontSize = 10;
+            _queueTab.Padding = _recommendationsTab.Padding = new Thickness(1, 4);
+            _queueTab.LineBreakMode = _recommendationsTab.LineBreakMode = LineBreakMode.TailTruncation;
+        }
         _queueTab.Clicked += (_, _) =>
         {
             if (_showRecommendations)
@@ -154,7 +177,7 @@ internal sealed class TrackQueueView : Grid
         _readRow = read;
         double contentHeight = tracks.Count == 0 ? QueueTrackRow.RowHeight : (double)tracks.Count * RowStride - 5;
         _rows.HeightRequest = contentHeight;
-        _queueScroll.HeightRequest = Math.Min(ViewportHeight, contentHeight);
+        UpdateQueueViewport();
         if (tracks.Count == 0 && !_rows.Children.Contains(_empty))
         {
             AbsoluteLayout.SetLayoutFlags(_empty, AbsoluteLayoutFlags.WidthProportional);
@@ -504,12 +527,13 @@ internal sealed class TrackQueueView : Grid
     private sealed class TrackCard : VerticalStackLayout
     {
         private readonly Image _art = new() { Aspect = Aspect.AspectFill };
-        private readonly Label _title = MixerStyle.Label("", 22, bold: true);
-        private readonly Label _artist = MixerStyle.Label("", 13, MixerStyle.Muted);
+        private readonly Label _title = MixerStyle.Label("", MixerStyle.PhoneFont(22, 18), bold: true);
+        private readonly Label _artist = MixerStyle.Label("", MixerStyle.PhoneFont(13, 11), MixerStyle.Muted);
         private readonly Label? _audioInfo;
-        private readonly Label _state = MixerStyle.Label("", 11);
+        private readonly Label _state = MixerStyle.Label("", MixerStyle.PhoneFont(11, 10));
         private readonly Border _cover;
-        private readonly Grid _details;
+        private readonly Grid _coverRow;
+        private readonly VerticalStackLayout _details;
         private CachedTrack? _displayed;
 
         public TrackCard(TextAlignment align, bool showAudioInfo = false)
@@ -537,23 +561,26 @@ internal sealed class TrackQueueView : Grid
             _state.BackgroundColor = MixerStyle.Background;
             _state.Margin = 6;
             _state.Padding = new Thickness(5, 2);
-            _details = new Grid
+            _coverRow = new Grid
             {
-                WidthRequest = _cover.WidthRequest,
-                HorizontalOptions = _cover.HorizontalOptions,
-                ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)]
+                ColumnSpacing = CoverInfoGap,
+                ColumnDefinitions = showAudioInfo ? [new(GridLength.Auto), new(GridLength.Star)] : [new(GridLength.Star)]
             };
-            _details.Add(new VerticalStackLayout { Spacing = 7, Children = { _title, _artist } });
+            _coverRow.Add(_cover);
             if (showAudioInfo)
             {
-                _audioInfo = MixerStyle.Label("", 11, MixerStyle.Muted);
-                _audioInfo.HorizontalTextAlignment = TextAlignment.End;
-                _audioInfo.VerticalOptions = LayoutOptions.Start;
-                _audioInfo.Margin = new Thickness(8, 0, 0, 0);
+                _audioInfo = MixerStyle.Label("", MixerStyle.PhoneFont(11, 9.5), MixerStyle.Muted);
+                _audioInfo.HorizontalTextAlignment = TextAlignment.Start;
+                _audioInfo.VerticalOptions = LayoutOptions.Center;
                 _audioInfo.IsVisible = false;
-                _details.Add(_audioInfo, column: 1);
+                _coverRow.Add(_audioInfo, column: 1);
             }
-            Children.Add(_cover);
+            _details = new VerticalStackLayout
+            {
+                Spacing = MixerStyle.IsPhone ? 4 : 7,
+                Children = { _title, _artist }
+            };
+            Children.Add(_coverRow);
             Children.Add(_details);
         }
 
@@ -578,7 +605,7 @@ internal sealed class TrackQueueView : Grid
             _state.IsVisible = state.Length > 0;
         }
 
-        /// <summary>Formats the source properties as four compact lines under the cover.</summary>
+        /// <summary>Formats the source properties as four compact lines next to the cover.</summary>
         private static string FormatAudioInfo(TrackAudioInfo audio)
         {
             string mode = audio.ChannelMode switch
@@ -592,20 +619,11 @@ internal sealed class TrackQueueView : Grid
             return $"{audio.Codec}\n{audio.SampleRate / 1000d:0.###} kHz\n{bitrate}\n{mode}";
         }
 
-        /// <summary>Keeps a square cover and aligns long names within its width.</summary>
-        public void ResizeCover(double side)
+        /// <summary>Fits the artwork and leaves the full column width for the title and artist.</summary>
+        public void ResizeCover(double side, double columnWidth)
         {
-            if (side <= 0)
-            {
-                return;
-            }
             _cover.WidthRequest = _cover.HeightRequest = side;
-            _details.WidthRequest = side;
-            if (_audioInfo is { } details)
-            {
-                details.FontSize = side < 150 ? 10 : 11;
-                details.MaximumWidthRequest = side * .55;
-            }
+            _coverRow.WidthRequest = _details.WidthRequest = columnWidth;
         }
 
         public double CoverWidth => _cover.Width > 0 ? _cover.Width : _cover.WidthRequest;

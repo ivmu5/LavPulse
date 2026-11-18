@@ -18,7 +18,7 @@ public sealed partial class MasterSpectrumView
             return;
         }
 
-        if (OperatingSystem.IsAndroidVersionAtLeast(35) && _graphics.Handler?.PlatformView is NativeView view)
+        if (OperatingSystem.IsAndroidVersionAtLeast(35) && (FrameRateHost?.Handler ?? _graphics.Handler)?.PlatformView is NativeView view)
         {
             _previousFrameRate = view.RequestedFrameRate;
             _frameRateView = view;

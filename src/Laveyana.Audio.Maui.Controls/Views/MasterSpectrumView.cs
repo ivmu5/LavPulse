@@ -22,6 +22,8 @@ public sealed partial class MasterSpectrumView : ContentView
 
     internal IDrawable QueueDrawable { get; }
     internal event Action? VisualizationChanged;
+    internal event Action? PlaybackFrame;
+    internal VisualElement? FrameRateHost { get; set; }
 
     internal void SetAppearance(PlayerColors colors, PlayerSettings settings)
     {
@@ -62,7 +64,7 @@ public sealed partial class MasterSpectrumView : ContentView
 
     private void SyncFrameLoop()
     {
-        bool run = IsVisible && _getSource is not null;
+        bool run = _getSource is not null && (IsVisible || PlaybackFrame is not null);
         if (run == _frameLoopRunning) return;
         _frameLoopRunning = run;
         if (run) StartFrameLoop();
@@ -80,6 +82,7 @@ public sealed partial class MasterSpectrumView : ContentView
     /// <summary>Reads the next audible spectrum and applies elapsed-time smoothing.</summary>
     private void DrawFrame(double time)
     {
+        PlaybackFrame?.Invoke();
         if (!IsVisible || _getSource?.Invoke() is not { } mix)
         {
             return;
