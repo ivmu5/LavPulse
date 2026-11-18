@@ -56,7 +56,8 @@ internal sealed class TrackQueueView : Grid
         this.Add(_right, 1);
         SizeChanged += (_, _) =>
         {
-            double size = Math.Min(Math.Max(0, (Width - ColumnSpacing) / 2), Math.Clamp(Width * .29, 116, 202));
+            double columnWidth = Math.Max(0, (Width - ColumnSpacing) / 2);
+            double size = Math.Min(columnWidth, Math.Clamp(Width * .29, 116, 202) * 1.1);
             _current.ResizeCover(size);
             _incoming.ResizeCover(size);
         };

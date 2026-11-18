@@ -1,0 +1,319 @@
+using System.Runtime.InteropServices;
+using Microsoft.Maui.Platform;
+using Microsoft.UI.Windowing;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
+using Windows.Graphics;
+using Windows.System;
+using MauiWindow = Microsoft.Maui.Controls.Window;
+using NativeAutomation = Microsoft.UI.Xaml.Automation.AutomationProperties;
+using NativeButton = Microsoft.UI.Xaml.Controls.Button;
+using NativeBorder = Microsoft.UI.Xaml.Controls.Border;
+using NativePanel = Microsoft.UI.Xaml.Controls.Panel;
+using NativeStack = Microsoft.UI.Xaml.Controls.StackPanel;
+using NativeWindow = Microsoft.UI.Xaml.Window;
+using NativeThickness = Microsoft.UI.Xaml.Thickness;
+using NativeColor = Windows.UI.Color;
+using NativeKeyboardAccelerator = Microsoft.UI.Xaml.Input.KeyboardAccelerator;
+using NativeSolidBrush = Microsoft.UI.Xaml.Media.SolidColorBrush;
+
+namespace Laveyana.Audio.Maui.Controls;
+
+/// <summary>Owns the Windows caption overlay, resize limits and fullscreen state.</summary>
+public sealed class WindowsWindowChrome
+{
+    public const int ContentInset = 44;
+    private const int MinimumWidth = 720;
+    private const int MinimumHeight = 660;
+    private const int MaximumWidth = 1600;
+    private const int MaximumHeight = 1100;
+    private const int ButtonWidth = 36;
+    private const int ButtonSpacing = 3;
+    private const int ToolbarPadding = 3;
+    private const int ToolbarRight = 8;
+    private const int ToolbarWidth = ButtonWidth * 4 + ButtonSpacing * 3 + ToolbarPadding * 2 + ToolbarRight;
+    private const uint WindowHitTestMessage = 0x0084;
+    private const int ClientAreaHit = 1;
+    private const int CaptionHit = 2;
+
+    private readonly MauiWindow _window;
+    private readonly NativeWindow _native;
+    private readonly NativePanel _root;
+    private readonly AppWindow _appWindow;
+    private readonly OverlappedPresenter _windowed;
+    private readonly NativeBorder _toolbar;
+    private readonly NativeButton _maximize;
+    private readonly NativeButton _fullscreen;
+    private readonly NativeKeyboardAccelerator _fullscreenKey;
+    private readonly NativeKeyboardAccelerator _escapeKey;
+    private readonly nint _hwnd;
+    private readonly WindowSubclass _subclass;
+    private RectInt32? _restoreBounds;
+    private bool _restoreMaximized;
+    private bool _fullscreenActive;
+    private bool IsFullscreen => _appWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
+
+    /// <summary>Sets logical window sizes before activation and installs native controls when the root is ready.</summary>
+    public static void Configure(MauiWindow window)
+    {
+        window.Width = 1120;
+        window.Height = 790;
+        window.MinimumWidth = MinimumWidth;
+        window.MinimumHeight = MinimumHeight;
+        window.MaximumWidth = MaximumWidth;
+        window.MaximumHeight = MaximumHeight;
+        window.Created += (_, _) =>
+        {
+            if (window.Handler?.PlatformView is NativeWindow native && native.Content is NativePanel root &&
+                native.AppWindow.Presenter is OverlappedPresenter windowed)
+            {
+                _ = new WindowsWindowChrome(window, native, root, windowed);
+            }
+        };
+    }
+
+    private WindowsWindowChrome(MauiWindow window, NativeWindow native, NativePanel root, OverlappedPresenter windowed)
+    {
+        _window = window;
+        _native = native;
+        _root = root;
+        _appWindow = native.AppWindow;
+        _windowed = windowed;
+        _hwnd = WinRT.Interop.WindowNative.GetWindowHandle(native);
+        _subclass = HitTestCaption;
+
+        var buttons = new NativeStack { Orientation = Microsoft.UI.Xaml.Controls.Orientation.Horizontal, Spacing = ButtonSpacing };
+        buttons.Children.Add(CreateButton("\uE921", "Свернуть", Minimize));
+        _maximize = CreateButton("\uE922", "Развернуть", ToggleMaximize);
+        _fullscreen = CreateButton("\uE92D", "На весь экран (F11)", ToggleFullscreen);
+        buttons.Children.Add(_maximize);
+        buttons.Children.Add(_fullscreen);
+        var close = CreateButton("\uE8BB", "Закрыть", _native.Close);
+        close.Resources["ButtonBackgroundPointerOver"] = Brush(220, 180, 36, 53);
+        buttons.Children.Add(close);
+        _toolbar = new NativeBorder
+        {
+            Child = buttons,
+            HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Right,
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Top,
+            Margin = new NativeThickness(0, 4, ToolbarRight, 0),
+            Padding = new NativeThickness(ToolbarPadding),
+            Background = Brush(232, 17, 24, 49),
+            CornerRadius = new Microsoft.UI.Xaml.CornerRadius(8),
+            RequestedTheme = ElementTheme.Dark
+        };
+        Microsoft.UI.Xaml.Controls.Canvas.SetZIndex(_toolbar, 1000);
+        // MAUI's root panel keeps overlays above the page and any modal pages.
+        _root.Children.Add(_toolbar);
+
+        _fullscreenKey = new NativeKeyboardAccelerator { Key = VirtualKey.F11 };
+        _fullscreenKey.Invoked += (_, args) => { ToggleFullscreen(); args.Handled = true; };
+        _escapeKey = new NativeKeyboardAccelerator { Key = VirtualKey.Escape };
+        _escapeKey.Invoked += (_, args) =>
+        {
+            if (IsFullscreen)
+            {
+                ExitFullscreen();
+                args.Handled = true;
+            }
+        };
+        _root.KeyboardAccelerators.Add(_fullscreenKey);
+        _root.KeyboardAccelerators.Add(_escapeKey);
+
+        if (AppWindowTitleBar.IsCustomizationSupported())
+        {
+            _appWindow.TitleBar.ExtendsContentIntoTitleBar = false;
+        }
+        _windowed.SetBorderAndTitleBar(hasBorder: true, hasTitleBar: false);
+        SetWindowSubclass(_hwnd, _subclass, 1, 0);
+        ApplyMinimumSize();
+        FitInitialWindow();
+        _appWindow.Changed += OnWindowChanged;
+        _window.DisplayDensityChanged += OnDensityChanged;
+        _native.Closed += OnClosed;
+        UpdateButtons();
+    }
+
+    private void Minimize()
+    {
+        if (IsFullscreen) ExitFullscreen();
+        _windowed.Minimize();
+    }
+
+    private void ToggleMaximize()
+    {
+        if (IsFullscreen)
+        {
+            ExitFullscreen();
+            _windowed.Maximize();
+        }
+        else if (_windowed.State == OverlappedPresenterState.Maximized)
+        {
+            _windowed.Restore();
+        }
+        else
+        {
+            _windowed.Maximize();
+        }
+        UpdateButtons();
+    }
+
+    private void ToggleFullscreen()
+    {
+        if (IsFullscreen)
+        {
+            ExitFullscreen();
+            return;
+        }
+
+        _restoreMaximized = _windowed.State == OverlappedPresenterState.Maximized;
+        var position = _appWindow.Position;
+        var size = _appWindow.Size;
+        _restoreBounds = _restoreMaximized ? null : new RectInt32(position.X, position.Y, size.Width, size.Height);
+        _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+        UpdateButtons();
+    }
+
+    private void ExitFullscreen()
+    {
+        _appWindow.SetPresenter(_windowed);
+        if (_restoreMaximized)
+        {
+            _windowed.Maximize();
+        }
+        else
+        {
+            _windowed.Restore();
+            if (_restoreBounds is { } bounds) _appWindow.MoveAndResize(bounds);
+        }
+        UpdateButtons();
+    }
+
+    private void UpdateButtons()
+    {
+        _fullscreenActive = IsFullscreen;
+        bool maximized = !_fullscreenActive && _windowed.State == OverlappedPresenterState.Maximized;
+        UpdateButton(_maximize, maximized ? "\uE923" : "\uE922", maximized ? "Восстановить размер окна" : "Развернуть");
+        UpdateButton(_fullscreen, _fullscreenActive ? "\uE92C" : "\uE92D",
+            _fullscreenActive ? "Выйти из полноэкранного режима (F11 / Esc)" : "На весь экран (F11)");
+    }
+
+    private void OnWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
+    {
+        if (args.DidPresenterChange || args.DidSizeChange) UpdateButtons();
+        if (args.DidPositionChange) ApplyMinimumSize();
+    }
+
+    private void OnDensityChanged(object? sender, DisplayDensityChangedEventArgs args)
+    {
+        ApplyMinimumSize();
+        _window.Handler?.UpdateValue(nameof(MauiWindow.MinimumWidth));
+        _window.Handler?.UpdateValue(nameof(MauiWindow.MaximumWidth));
+    }
+
+    /// <summary>Allows a smaller minimum on monitors with less logical space than the preferred size.</summary>
+    private void ApplyMinimumSize()
+    {
+        if (DisplayArea.GetFromWindowId(_appWindow.Id, DisplayAreaFallback.Nearest) is not { } display) return;
+        double scale = _native.GetDisplayDensity();
+        var area = display.WorkArea;
+        _window.MinimumWidth = Math.Min(MinimumWidth, Math.Floor(area.Width / scale));
+        _window.MinimumHeight = Math.Min(MinimumHeight, Math.Floor(area.Height / scale));
+    }
+
+    private void FitInitialWindow()
+    {
+        if (DisplayArea.GetFromWindowId(_appWindow.Id, DisplayAreaFallback.Nearest) is not { } display) return;
+        var area = display.WorkArea;
+        var size = _appWindow.Size;
+        if (size.Width <= area.Width && size.Height <= area.Height) return;
+        int width = Math.Min(size.Width, area.Width);
+        int height = Math.Min(size.Height, area.Height);
+        _appWindow.MoveAndResize(new RectInt32((area.Width - width) / 2, (area.Height - height) / 2, width, height), display);
+    }
+
+    /// <summary>Preserves native window dragging and double-click while leaving the caption buttons interactive.</summary>
+    private nint HitTestCaption(nint hwnd, uint message, nuint wParam, nint lParam, nuint id, nuint data)
+    {
+        var result = DefSubclassProc(hwnd, message, wParam, lParam);
+        if (message != WindowHitTestMessage || result != ClientAreaHit || _fullscreenActive || _root.ActualWidth <= ToolbarWidth)
+        {
+            return result;
+        }
+
+        long coordinates = lParam.ToInt64();
+        var point = new NativePoint { X = unchecked((short)coordinates), Y = unchecked((short)(coordinates >> 16)) };
+        if (!ScreenToClient(hwnd, ref point)) return result;
+
+        double scale = _native.GetDisplayDensity();
+        double x = point.X / scale;
+        double y = point.Y / scale;
+        return x >= 6 && x < _root.ActualWidth - ToolbarWidth && y >= 6 && y < ContentInset
+            ? CaptionHit
+            : result;
+    }
+
+    private void OnClosed(object sender, WindowEventArgs args)
+    {
+        RemoveWindowSubclass(_hwnd, _subclass, 1);
+        _appWindow.Changed -= OnWindowChanged;
+        _window.DisplayDensityChanged -= OnDensityChanged;
+        _native.Closed -= OnClosed;
+        _root.KeyboardAccelerators.Remove(_fullscreenKey);
+        _root.KeyboardAccelerators.Remove(_escapeKey);
+        _root.Children.Remove(_toolbar);
+    }
+
+    private static NativeButton CreateButton(string glyph, string description, Action action)
+    {
+        var button = new NativeButton
+        {
+            Width = ButtonWidth,
+            Height = 32,
+            Padding = new NativeThickness(0),
+            BorderThickness = new NativeThickness(0),
+            HorizontalContentAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Center,
+            VerticalContentAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
+            Background = Brush(0, 0, 0, 0),
+            Foreground = Brush(255, 244, 246, 255),
+            Content = new Microsoft.UI.Xaml.Controls.FontIcon { FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 13 }
+        };
+        button.Click += (_, _) => action();
+        UpdateButton(button, glyph, description);
+        return button;
+    }
+
+    private static void UpdateButton(NativeButton button, string glyph, string description)
+    {
+        ((Microsoft.UI.Xaml.Controls.FontIcon)button.Content).Glyph = glyph;
+        NativeAutomation.SetName(button, description);
+        Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(button, description);
+    }
+
+    private static NativeSolidBrush Brush(byte a, byte r, byte g, byte b) => new(NativeColor.FromArgb(a, r, g, b));
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    private delegate nint WindowSubclass(nint hwnd, uint message, nuint wParam, nint lParam, nuint id, nuint data);
+
+    [DllImport("comctl32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowSubclass(nint hwnd, WindowSubclass callback, nuint id, nuint data);
+
+    [DllImport("comctl32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool RemoveWindowSubclass(nint hwnd, WindowSubclass callback, nuint id);
+
+    [DllImport("comctl32.dll")]
+    private static extern nint DefSubclassProc(nint hwnd, uint message, nuint wParam, nint lParam);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ScreenToClient(nint hwnd, ref NativePoint point);
+}

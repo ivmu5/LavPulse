@@ -1,5 +1,7 @@
 #if !WINDOWS
 using Microsoft.Maui.ApplicationModel;
+#else
+using Laveyana.Audio.Maui.Controls;
 #endif
 
 namespace Laveyana.Audio.Maui;
@@ -17,8 +19,7 @@ public sealed class App : Application
         var page = new MainPage();
         var window = new Window(page) { Title = "LavPulse" };
 #if WINDOWS
-        window.Width = 1120;
-        window.Height = 790;
+        WindowsWindowChrome.Configure(window);
 #endif
         window.Stopped += (_, _) => page.StopPlayback();
         window.Destroying += async (_, _) => await page.CloseAsync();
