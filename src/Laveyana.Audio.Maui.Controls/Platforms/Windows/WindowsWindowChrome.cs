@@ -19,6 +19,7 @@ using NativeGrid = Microsoft.UI.Xaml.Controls.Grid;
 using NativeImage = Microsoft.UI.Xaml.Controls.Image;
 using NativeText = Microsoft.UI.Xaml.Controls.TextBlock;
 using NativeKeyboardAccelerator = Microsoft.UI.Xaml.Input.KeyboardAccelerator;
+using NativeKeyboardAcceleratorPlacementMode = Microsoft.UI.Xaml.Input.KeyboardAcceleratorPlacementMode;
 using NativeSolidBrush = Microsoft.UI.Xaml.Media.SolidColorBrush;
 using NativeVisibility = Microsoft.UI.Xaml.Visibility;
 
@@ -128,6 +129,8 @@ public sealed class WindowsWindowChrome
                 args.Handled = true;
             }
         };
+        // The fullscreen button has its own tooltip. Root shortcuts should not label the content area.
+        _root.KeyboardAcceleratorPlacementMode = NativeKeyboardAcceleratorPlacementMode.Hidden;
         _root.KeyboardAccelerators.Add(_fullscreenKey);
         _root.KeyboardAccelerators.Add(_escapeKey);
 
