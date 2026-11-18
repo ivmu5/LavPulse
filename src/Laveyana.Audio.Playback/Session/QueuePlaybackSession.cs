@@ -6,8 +6,11 @@ public sealed class QueuePlaybackSession : IDisposable
     public const int DefaultFadeMilliseconds = 300;
 
     private readonly QueueSource _queue = new();
+    private readonly MasterEqualizerSource _equalizer;
     private MixedPlayback? _mix;
     private int _running;
+
+    public QueuePlaybackSession() => _equalizer = new(_queue);
 
     public QueueSnapshot Snapshot => _queue.Snapshot;
     public ISpectrumSource? Spectrum => Volatile.Read(ref _mix);
@@ -26,6 +29,12 @@ public sealed class QueuePlaybackSession : IDisposable
 
     /// <summary>Configures whether to mix into the next track at the end of the current one.</summary>
     public void SetAutoMix(bool enabled) => _queue.SetAutoMix(enabled);
+
+    /// <summary>Repeats the current track at its end while allowing a manual track change.</summary>
+    public void SetRepeatOne(bool enabled) => _queue.SetRepeatOne(enabled);
+
+    /// <summary>Changes the master sound profile for output and spectrum analysis together.</summary>
+    public void SetEqualizer(EqualizerSettings settings) => _equalizer.Configure(settings);
 
     /// <summary>Allows the queue to supply the next track, without interrupting a mix already under way.</summary>
     public void SetQueueEnabled(bool enabled) => _queue.SetQueueEnabled(enabled);
@@ -48,12 +57,13 @@ public sealed class QueuePlaybackSession : IDisposable
 
     public async Task RunAsync(IAudioOutput output, int startMilliseconds, CancellationToken token)
     {
-        var mix = new MixedPlayback(_queue, startMilliseconds);
+        var mix = new MixedPlayback(_equalizer, startMilliseconds);
         if (Interlocked.Exchange(ref _running, 1) != 0)
         {
             throw new InvalidOperationException("The audio output is already running.");
         }
 
+        _equalizer.Reset();
         using var stopSpectrum = CancellationTokenSource.CreateLinkedTokenSource(token);
         Volatile.Write(ref _mix, mix);
         var analysis = mix.RunSpectrumAsync(stopSpectrum.Token);

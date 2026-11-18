@@ -1,10 +1,31 @@
 using Laveyana.Audio.Maui.Controls;
+using Laveyana.Audio.Playback;
 
 namespace Laveyana.Audio.Maui.Settings;
 
 /// <summary>Stores player settings in the platform's local preferences.</summary>
 internal static class PlayerPreferences
 {
+    /// <summary>Loads the saved master EQ without changing the default bypass for new installs.</summary>
+    public static EqualizerSettings LoadEqualizer()
+    {
+        var settings = EqualizerSettings.Flat.WithEnabled(Preferences.Default.Get("equalizer-enabled", false));
+        for (int band = 0; band < EqualizerSettings.Frequencies.Count; band++)
+        {
+            settings = settings.WithGain(band, Preferences.Default.Get($"equalizer-gain-{band}", 0d));
+        }
+        return settings;
+    }
+
+    public static void SaveEqualizer(EqualizerSettings settings)
+    {
+        Preferences.Default.Set("equalizer-enabled", settings.Enabled);
+        for (int band = 0; band < EqualizerSettings.Frequencies.Count; band++)
+        {
+            Preferences.Default.Set($"equalizer-gain-{band}", settings.GainAt(band));
+        }
+    }
+
     public static PlayerSettings Load()
     {
         var defaults = new PlayerSettings();

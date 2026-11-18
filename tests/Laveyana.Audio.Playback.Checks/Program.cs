@@ -14,7 +14,9 @@ try
     await CheckStartupAndRate(first, second);
     await CheckFeedSelection(first, second);
     await CheckReplaceSuccessor(first, second);
-    Console.WriteLine("OK: startup/pause envelopes, resume, per-track speed, mix seek lock, queue feed selection and successor replacement.");
+    await CheckRepeatOne(first, second);
+    await CheckMasterEqualizer(directory);
+    Console.WriteLine("OK: transport envelopes, speed, queue transitions, repeat one, and filtered master output and spectrum.");
 }
 finally
 {
@@ -182,6 +184,90 @@ static async Task CheckReplaceSuccessor(CachedTrack first, CachedTrack second)
             "The restored successor was not promoted.");
         Require(!session.SetNext(first, first), "A stale request changed the new track's successor.");
     }), 0, CancellationToken.None);
+}
+
+/// <summary>Verifies that repeat fills the block across the loop boundary and leaves manual mixing available.</summary>
+static async Task CheckRepeatOne(CachedTrack first, CachedTrack second)
+{
+    using var session = new QueuePlaybackSession();
+    session.SetFirst(first);
+    Require(session.SetNext(second), "Could not arm the next track.");
+    session.SetRepeatOne(true);
+    Require(session.Seek(first, first.Waveform.TotalFrames - 3), "Could not place the cursor before the loop boundary.");
+    var block = new float[BlockSize * PlaybackFormat.Channels];
+    await session.RunAsync(new InMemoryOutput(source =>
+    {
+        Require(source.Render(block) == BlockSize, "Repeat left a gap in the next audio block.");
+        Require(session.Snapshot.Current is { Position: BlockSize - 3 } current && current.Track == first &&
+            session.Snapshot.Incoming is null, "Repeat did not take precedence over automix.");
+        for (int i = 0; i < block.Length; i += 2)
+        {
+            Require(block[i] == .25f && block[i + 1] == 0, "A successor or silence leaked into the repeat loop.");
+        }
+        session.SetCrossfadeDuration(0);
+        Require(session.RequestMix() && source.Render(block) == BlockSize && session.Snapshot.Current?.Track == second,
+            "Repeat prevented a manual track change.");
+        session.SetRepeatOne(false);
+        Require(session.Seek(second, second.Waveform.TotalFrames - 1) && source.Render(block) == 1 && source.Render(block) == 0,
+            "Playback did not stop at the end after repeat was disabled.");
+    }), 0, CancellationToken.None);
+}
+
+/// <summary>Confirms that the speaker output and FFT both receive the filtered master.</summary>
+static async Task CheckMasterEqualizer(string directory)
+{
+    const int band = 4;
+    const int toneFrames = Rate;
+    string path = Path.Combine(directory, "tone.pcm");
+    using (var writer = new BinaryWriter(File.Create(path)))
+    {
+        for (int frame = 0; frame < toneFrames; frame++)
+        {
+            short sample = (short)(1024 * Math.Sin(2 * Math.PI * 1000 * frame / Rate));
+            writer.Write(sample);
+            writer.Write((short)0);
+        }
+    }
+    var tone = new CachedTrack("tone", path, new TrackWaveform([], toneFrames, Rate));
+    Require(EqualizerSettings.Frequencies.SequenceEqual([60, 170, 310, 600, 1000, 3000, 6000, 12000, 14000, 16000]),
+        "The master equalizer frequencies changed.");
+    var flat = EqualizerSettings.Flat;
+    var boost = flat.WithGain(band, 12);
+    var cut = flat.WithGain(band, -12).WithEnabled(true);
+    var dry = await Measure(boost);
+    var boosted = await Measure(boost.WithEnabled(true));
+    var cutResult = await Measure(cut);
+    Require(Math.Abs(boosted.Rms / dry.Rms - Math.Pow(10, 12d / 20)) < .05 &&
+        Math.Abs(cutResult.Rms / dry.Rms - Math.Pow(10, -12d / 20)) < .015, "The selected band did not change the output by the requested gain.");
+    Require(boosted.Spectrum > dry.Spectrum && dry.Spectrum > cutResult.Spectrum, "The master spectrum did not follow the filtered output.");
+
+    async Task<(double Rms, float Spectrum)> Measure(EqualizerSettings settings)
+    {
+        using var session = new QueuePlaybackSession();
+        session.SetFirst(tone);
+        session.SetEqualizer(settings);
+        var block = new float[BlockSize * PlaybackFormat.Channels];
+        var levels = new float[PlaybackFormat.SpectrumBars];
+        double rms = 0;
+        await session.RunAsync(new InMemoryOutput(source =>
+        {
+            for (int i = 0; i < 50; i++)
+            {
+                if (source.Render(block) != BlockSize) break;
+                double sum = 0;
+                for (int sample = 0; sample < block.Length; sample += 2)
+                {
+                    Require(block[sample + 1] == 0 && float.IsFinite(block[sample]), "The stereo filter linked the channels or produced non-finite output.");
+                    sum += block[sample] * block[sample];
+                }
+                rms = Math.Sqrt(sum / BlockSize);
+            }
+            long version = 0;
+            Require(SpinWait.SpinUntil(() => session.Spectrum!.TryReadSpectrum(levels, ref version), TimeSpan.FromSeconds(2)),
+                "No master spectrum snapshot was published.");
+        }), 0, CancellationToken.None);
+        return (rms, levels.Max());
+    }
 }
 
 static CachedTrack MakeTrack(string directory, string name, short left, short right)

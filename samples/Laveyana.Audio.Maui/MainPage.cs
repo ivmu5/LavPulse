@@ -23,6 +23,8 @@ public sealed class MainPage : ContentPage
     private CachedTrack? _shownCurrent;
     private CachedTrack? _shownIncoming;
     private PlayerSettings _settings = PlayerPreferences.Load();
+    private EqualizerSettings _equalizer = PlayerPreferences.LoadEqualizer();
+    private bool _repeatOne;
     private bool _recommendations;
     private bool _openingSettings;
     private bool _pausing;
@@ -44,6 +46,8 @@ public sealed class MainPage : ContentPage
         _view.NextRequested += async () => await StartMixAsync();
         _view.PreviousRequested += async () => await PreviousAsync();
         _view.AutoMixChanged += ToggleAutoMix;
+        _view.RepeatOneChanged += ToggleRepeatOne;
+        _view.EqualizerRequested += async () => await OpenEqualizerAsync();
         _view.SettingsRequested += async () => await OpenSettingsAsync();
         _view.RecommendationsSelected += SelectRecommendations;
         _view.QueueRequested += async file => await ChooseAsync(file);
@@ -58,6 +62,7 @@ public sealed class MainPage : ContentPage
         _positions = Dispatcher.CreateTimer();
         _positions.Interval = TimeSpan.FromMilliseconds(33);
         _positions.Tick += (_, _) => UpdatePositions();
+        ApplyEqualizer(_equalizer);
         ApplySettings(_settings, save: false);
     }
 
@@ -550,6 +555,23 @@ public sealed class MainPage : ContentPage
 
     private void ToggleAutoMix() => ApplySettings(_settings with { AutoMix = !_settings.AutoMix });
 
+    private void ToggleRepeatOne()
+    {
+        _repeatOne = !_repeatOne;
+        _playback.SetRepeatOne(_repeatOne);
+        UpdateTransport();
+    }
+
+    private void ApplyEqualizer(EqualizerSettings settings)
+    {
+        _equalizer = settings;
+        _playback.SetEqualizer(settings);
+        _view.SetEqualizerEnabled(settings.Enabled);
+    }
+
+    private Task OpenEqualizerAsync() =>
+        OpenModalAsync(() => new EqualizerPage(_equalizer, ApplyEqualizer, PlayerPreferences.SaveEqualizer));
+
     private void SelectRecommendations(bool enabled)
     {
         _recommendations = enabled;
@@ -557,7 +579,10 @@ public sealed class MainPage : ContentPage
         UpdateTransport();
     }
 
-    private async Task OpenSettingsAsync()
+    private Task OpenSettingsAsync() =>
+        OpenModalAsync(() => new PlayerSettingsPage(_settings, value => ApplySettings(value), PickFilesAsync, PickFolderAsync));
+
+    private async Task OpenModalAsync(Func<Page> createPage)
     {
         if (_closed || _openingSettings || Navigation.ModalStack.Count > 0)
         {
@@ -567,7 +592,7 @@ public sealed class MainPage : ContentPage
         _openingSettings = true;
         try
         {
-            await Navigation.PushModalAsync(new PlayerSettingsPage(_settings, value => ApplySettings(value), PickFilesAsync, PickFolderAsync));
+            await Navigation.PushModalAsync(createPage());
         }
         finally
         {
@@ -609,6 +634,7 @@ public sealed class MainPage : ContentPage
         _view.SetTransport(!_closed && snapshot.Current.HasValue && !IsStopping,
             _worker is not null && _stop?.IsCancellationRequested == false,
             idle && !_recommendations && _selected is not null, idle && snapshot.Current.HasValue, _settings.AutoMix);
+        _view.SetRepeatOne(_repeatOne);
     }
 
     /// <summary>Stops output before closing readers and clears temporary decoded tracks.</summary>

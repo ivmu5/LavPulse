@@ -23,6 +23,7 @@ internal sealed class QueueSource : IPcmSource, IDisposable
     private int _fadePosition;
     private bool _manual;
     private bool _autoMix = true;
+    private bool _repeatOne;
     private bool _queueEnabled = true;
     private int _crossfadeFrames = 6 * PlaybackFormat.SampleRate;
 
@@ -90,6 +91,14 @@ internal sealed class QueueSource : IPcmSource, IDisposable
         lock (_gate)
         {
             _autoMix = enabled;
+        }
+    }
+
+    public void SetRepeatOne(bool enabled)
+    {
+        lock (_gate)
+        {
+            _repeatOne = enabled;
         }
     }
 
@@ -175,9 +184,10 @@ internal sealed class QueueSource : IPcmSource, IDisposable
                 int requested = destination.Length / PlaybackFormat.Channels - written;
                 var output = destination[(written * PlaybackFormat.Channels)..];
                 long remaining = current.Source.RemainingAtRate(current.Speed);
+                bool autoAdvance = _autoMix && !_repeatOne;
                 if ((_queueEnabled || _fadeLength > 0) && _next is { } next)
                 {
-                    if (_fadeLength == 0 && (_manual || _autoMix && remaining <= _crossfadeFrames))
+                    if (_fadeLength == 0 && (_manual || autoAdvance && remaining <= _crossfadeFrames))
                     {
                         _manual = false;
                         int length = (int)Math.Min(_crossfadeFrames,
@@ -204,12 +214,17 @@ internal sealed class QueueSource : IPcmSource, IDisposable
                         continue;
                     }
 
-                    if (_autoMix)
+                    if (autoAdvance)
                     {
                         requested = (int)Math.Min(requested, remaining - _crossfadeFrames);
                     }
                 }
 
+                if (_repeatOne && remaining == 0 && current.Cursor.Length > 0)
+                {
+                    current.Cursor.Seek(0);
+                    continue;
+                }
                 int read = current.Source.ReadAtRate(output[..(requested * PlaybackFormat.Channels)], current.Speed);
                 written += read;
                 if (read == 0)
