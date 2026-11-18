@@ -1,3 +1,4 @@
+using Laveyana.Audio.Playback;
 using Microsoft.Maui.Controls.Shapes;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -44,6 +45,23 @@ internal sealed class QueueTrackRow : Border
 
     public View DragHandle { get; }
     public bool IsPlayed => _played;
+    public TrackFile? File { get; private set; }
+    public int Index { get; private set; }
+
+    public void Bind(TrackFile file, int index)
+    {
+        File = file;
+        Index = index;
+    }
+
+    public void Unbind()
+    {
+        File = null;
+        _shown = null;
+        _cover.Source = null;
+        Scale = 1;
+        Opacity = 1;
+    }
     public void SetSpectrum(IDrawable? drawable) => _spectrum.Drawable = drawable;
     public void InvalidateSpectrum() => _spectrum.Invalidate();
 
@@ -66,6 +84,7 @@ internal sealed class QueueTrackRow : Border
         }
         if (_shown?.Title != item.Title || _shown?.Artist != item.Artist)
         {
+            _text.ResetWidths();
             _text.Title = SingleLine(item.Title);
             _text.Artist = item.Artist is { } artist ? SingleLine(artist) : null;
             _marqueeStart = Stopwatch.GetTimestamp();
@@ -123,6 +142,9 @@ internal sealed class QueueTrackRow : Border
         public Color StatusColor { get; set; } = Colors.White;
         public double Seconds { get; set; }
         public bool IsOverflowing { get; private set; }
+        private readonly Dictionary<(string Text, Font Font, float Size), float> _widths = new();
+
+        public void ResetWidths() => _widths.Clear();
 
         public void Draw(ICanvas canvas, RectF bounds)
         {
@@ -158,7 +180,12 @@ internal sealed class QueueTrackRow : Border
 
         private void DrawLine(ICanvas canvas, RectF bounds, string value, Font font, float size, Color color)
         {
-            float width = canvas.GetStringSize(value, font, size).Width + 1;
+            var key = (value, font, size);
+            if (!_widths.TryGetValue(key, out float width))
+            {
+                width = canvas.GetStringSize(value, font, size).Width + 1;
+                _widths[key] = width;
+            }
             float overflow = Math.Max(0, width - bounds.Width);
             IsOverflowing |= overflow > 0;
             // Pause at each end and pan slowly enough to read the whole line.

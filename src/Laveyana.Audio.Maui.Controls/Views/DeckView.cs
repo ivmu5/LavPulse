@@ -15,6 +15,10 @@ public sealed class DeckView : Border
     private readonly WaveformDrawable _overviewDrawable = new() { UseProgressBar = true };
     private readonly GraphicsView _detail;
     private readonly GraphicsView _overview;
+    private readonly GraphicsView _detailCursor;
+    private readonly GraphicsView _overviewCursor;
+    private readonly Grid _overviewLayer;
+    private long _detailStart = -1;
     private readonly IDispatcherTimer _timer;
     private CachedTrack? _track;
     private GraphicsView? _gesture;
@@ -32,6 +36,9 @@ public sealed class DeckView : Border
     {
         _detail = new GraphicsView { Drawable = _detailDrawable, HeightRequest = 64 };
         _overview = new GraphicsView { Drawable = _overviewDrawable, HeightRequest = 44 };
+        _detailCursor = new GraphicsView { Drawable = _detailDrawable.CreateCursor(), InputTransparent = true };
+        _overviewCursor = new GraphicsView { Drawable = _overviewDrawable.CreateCursor(), InputTransparent = true };
+        _overviewLayer = new Grid { Children = { _overview, _overviewCursor } };
         SemanticProperties.SetDescription(_detail, "Детальная волна. Удерживай и веди в сторону. Жест вверх отменяет перемотку.");
         SemanticProperties.SetDescription(_overview, "Обзорная волна. Перетащи к нужной позиции. Жест вверх отменяет перемотку.");
         _previewLabel.HorizontalOptions = LayoutOptions.Center;
@@ -55,8 +62,8 @@ public sealed class DeckView : Border
         header.Add(_name);
         header.Add(_time, 1);
         header.Add(_trackSpeed, 2);
-        var detailLayer = new Grid { Children = { _detail, _previewLabel } };
-        MixerStyle.StyleCard(this, new VerticalStackLayout { Spacing = 5, Children = { header, detailLayer, _overview } });
+        var detailLayer = new Grid { Children = { _detail, _detailCursor, _previewLabel } };
+        MixerStyle.StyleCard(this, new VerticalStackLayout { Spacing = 5, Children = { header, detailLayer, _overviewLayer } });
         Padding = new Thickness(10, 7);
 
         _timer = Dispatcher.CreateTimer();
@@ -95,8 +102,8 @@ public sealed class DeckView : Border
         _canSeek = canSeek;
         _trackSpeed.IsEnabled = canSeek;
         _detail.InputTransparent = _overview.InputTransparent = !canSeek;
-        bool revealOverview = !_overview.IsVisible && showOverview;
-        _overview.IsVisible = _trackSpeed.IsVisible = showOverview;
+        bool revealOverview = !_overviewLayer.IsVisible && showOverview;
+        _overviewLayer.IsVisible = _trackSpeed.IsVisible = showOverview;
         if (!_canSeek || !ReferenceEquals(_track, playing?.Track))
         {
             CancelScrub();
@@ -121,6 +128,7 @@ public sealed class DeckView : Border
             _track = deck.Track;
             _shownSecond = -1;
             _detailDrawable.Waveform = _overviewDrawable.Waveform = deck.Track.Waveform;
+            InvalidateWaveGeometry();
             _name.Text = deck.Track.Title;
             _deck = deck.Deck;
             UpdateTitleColor();
@@ -144,6 +152,7 @@ public sealed class DeckView : Border
             ? "Обзорная волна. Перетащи к нужной позиции. Жест вверх отменяет перемотку."
             : "Полоса прогресса. Перетащи к нужной позиции. Жест вверх отменяет перемотку.");
         UpdateTitleColor();
+        InvalidateWaveGeometry();
         Redraw();
     }
 
@@ -281,11 +290,21 @@ public sealed class DeckView : Border
         {
             _previewLabel.Text = _gesture == _detail ? $"{FormatTime(frame)}   {_speed:+0;-0;0} с/с" : FormatTime(frame);
         }
-        _detail.Invalidate();
-        if (_overview.IsVisible)
+        long start = _detailDrawable.WindowStart(_detail.Width);
+        if (start != _detailStart)
         {
-            _overview.Invalidate();
+            _detailStart = start;
+            _detail.Invalidate();
         }
+        _detailCursor.Invalidate();
+        if (_overviewLayer.IsVisible) _overviewCursor.Invalidate();
+    }
+
+    private void InvalidateWaveGeometry()
+    {
+        _detailStart = -1;
+        _detail.Invalidate();
+        _overview.Invalidate();
     }
 
     private static string FormatTime(long frames)

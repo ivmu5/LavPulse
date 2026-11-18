@@ -10,6 +10,7 @@ public sealed partial class MasterSpectrumView : ContentView
     private long _version;
     private double _lastFrame = double.NaN;
     private Func<ISpectrumSource?>? _getSource;
+    private bool _frameLoopRunning;
 
     public MasterSpectrumView()
     {
@@ -26,6 +27,8 @@ public sealed partial class MasterSpectrumView : ContentView
     {
         _drawable.SetAppearance(colors, settings);
         IsVisible = settings.ShowSpectrum && settings.SpectrumWidthPercent > 0;
+        SyncFrameLoop();
+        if (!IsVisible) ResetLevels();
         _graphics.Invalidate();
         VisualizationChanged?.Invoke();
     }
@@ -39,7 +42,7 @@ public sealed partial class MasterSpectrumView : ContentView
         }
 
         _getSource = getSource;
-        StartFrameLoop();
+        SyncFrameLoop();
     }
 
     /// <summary>Releases the display clock and clears the visual state.</summary>
@@ -51,13 +54,27 @@ public sealed partial class MasterSpectrumView : ContentView
         }
 
         _getSource = null;
-        StopFrameLoop();
+        SyncFrameLoop();
+        ResetLevels();
+        _graphics.Invalidate();
+        VisualizationChanged?.Invoke();
+    }
+
+    private void SyncFrameLoop()
+    {
+        bool run = IsVisible && _getSource is not null;
+        if (run == _frameLoopRunning) return;
+        _frameLoopRunning = run;
+        if (run) StartFrameLoop();
+        else StopFrameLoop();
+    }
+
+    private void ResetLevels()
+    {
         _version = 0;
         _lastFrame = double.NaN;
         Array.Clear(_levels);
         _drawable.Reset();
-        _graphics.Invalidate();
-        VisualizationChanged?.Invoke();
     }
 
     /// <summary>Reads the next audible spectrum and applies elapsed-time smoothing.</summary>

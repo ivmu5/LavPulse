@@ -7,66 +7,118 @@ internal sealed class WaveformDrawable : IDrawable
     public PlayerColors Colors { get; set; } = PlayerColors.For(PlayerPalette.LavPulse);
     public bool UseProgressBar { get; set; }
 
-    public TrackWaveform? Waveform { get; set; }
+    public TrackWaveform? Waveform
+    {
+        get => _waveform;
+        set
+        {
+            if (ReferenceEquals(_waveform, value)) return;
+            _waveform = value;
+            ReleaseBands();
+        }
+    }
+    private TrackWaveform? _waveform;
     public bool Detailed { get; init; }
     public int DetailWindowSeconds { get; set; } = PlayerSettings.DefaultWaveformDetailSeconds;
     public long Position { get; set; }
     public long? Preview { get; set; }
 
-    /// <summary>Scales waveform points to the view and draws their three frequency bands.</summary>
+    private RectF _cachedBounds;
+    private long _cachedStart;
+    private long _cachedLength;
+    private PathF[]? _bands;
+
+    public IDrawable CreateCursor() => new Playhead(this);
+
+    /// <summary>Snaps the scrolling detail to one visible column while keeping the cursor frame-accurate.</summary>
+    public long WindowStart(double viewWidth)
+    {
+        if (!Detailed || Waveform is not { TotalFrames: > 0 } waveform) return 0;
+
+        long length = DetailLength(waveform);
+        long end = waveform.TotalFrames - length;
+        long start = Math.Clamp((Preview ?? Position) - length / 2, 0, end);
+        int columns = Columns((float)viewWidth - 8);
+        long step = Math.Max(1, length / columns);
+        return start == end ? start : start / step * step;
+    }
+
+    private long DetailLength(TrackWaveform waveform) =>
+        Math.Min(waveform.TotalFrames, (long)DetailWindowSeconds * PlaybackFormat.SampleRate);
+
+    private static int Columns(float width) => Math.Max(1, (int)(width / 1.65f));
+
+    /// <summary>Draws cached three-band geometry, independently of the playhead overlay.</summary>
     public void Draw(ICanvas canvas, RectF bounds)
     {
         if (UseProgressBar)
         {
-            DrawProgress(canvas, bounds);
+            if (bounds.Width > 12 && bounds.Height >= 12)
+            {
+                canvas.FillColor = MixerStyle.BorderColor;
+                canvas.FillRoundedRectangle(bounds.Left + 6, bounds.Center.Y - 3, bounds.Width - 12, 6, 3);
+            }
             return;
         }
 
         canvas.FillColor = MixerStyle.Surface;
         canvas.FillRoundedRectangle(bounds.X, bounds.Y, bounds.Width, bounds.Height, 6);
-
-        if (bounds.Width < 8 || bounds.Height < 8)
-        {
-            return;
-        }
+        if (bounds.Width < 8 || bounds.Height < 8) return;
 
         float x = bounds.X + 4;
         float width = bounds.Width - 8;
-        float middle = bounds.Y + bounds.Height / 2;
+        float middle = bounds.Center.Y;
         canvas.StrokeColor = MixerStyle.BorderColor;
         canvas.StrokeSize = 1;
         canvas.DrawLine(x, middle, x + width, middle);
 
-        if (Waveform is not { } waveform)
-        {
-            return;
-        }
+        if (Waveform is not { TotalFrames: > 0 } waveform || waveform.Points.Count == 0) return;
 
-        if (waveform.TotalFrames == 0 || waveform.Points.Count == 0)
-        {
-            return;
-        }
-
-        long detailLength = Math.Min(waveform.TotalFrames, (long)DetailWindowSeconds * PlaybackFormat.SampleRate);
-        long detailStart = Math.Clamp((Preview ?? Position) - detailLength / 2, 0, waveform.TotalFrames - detailLength);
-        long length = Detailed ? detailLength : waveform.TotalFrames;
-        long windowStart = Detailed ? detailStart : 0;
-        if (!Detailed)
-        {
-            canvas.FillColor = Colors.Accent.WithAlpha(.16f);
-            canvas.FillRectangle(x + width * detailStart / waveform.TotalFrames, bounds.Y + 4,
-                width * detailLength / waveform.TotalFrames, bounds.Height - 8);
-        }
-
-        int columns = Math.Max(1, (int)(width / 1.65f));
+        long start = WindowStart(bounds.Width);
+        long length = Detailed ? DetailLength(waveform) : waveform.TotalFrames;
+        int columns = Columns(width);
         float spacing = width / columns;
-        float scale = bounds.Height / 2 - 4;
+        long meshStart = start / length * length;
+        if (_cachedBounds != bounds || _cachedStart != meshStart || _cachedLength != length || _bands is null)
+        {
+            ReleaseBands();
+            // Two adjacent detail windows cover the viewport until the playhead crosses the next chunk.
+            int meshWindows = Detailed ? 2 : 1;
+            _bands = BuildBands(waveform, meshStart, length * meshWindows, columns * meshWindows,
+                x, spacing, middle, bounds.Height / 2 - 4);
+            _cachedBounds = bounds;
+            _cachedStart = meshStart;
+            _cachedLength = length;
+        }
+        canvas.SaveState();
+        canvas.ClipRectangle(x, bounds.Top, width, bounds.Height);
+        canvas.Translate((float)((meshStart - start) * (double)width / length), 0);
         canvas.StrokeSize = Math.Clamp(spacing * 0.78f, 1, 2);
+        canvas.StrokeColor = Colors.WaveLow;
+        canvas.DrawPath(_bands[0]);
+        canvas.StrokeColor = Colors.WaveMid;
+        canvas.DrawPath(_bands[1]);
+        canvas.StrokeColor = Colors.Alternate;
+        canvas.DrawPath(_bands[2]);
+        canvas.RestoreState();
+    }
 
+    private void ReleaseBands()
+    {
+        if (_bands is null) return;
+        foreach (var band in _bands) band.Dispose();
+        _bands = null;
+    }
+
+    private static PathF[] BuildBands(TrackWaveform waveform, long start, long length,
+        int columns, float x, float spacing, float middle, float scale)
+    {
+        PathF[] bands = [new(), new(), new()];
         for (int column = 0; column < columns; column++)
         {
-            long fromFrame = windowStart + length * column / columns;
-            long toFrame = windowStart + length * (column + 1) / columns;
+            long fromFrame = start + length * column / columns;
+            if (fromFrame >= waveform.TotalFrames) break;
+            long toFrame = Math.Min(waveform.TotalFrames, start + length * (column + 1) / columns);
             int from = (int)(fromFrame / waveform.FramesPerPoint);
             int to = (int)(Math.Max(fromFrame, toFrame - 1) / waveform.FramesPerPoint);
             WaveformPoint point = waveform.Points[from];
@@ -75,29 +127,56 @@ internal sealed class WaveformDrawable : IDrawable
                 point = point.Combine(waveform.Points[index]);
             }
 
-            if (point.Peak < 0.001f)
-            {
-                continue;
-            }
+            float sum = point.Low + point.Mid + point.High;
+            if (point.Peak < 0.001f || sum <= 0) continue;
 
             float height = MathF.Sqrt(point.Peak) * scale;
-            float sum = point.Low + point.Mid + point.High;
-            if (sum <= 0)
-            {
-                continue;
-            }
-
             float low = height * point.Low / sum;
             float mid = height * point.Mid / sum;
             float bar = x + spacing * (column + 0.5f);
-            DrawBand(canvas, bar, middle, 0, low, Colors.WaveLow);
-            DrawBand(canvas, bar, middle, low, low + mid, Colors.WaveMid);
-            DrawBand(canvas, bar, middle, low + mid, height, Colors.Alternate);
+            AddBand(bands[0], bar, middle, 0, low);
+            AddBand(bands[1], bar, middle, low, low + mid);
+            AddBand(bands[2], bar, middle, low + mid, height);
+        }
+        return bands;
+    }
+
+    private static void AddBand(PathF path, float x, float middle, float start, float end)
+    {
+        if (end <= start) return;
+        path.MoveTo(x, middle - end);
+        path.LineTo(x, middle - start);
+        path.MoveTo(x, middle + start);
+        path.LineTo(x, middle + end);
+    }
+
+    private void DrawCursor(ICanvas canvas, RectF bounds)
+    {
+        if (Waveform is not { TotalFrames: > 0 } waveform || bounds.Width <= 12 || bounds.Height < 12) return;
+
+        if (UseProgressBar)
+        {
+            DrawProgress(canvas, bounds, waveform.TotalFrames);
+            return;
+        }
+
+        if (waveform.Points.Count == 0) return;
+        float x = bounds.Left + 4;
+        float width = bounds.Width - 8;
+        long detailLength = DetailLength(waveform);
+        long start = WindowStart(bounds.Width);
+        long length = Detailed ? detailLength : waveform.TotalFrames;
+        if (!Detailed)
+        {
+            long detailStart = Math.Clamp((Preview ?? Position) - detailLength / 2, 0, waveform.TotalFrames - detailLength);
+            canvas.FillColor = Colors.Accent.WithAlpha(.16f);
+            canvas.FillRectangle(x + width * detailStart / waveform.TotalFrames, bounds.Y + 4,
+                width * detailLength / waveform.TotalFrames, bounds.Height - 8);
         }
 
         if (Preview is long preview)
         {
-            float marker = x + width * (preview - windowStart) / length;
+            float marker = x + width * (preview - start) / length;
             canvas.FillColor = MixerStyle.Preview;
             for (float y = bounds.Y + 3; y < bounds.Bottom - 5; y += 7)
             {
@@ -105,9 +184,9 @@ internal sealed class WaveformDrawable : IDrawable
             }
         }
 
-        if (Position >= windowStart && Position <= windowStart + length)
+        if (Position >= start && Position <= start + length)
         {
-            float marker = x + width * (Position - windowStart) / length;
+            float marker = x + width * (Position - start) / length;
             canvas.StrokeColor = MixerStyle.TextColor;
             canvas.StrokeSize = 2;
             canvas.DrawLine(marker, bounds.Y + 3, marker, bounds.Bottom - 3);
@@ -121,25 +200,15 @@ internal sealed class WaveformDrawable : IDrawable
         }
     }
 
-    /// <summary>Shows played progress and a separate seek preview using the entire track duration.</summary>
-    private void DrawProgress(ICanvas canvas, RectF bounds)
+    private void DrawProgress(ICanvas canvas, RectF bounds, long frames)
     {
-        if (Waveform is not { TotalFrames: > 0 } waveform || bounds.Width <= 12 || bounds.Height < 12)
-        {
-            return;
-        }
-
-        const float radius = 3;
         float start = bounds.Left + 6;
         float width = bounds.Width - 12;
-        float y = bounds.Center.Y - radius;
-        float played = width * Math.Clamp((float)Position / waveform.TotalFrames, 0, 1);
-        canvas.FillColor = MixerStyle.BorderColor;
-        canvas.FillRoundedRectangle(start, y, width, radius * 2, radius);
+        float played = width * Math.Clamp((float)Position / frames, 0, 1);
         if (played > 0)
         {
             canvas.FillColor = Colors.Accent;
-            canvas.FillRoundedRectangle(start, y, played, radius * 2, Math.Min(radius, played / 2));
+            canvas.FillRoundedRectangle(start, bounds.Center.Y - 3, played, 6, Math.Min(3, played / 2));
         }
 
         canvas.FillColor = MixerStyle.TextColor;
@@ -147,20 +216,12 @@ internal sealed class WaveformDrawable : IDrawable
         if (Preview is long frame)
         {
             canvas.FillColor = MixerStyle.Preview;
-            canvas.FillCircle(start + width * Math.Clamp((float)frame / waveform.TotalFrames, 0, 1), bounds.Center.Y, 5);
+            canvas.FillCircle(start + width * Math.Clamp((float)frame / frames, 0, 1), bounds.Center.Y, 5);
         }
     }
 
-    /// <summary>Draws one symmetric colored portion of a waveform column.</summary>
-    private static void DrawBand(ICanvas canvas, float x, float middle, float start, float end, Color color)
+    private sealed class Playhead(WaveformDrawable waveform) : IDrawable
     {
-        if (end <= start)
-        {
-            return;
-        }
-
-        canvas.StrokeColor = color;
-        canvas.DrawLine(x, middle - end, x, middle - start);
-        canvas.DrawLine(x, middle + start, x, middle + end);
+        public void Draw(ICanvas canvas, RectF bounds) => waveform.DrawCursor(canvas, bounds);
     }
 }

@@ -1,3 +1,4 @@
+using Laveyana.Audio;
 using Laveyana.Audio.Playback;
 
 const int Rate = PlaybackFormat.SampleRate;
@@ -7,6 +8,7 @@ string directory = Directory.CreateTempSubdirectory("lavpulse-checks-").FullName
 try
 {
     CheckMp3AudioInfo();
+    CheckSpectrumCaptureToggle();
     Console.WriteLine("OK: MP3 stream properties.");
     CachedTrack first = MakeTrack(directory, "first", left: 8192, right: 0);
     CachedTrack second = MakeTrack(directory, "second", left: 0, right: 8192);
@@ -23,6 +25,34 @@ try
 finally
 {
     Directory.Delete(directory, recursive: true);
+}
+
+/// <summary>Checks that disabling FFT preserves playback timing and discards pre-toggle windows.</summary>
+static void CheckSpectrumCaptureToggle()
+{
+    var source = new ContinuousPcm();
+    var mixer = new PcmMixer([new PcmInput(source)], 16, 2048);
+    var block = new float[PlaybackFormat.BlockFrames * PlaybackFormat.Channels];
+    var bands = new float[mixer.Spectrum.Bands.Count];
+    mixer.Render(block);
+    mixer.Render(block);
+    Require(mixer.Spectrum.TryReadLevels(bands, out long first) && first == 2 * PlaybackFormat.BlockFrames,
+        "No initial spectrum window.");
+
+    // Leave one pending snapshot to ensure it cannot appear when visualization is restored.
+    mixer.Render(block);
+    mixer.Spectrum.SetEnabled(false);
+    mixer.Render(block);
+    mixer.Render(block);
+    Require(!mixer.Spectrum.TryReadLevels(bands, out _) && block[0] == .25f,
+        "Hidden spectrum altered audio or emitted a window.");
+
+    mixer.Spectrum.SetEnabled(true);
+    mixer.Render(block);
+    Require(!mixer.Spectrum.TryReadLevels(bands, out _), "Re-enabled spectrum reused stale PCM.");
+    mixer.Render(block);
+    Require(mixer.Spectrum.TryReadLevels(bands, out long resumed) && resumed == 7 * PlaybackFormat.BlockFrames,
+        "Spectrum did not resume on the absolute render clock.");
 }
 
 /// <summary>Verifies bitrate and mode are read from the audio frames even with misleading tag or seek-table bytes.</summary>
@@ -364,5 +394,16 @@ sealed class ShortSource : Laveyana.Audio.IPcmSource
         _read = true;
         destination[..8].Fill(1);
         return 4;
+    }
+}
+
+file sealed class ContinuousPcm : IPcmSource
+{
+    public int SampleRate => PlaybackFormat.SampleRate;
+
+    public int Read(Span<float> destination)
+    {
+        destination.Fill(.25f);
+        return destination.Length / PlaybackFormat.Channels;
     }
 }
