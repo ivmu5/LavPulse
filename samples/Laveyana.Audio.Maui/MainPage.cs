@@ -15,6 +15,10 @@ public sealed class MainPage : ContentPage
     private ContentView? _overlay;
 #endif
     private readonly QueuePlaybackSession _playback = new();
+    private readonly ISystemPlaybackIntegration _systemPlayback = new PlatformSystemPlaybackIntegration();
+    private long _lastSystemUpdate;
+    private CachedTrack? _lastSystemTrack;
+    private bool _lastSystemPlaying;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly PlayerLibrary _library;
     private readonly IDispatcherTimer _positions;
@@ -64,6 +68,7 @@ public sealed class MainPage : ContentPage
         _view.QueueMoveRequested += async (from, to, after) => await MoveQueueAsync(from, to, after);
         _view.QueueRemoveRequested += async file => await RemoveQueueTrackAsync(file);
         _view.BindFileDrops(() => !_closed, AddFilesAsync);
+        _systemPlayback.CommandReceived += OnSystemPlaybackCommand;
         _view.CurrentDeck.SeekRequested += Seek;
         _view.IncomingDeck.SeekRequested += Seek;
         _view.CurrentDeck.SpeedRequested += SetTrackSpeed;
@@ -447,6 +452,55 @@ public sealed class MainPage : ContentPage
         await PlayAsync();
     }
 
+    /// <summary>Dispatches OS transport buttons to the same commands used by the player.</summary>
+    private void OnSystemPlaybackCommand(SystemPlaybackCommand command) =>
+        Dispatcher.Dispatch(() => _ = ExecuteSystemPlaybackCommandAsync(command));
+
+    private async Task ExecuteSystemPlaybackCommandAsync(SystemPlaybackCommand command)
+    {
+        if (_closed || _loadingFirst || IsStopping) return;
+        try
+        {
+            switch (command)
+            {
+                case SystemPlaybackCommand.Play when _worker is null:
+                    await PlayAsync();
+                    break;
+                case SystemPlaybackCommand.Pause when _worker is not null:
+                    await TogglePlaybackAsync();
+                    break;
+                case SystemPlaybackCommand.Next:
+                    if (_selected is null) await SelectDefaultAsync();
+                    await StartMixAsync();
+                    break;
+                case SystemPlaybackCommand.Previous:
+                    await PreviousAsync();
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            if (!_closed) _view.Status.Text = $"Ошибка системного управления: {ex.Message}";
+        }
+    }
+
+    /// <summary>Throttles position updates but immediately publishes track and transport changes.</summary>
+    private void UpdateSystemPlayback(bool force = false, bool? overridePlaying = null)
+    {
+        if (_closed || _playback.Snapshot.Current is not { } current) return;
+        bool playing = overridePlaying ?? (_worker is not null && !_pausing && !(_stop?.IsCancellationRequested ?? false));
+        bool changed = !ReferenceEquals(_lastSystemTrack, current.Track) || playing != _lastSystemPlaying;
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (!force && !changed &&
+            System.Diagnostics.Stopwatch.GetElapsedTime(_lastSystemUpdate, now).TotalMilliseconds < 750)
+            return;
+        _lastSystemTrack = current.Track;
+        _lastSystemPlaying = playing;
+        _lastSystemUpdate = now;
+        _systemPlayback.Publish(new SystemPlaybackState(current.Track, current.Position, playing,
+            !_recommendations && (_selected is not null || _queue.Next is not null), true));
+    }
+
     /// <summary>Keeps the cursor and pending transition when playback is paused and resumed.</summary>
     private async Task PlayAsync(bool restartAtEnd = true)
     {
@@ -462,6 +516,10 @@ public sealed class MainPage : ContentPage
 
         using var stop = new CancellationTokenSource();
         _stop = stop;
+        // Start Android's foreground service before allowing the activity to go into background.
+        UpdateSystemPlayback(force: true, overridePlaying: true);
+        try { _systemPlayback.EnsureRunning(); }
+        catch (Exception ex) { _view.Status.Text = $"Системный плеер недоступен: {ex.Message}"; }
         _positions.Start();
         _view.StartPlaybackVisuals(() => _playback.Spectrum);
         _view.Status.Text = "";
@@ -509,6 +567,7 @@ public sealed class MainPage : ContentPage
     {
         var snapshot = _playback.Snapshot;
         UpdateDecks(snapshot);
+        UpdateSystemPlayback();
         if (snapshot.Current is not { } current)
         {
             return;
@@ -726,6 +785,7 @@ public sealed class MainPage : ContentPage
             _worker is not null && _stop?.IsCancellationRequested == false,
             idle && !_recommendations && _selected is not null, idle && snapshot.Current.HasValue, _settings.AutoMix);
         _view.SetRepeatOne(_repeatOne);
+        UpdateSystemPlayback(force: true);
     }
 
     /// <summary>Stops output before closing readers and clears temporary decoded tracks.</summary>
@@ -752,6 +812,9 @@ public sealed class MainPage : ContentPage
         }
         finally
         {
+            _systemPlayback.CommandReceived -= OnSystemPlaybackCommand;
+            _systemPlayback.Stop();
+            _systemPlayback.Dispose();
             _playback.Dispose();
             await _library.CloseAsync();
             _lifetime.Dispose();

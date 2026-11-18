@@ -21,7 +21,6 @@ public sealed class App : Application
 #if WINDOWS
         WindowsWindowChrome.Configure(window);
 #endif
-        window.Stopped += (_, _) => page.StopPlayback();
         window.Destroying += async (_, _) => await page.CloseAsync();
         return window;
     }
