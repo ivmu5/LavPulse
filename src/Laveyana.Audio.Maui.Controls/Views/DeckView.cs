@@ -5,11 +5,18 @@ namespace Laveyana.Audio.Maui.Controls;
 /// <summary>Shows a detailed window and an overview of one deck, with commit-on-release scrubbing.</summary>
 public sealed class DeckView : Border
 {
+    private static readonly double[] Speeds = [.75, .875, 1, 1.125, 1.25];
+    private readonly Picker _trackSpeed = new()
+    {
+        ItemsSource = new[] { "0,75×", "0,875×", "1×", "1,125×", "1,25×" },
+        TextColor = MixerStyle.TextColor, BackgroundColor = MixerStyle.Overlay,
+        FontSize = 11, WidthRequest = 68, MinimumHeightRequest = 32, SelectedIndex = 2
+    };
     private readonly Label _name = MixerStyle.Label("", 13, bold: true);
     private readonly Label _time = MixerStyle.Label("", 11, MixerStyle.Muted);
     private readonly Label _previewLabel = MixerStyle.Label("", 12);
     private readonly WaveformDrawable _detailDrawable = new() { Detailed = true };
-    private readonly WaveformDrawable _overviewDrawable = new();
+    private readonly WaveformDrawable _overviewDrawable = new() { UseProgressBar = true };
     private readonly GraphicsView _detail;
     private readonly GraphicsView _overview;
     private readonly IDispatcherTimer _timer;
@@ -23,6 +30,8 @@ public sealed class DeckView : Border
     private long _lastTick;
     private bool _moved;
     private bool _canSeek;
+    private Deck _deck;
+    private bool _updatingSpeed;
 
     public DeckView()
     {
@@ -37,11 +46,21 @@ public sealed class DeckView : Border
         _previewLabel.InputTransparent = true;
         _previewLabel.IsVisible = false;
 
-        var header = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
+        var header = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto)], ColumnSpacing = 8 };
         _name.MaxLines = 1;
         _name.LineBreakMode = LineBreakMode.TailTruncation;
+        _name.VerticalTextAlignment = _time.VerticalTextAlignment = TextAlignment.Center;
+        SemanticProperties.SetDescription(_trackSpeed, "Скорость трека. После перехода начинается с 1×. Скорость влияет на высоту тона.");
+        _trackSpeed.SelectedIndexChanged += (_, _) =>
+        {
+            if (!_updatingSpeed && _track is { } track && _trackSpeed.SelectedIndex >= 0)
+            {
+                SpeedRequested?.Invoke(track, Speeds[_trackSpeed.SelectedIndex]);
+            }
+        };
         header.Add(_name);
         header.Add(_time, 1);
+        header.Add(_trackSpeed, 2);
         var detailLayer = new Grid { Children = { _detail, _previewLabel } };
         MixerStyle.StyleCard(this, new VerticalStackLayout { Spacing = 5, Children = { header, detailLayer, _overview } });
         Padding = new Thickness(10, 7);
@@ -61,11 +80,13 @@ public sealed class DeckView : Border
     }
 
     public event Action<CachedTrack, long>? SeekRequested;
+    public event Action<CachedTrack, double>? SpeedRequested;
 
     /// <summary>Updates the playhead, track and permission to begin a gesture.</summary>
     public void Show(PlayingTrack? playing, bool canSeek)
     {
         _canSeek = canSeek;
+        _trackSpeed.IsEnabled = canSeek;
         if (!_canSeek || !ReferenceEquals(_track, playing?.Track))
         {
             CancelScrub();
@@ -79,6 +100,14 @@ public sealed class DeckView : Border
             return;
         }
 
+        int speedIndex = Array.IndexOf(Speeds, deck.Speed);
+        if (speedIndex >= 0 && speedIndex != _trackSpeed.SelectedIndex)
+        {
+            _updatingSpeed = true;
+            _trackSpeed.SelectedIndex = speedIndex;
+            _updatingSpeed = false;
+        }
+
         bool trackChanged = !ReferenceEquals(_track, deck.Track);
         if (trackChanged)
         {
@@ -86,7 +115,8 @@ public sealed class DeckView : Border
             _shownSecond = -1;
             _detailDrawable.Waveform = _overviewDrawable.Waveform = deck.Track.Waveform;
             _name.Text = deck.Track.Title;
-            _name.TextColor = deck.Deck == Deck.A ? MixerStyle.Accent : MixerStyle.Alternate;
+            _deck = deck.Deck;
+            UpdateTitleColor();
         }
 
         if (trackChanged || _position != deck.Position)
@@ -95,6 +125,21 @@ public sealed class DeckView : Border
             Redraw();
         }
     }
+
+    /// <summary>Restyles both timelines while retaining position and seek gestures.</summary>
+    internal void SetAppearance(bool waveformOverview, PlayerColors colors)
+    {
+        _overviewDrawable.UseProgressBar = !waveformOverview;
+        _detailDrawable.Colors = _overviewDrawable.Colors = colors;
+        SemanticProperties.SetDescription(_overview, waveformOverview
+            ? "Обзорная волна. Жест вверх отменяет перемотку."
+            : "Полоса прогресса. Жест вверх отменяет перемотку.");
+        UpdateTitleColor();
+        Redraw();
+    }
+
+    private void UpdateTitleColor() => _name.TextColor = _deck == Deck.A
+        ? _detailDrawable.Colors.Accent : _detailDrawable.Colors.Alternate;
 
     /// <summary>Begins a preview with the underlying playback position intact.</summary>
     private bool Begin(GraphicsView view, PointF point)

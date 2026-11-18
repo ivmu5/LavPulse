@@ -11,7 +11,9 @@ try
     await CheckPauseAndResume(first, second, duringMix: false);
     await CheckPauseAndResume(first, second, duringMix: true);
     CheckShortTrack();
-    Console.WriteLine("OK: pause envelope, exact cursor on resume, paused crossfade, and end-of-track fade.");
+    await CheckStartupAndRate(first, second);
+    await CheckFeedSelection(first, second);
+    Console.WriteLine("OK: startup/pause envelopes, resume, per-track speed and reset, and queue feed selection.");
 }
 finally
 {
@@ -59,7 +61,7 @@ static async Task CheckPauseAndResume(CachedTrack first, CachedTrack second, boo
             }
         }
         Require(source.Render(block) == 0, "The output continued after the fade.");
-    }), CancellationToken.None);
+    }), startMilliseconds: 0, CancellationToken.None);
 
     long pausedAt = BlockSize + PauseFrames;
     Require(rendered == PauseFrames, "The fade length was not 300 ms.");
@@ -72,7 +74,7 @@ static async Task CheckPauseAndResume(CachedTrack first, CachedTrack second, boo
     await session.RunAsync(new InMemoryOutput(source =>
     {
         Require(source.Render(block) == BlockSize, "The next output run inherited the paused state.");
-        Require(block[0] > 0, "The resume produced silence.");
+        Require(block[0] == 0 && block[block.Length - 2] > 0, "Resume did not start with a fade.");
     }), CancellationToken.None);
     Require(session.Snapshot.Current?.Position == pausedAt + BlockSize, "Resume did not continue from the saved cursor.");
     if (duringMix)
@@ -83,10 +85,64 @@ static async Task CheckPauseAndResume(CachedTrack first, CachedTrack second, boo
 
 static void CheckShortTrack()
 {
-    var output = new PauseFadeSource(new ShortSource());
+    var output = new TransportFadeSource(new ShortSource(), startMilliseconds: 0);
     Span<float> block = stackalloc float[PlaybackFormat.Channels * 10];
-    Require(output.RequestPause() && output.Read(block) == 4, "Could not render the short tail.");
+    Require(output.RequestPause(300) && output.Read(block) == 4, "Could not render the short tail.");
     Require(block[0] == 1 && block[6] == 0 && output.Read(block) == 0, "The short tail did not fade to zero.");
+}
+
+static async Task CheckStartupAndRate(CachedTrack first, CachedTrack second)
+{
+    using var session = new QueuePlaybackSession();
+    session.SetFirst(first);
+    session.SetCrossfadeDuration(0);
+    Require(session.TrySetSpeed(first, 1.25), "Could not set outgoing rate.");
+    Require(session.SetNext(second), "Could not queue incoming track.");
+
+    var block = new float[BlockSize * PlaybackFormat.Channels];
+    int rendered = 0;
+    await session.RunAsync(new InMemoryOutput(source =>
+    {
+        while (rendered < PauseFrames)
+        {
+            int frames = source.Render(block);
+            Require(frames > 0, "Track ended during the startup envelope.");
+            for (int frame = 0; frame < frames; frame++)
+            {
+                float progress = Math.Min(1, (float)(rendered + frame) / (PauseFrames - 1));
+                float expected = HyperbolicFade.Gains(progress).Incoming / 4;
+                Require(Math.Abs(expected - block[frame * 2]) < .00001f, "Invalid startup sample.");
+            }
+            rendered += frames;
+        }
+
+        Require(session.Snapshot.Current?.Position == rendered * 5L / 4, "The outgoing cursor did not follow the faster rate.");
+        Require(session.RequestMix(), "Could not start the immediate transition.");
+        Require(source.Render(block) == BlockSize && block[1] == .25f, "The next track did not take over.");
+        Require(session.Snapshot.Current is { Speed: 1, Position: BlockSize }, "The next track inherited the outgoing rate.");
+    }), CancellationToken.None);
+}
+
+static async Task CheckFeedSelection(CachedTrack first, CachedTrack second)
+{
+    using var session = new QueuePlaybackSession();
+    session.SetFirst(first);
+    Require(session.SetNext(second), "Could not queue the next track.");
+    session.SetQueueEnabled(false);
+    Require(!session.RequestMix(), "Recommendations fell back to the queue.");
+    Require(session.Seek(first, first.Waveform.TotalFrames - 1), "Could not seek to the end.");
+    var block = new float[BlockSize * PlaybackFormat.Channels];
+    await session.RunAsync(new InMemoryOutput(source =>
+    {
+        Require(source.Render(block) == 1 && source.Render(block) == 0, "The inactive queue advanced after the track ended.");
+        Require(session.Snapshot.Current?.Track == first && session.Snapshot.Incoming is null, "Inactive queue replaced the track.");
+    }), 0, CancellationToken.None);
+
+    session.SetQueueEnabled(true);
+    await session.RunAsync(new InMemoryOutput(source =>
+    {
+        Require(source.Render(block) == BlockSize && session.Snapshot.Current?.Track == second, "Re-enabling the queue did not restore the next track.");
+    }), 0, CancellationToken.None);
 }
 
 static CachedTrack MakeTrack(string directory, string name, short left, short right)

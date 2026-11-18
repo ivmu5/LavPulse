@@ -6,7 +6,7 @@ internal sealed class MixedPlayback : IAudioRenderSource, ISpectrumSource
     private const int SpectrumHistorySize = 64;
 
     private readonly DeckVolumes? _levels;
-    private readonly PauseFadeSource? _queueOutput;
+    private readonly TransportFadeSource? _queueOutput;
     private readonly CachedPcmSource? _deckA;
     private readonly CachedPcmSource? _deckB;
     private readonly PcmInput? _inputA;
@@ -40,14 +40,14 @@ internal sealed class MixedPlayback : IAudioRenderSource, ISpectrumSource
     }
 
     /// <summary>Analyzes the finished queue mix with the same spectrum pipeline as standalone decks.</summary>
-    public MixedPlayback(QueueSource queue)
+    public MixedPlayback(QueueSource queue, int startMilliseconds)
     {
-        _queueOutput = new PauseFadeSource(queue);
+        _queueOutput = new TransportFadeSource(queue, startMilliseconds);
         _mixer = new PcmMixer([new PcmInput(_queueOutput, 1)], PlaybackFormat.SpectrumBars, SpectrumWindow);
     }
 
     /// <summary>Starts a fade and lets the device drain normally once the fade is complete.</summary>
-    public bool RequestPause() => _queueOutput?.RequestPause() == true;
+    public bool RequestPause(int milliseconds) => _queueOutput?.RequestPause(milliseconds) == true;
 
     /// <summary>Updates deck gains, mixes the next block and returns its real frame count.</summary>
     public int Render(Span<float> buffer)

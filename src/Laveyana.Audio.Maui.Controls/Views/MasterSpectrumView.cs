@@ -18,6 +18,13 @@ public sealed partial class MasterSpectrumView : ContentView
         Content = _graphics;
     }
 
+    internal void SetAppearance(PlayerColors colors, bool visible, bool peaks)
+    {
+        _drawable.SetAppearance(colors, peaks);
+        IsVisible = visible;
+        _graphics.Invalidate();
+    }
+
     /// <summary>Subscribes to a display clock and obtains spectrum snapshots during playback.</summary>
     public void Start(Func<ISpectrumSource?> getSource)
     {

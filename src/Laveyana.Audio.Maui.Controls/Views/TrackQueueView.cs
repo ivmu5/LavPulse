@@ -11,7 +11,12 @@ internal sealed class TrackQueueView : Grid
     private readonly VerticalStackLayout _rows = new() { Spacing = 5 };
     private readonly VerticalStackLayout _queue;
     private readonly Grid _right;
+    private readonly Button _queueTab = MixerStyle.Button("Очередь");
+    private readonly Button _recommendationsTab = MixerStyle.Button("Рекомендации");
+    private readonly ScrollView _queueScroll;
+    private readonly Label _recommendations = MixerStyle.Label("В разработке", 13, MixerStyle.Muted);
     private readonly Dictionary<TrackFile, Button> _buttons = new();
+    private bool _showRecommendations;
     private int _animation;
     private bool _handoff;
 
@@ -20,10 +25,17 @@ internal sealed class TrackQueueView : Grid
         ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)];
         ColumnSpacing = 16;
         MinimumHeightRequest = 208;
-        _queue = new VerticalStackLayout
-        {
-            Spacing = 7, Children = { MixerStyle.Label("Далее", 13, MixerStyle.Muted), _rows }
-        };
+        var tabs = new Grid { ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Star)], ColumnSpacing = 4 };
+        _queueTab.FontSize = _recommendationsTab.FontSize = 10;
+        _queueTab.Padding = _recommendationsTab.Padding = new Thickness(4, 4);
+        _queueTab.Clicked += (_, _) => SelectRecommendations(false);
+        _recommendationsTab.Clicked += (_, _) => SelectRecommendations(true);
+        tabs.Add(_queueTab);
+        tabs.Add(_recommendationsTab, 1);
+        _queueScroll = new ScrollView { Content = _rows, MaximumHeightRequest = 176 };
+        _recommendations.IsVisible = false;
+        _queue = new VerticalStackLayout { Spacing = 7, Children = { tabs, _queueScroll, _recommendations } };
+        SetTabColors();
         _right = new Grid { Children = { _queue, _incoming } };
         _incoming.IsVisible = false;
         this.Add(_current);
@@ -37,6 +49,30 @@ internal sealed class TrackQueueView : Grid
     }
 
     public event Action<TrackFile>? TrackRequested;
+    public event Action<bool>? RecommendationsSelected;
+    public Color Accent { get; set; } = MixerStyle.Accent;
+
+    /// <summary>Switches the visible feed and tells playback which source to use.</summary>
+    private void SelectRecommendations(bool show)
+    {
+        if (_showRecommendations == show)
+        {
+            return;
+        }
+        _showRecommendations = show;
+        _queueScroll.IsVisible = !show;
+        _recommendations.IsVisible = show;
+        SetTabColors();
+        RecommendationsSelected?.Invoke(show);
+    }
+
+    private void SetTabColors()
+    {
+        _queueTab.BackgroundColor = _showRecommendations ? MixerStyle.ButtonBackground : MixerStyle.SelectedBackground;
+        _recommendationsTab.BackgroundColor = _showRecommendations ? MixerStyle.SelectedBackground : MixerStyle.ButtonBackground;
+        SemanticProperties.SetDescription(_queueTab, _showRecommendations ? "Очередь" : "Очередь, выбрана");
+        SemanticProperties.SetDescription(_recommendationsTab, _showRecommendations ? "Рекомендации, выбраны" : "Рекомендации");
+    }
 
     /// <summary>Updates the visible queue and marks the item that will play next.</summary>
     public void ShowQueue(IReadOnlyList<TrackFile> tracks, TrackFile? selected, Func<TrackFile, string> getName)
@@ -49,7 +85,7 @@ internal sealed class TrackQueueView : Grid
             if (ReferenceEquals(track, selected ?? tracks.FirstOrDefault()))
             {
                 button.BackgroundColor = MixerStyle.SelectedBackground;
-                button.BorderColor = MixerStyle.Accent.WithAlpha(.55f);
+                button.BorderColor = Accent.WithAlpha(.55f);
                 button.BorderWidth = 1;
                 SemanticProperties.SetDescription(button, getName(track) + ". Следующий трек. Повторное нажатие запускает сведение.");
             }
@@ -75,7 +111,7 @@ internal sealed class TrackQueueView : Grid
         _queue.InputTransparent = true;
         _incoming.Show(track, "Сведение");
         var row = file is not null && _buttons.TryGetValue(file, out var button) ? button : null;
-        double originY = row is null ? 0 : _rows.Y + row.Y;
+        double originY = row is null ? 0 : Math.Clamp(_queueScroll.Y + row.Y - _queueScroll.ScrollY, 0, Math.Max(0, _right.Height - 44));
         double rowHeight = Math.Max(44, row?.Height ?? 0);
         _incoming.TranslationY = originY;
         _incoming.ScaleX = .96;

@@ -7,10 +7,22 @@ internal sealed class SpectrumDrawable : IDrawable
     private const int EdgePaddingRows = 2;
     private const float PeakHoldSeconds = .28f;
     private const float PeakFallPerSecond = 1.8f;
-    private static readonly Color LeftColor = MixerStyle.Accent.WithAlpha(.6f);
-    private static readonly Color RightColor = MixerStyle.Alternate.WithAlpha(.6f);
-    private static readonly Color LeftPeak = MixerStyle.Accent.WithAlpha(.9f);
-    private static readonly Color RightPeak = MixerStyle.Alternate.WithAlpha(.9f);
+    private Color _leftColor = MixerStyle.Accent.WithAlpha(.6f);
+    private Color _rightColor = MixerStyle.Alternate.WithAlpha(.6f);
+    private Color _leftPeak = MixerStyle.Accent.WithAlpha(.9f);
+    private Color _rightPeak = MixerStyle.Alternate.WithAlpha(.9f);
+    private bool _showPeaks = true;
+
+    /// <summary>Updates the colors and the visibility of the peak marks.</summary>
+    public void SetAppearance(PlayerColors colors, bool showPeaks)
+    {
+        _leftColor = colors.Accent.WithAlpha(.6f);
+        _rightColor = colors.Alternate.WithAlpha(.6f);
+        _leftPeak = colors.Accent.WithAlpha(.9f);
+        _rightPeak = colors.Alternate.WithAlpha(.9f);
+        _showPeaks = showPeaks;
+    }
+
     private readonly float[] _bars = new float[PlaybackFormat.SpectrumBars];
     private readonly float[] _peaks = new float[PlaybackFormat.SpectrumBars];
     private readonly float[] _peakTimers = new float[PlaybackFormat.SpectrumBars];
@@ -78,13 +90,13 @@ internal sealed class SpectrumDrawable : IDrawable
             float length = maximum * _bars[band];
             if (length > 0)
             {
-                DrawMirrored(canvas, bounds, 0, length, y, thickness, LeftColor, RightColor);
+                DrawMirrored(canvas, bounds, 0, length, y, thickness, _leftColor, _rightColor);
             }
 
             float peak = maximum * _peaks[band];
-            if (peak - length > markerWidth + 2)
+            if (_showPeaks && peak - length > markerWidth + 2)
             {
-                DrawMirrored(canvas, bounds, peak - markerWidth, markerWidth, y, thickness, LeftPeak, RightPeak);
+                DrawMirrored(canvas, bounds, peak - markerWidth, markerWidth, y, thickness, _leftPeak, _rightPeak);
             }
         }
     }
