@@ -7,25 +7,46 @@ internal sealed class SpectrumDrawable : IDrawable
     private const int EdgePaddingRows = 2;
     private const float PeakHoldSeconds = .28f;
     private const float PeakFallPerSecond = 1.8f;
-    private Color _leftColor = MixerStyle.Accent.WithAlpha(.6f);
-    private Color _rightColor = MixerStyle.Alternate.WithAlpha(.6f);
-    private Color _leftPeak = MixerStyle.Accent.WithAlpha(.9f);
-    private Color _rightPeak = MixerStyle.Alternate.WithAlpha(.9f);
-    private bool _showPeaks = true;
-
-    /// <summary>Updates the colors and the visibility of the peak marks.</summary>
-    public void SetAppearance(PlayerColors colors, bool showPeaks)
-    {
-        _leftColor = colors.Accent.WithAlpha(.6f);
-        _rightColor = colors.Alternate.WithAlpha(.6f);
-        _leftPeak = colors.Accent.WithAlpha(.9f);
-        _rightPeak = colors.Alternate.WithAlpha(.9f);
-        _showPeaks = showPeaks;
-    }
-
+    private readonly BandPaint[] _paint = new BandPaint[PlaybackFormat.SpectrumBars];
     private readonly float[] _bars = new float[PlaybackFormat.SpectrumBars];
     private readonly float[] _peaks = new float[PlaybackFormat.SpectrumBars];
     private readonly float[] _peakTimers = new float[PlaybackFormat.SpectrumBars];
+    private bool _showPeaks;
+
+    public SpectrumDrawable() => SetAppearance(PlayerColors.For(PlayerPalette.LavPulse), SpectrumColorMode.Split, true);
+
+    /// <summary>Caches the band and peak colors when the appearance changes.</summary>
+    public void SetAppearance(PlayerColors colors, SpectrumColorMode mode, bool showPeaks)
+    {
+        _showPeaks = showPeaks;
+        if (mode != SpectrumColorMode.FrequencyGradient)
+        {
+            var right = mode == SpectrumColorMode.Split ? colors.Alternate : colors.Accent;
+            Array.Fill(_paint, BandPaint.From(colors.Accent, right));
+            return;
+        }
+
+        for (int band = 0; band < _paint.Length; band++)
+        {
+            // Band zero is the lowest frequency and is drawn at the bottom.
+            float position = band / (float)(_paint.Length - 1);
+            var color = position <= .5f
+                ? Interpolate(colors.WaveLow, colors.WaveMid, position * 2)
+                : Interpolate(colors.WaveMid, colors.Alternate, position * 2 - 1);
+            _paint[band] = BandPaint.From(color, color);
+        }
+    }
+
+    private static Color Interpolate(Color from, Color to, float progress) => new(
+        from.Red + (to.Red - from.Red) * progress,
+        from.Green + (to.Green - from.Green) * progress,
+        from.Blue + (to.Blue - from.Blue) * progress);
+
+    private readonly record struct BandPaint(Color LeftBar, Color RightBar, Color LeftPeak, Color RightPeak)
+    {
+        public static BandPaint From(Color left, Color right) =>
+            new(left.WithAlpha(.6f), right.WithAlpha(.6f), left.WithAlpha(.9f), right.WithAlpha(.9f));
+    }
 
     /// <summary>Smooths each band and holds its peak briefly before it falls.</summary>
     public bool Advance(ReadOnlySpan<float> levels, float elapsedSeconds)
@@ -88,15 +109,16 @@ internal sealed class SpectrumDrawable : IDrawable
         {
             float y = bounds.Bottom - (EdgePaddingRows + band + .5f) * spacing - thickness / 2;
             float length = maximum * _bars[band];
+            var paint = _paint[band];
             if (length > 0)
             {
-                DrawMirrored(canvas, bounds, 0, length, y, thickness, _leftColor, _rightColor);
+                DrawMirrored(canvas, bounds, 0, length, y, thickness, paint.LeftBar, paint.RightBar);
             }
 
             float peak = maximum * _peaks[band];
             if (_showPeaks && peak - length > markerWidth + 2)
             {
-                DrawMirrored(canvas, bounds, peak - markerWidth, markerWidth, y, thickness, _leftPeak, _rightPeak);
+                DrawMirrored(canvas, bounds, peak - markerWidth, markerWidth, y, thickness, paint.LeftPeak, paint.RightPeak);
             }
         }
     }

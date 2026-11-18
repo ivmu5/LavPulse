@@ -7,6 +7,13 @@ public enum PlayerPalette
     Warm
 }
 
+public enum SpectrumColorMode
+{
+    Split,
+    FrequencyGradient,
+    Monochrome
+}
+
 /// <summary>Contains the user-facing preferences for playback and the player visuals.</summary>
 public sealed record PlayerSettings
 {
@@ -16,6 +23,7 @@ public sealed record PlayerSettings
     public bool AutoMix { get; init; } = true;
     public bool WaveformOverview { get; init; }
     public PlayerPalette Palette { get; init; }
+    public SpectrumColorMode SpectrumColors { get; init; }
     public bool ShowSpectrum { get; init; } = true;
     public bool ShowPeaks { get; init; } = true;
 }

@@ -47,8 +47,6 @@ public sealed class MainPage : ContentPage
         _view.SettingsRequested += async () => await OpenSettingsAsync();
         _view.RecommendationsSelected += SelectRecommendations;
         _view.QueueRequested += async file => await ChooseAsync(file);
-        _view.AddFiles.Clicked += async (_, _) => await PickFilesAsync();
-        _view.AddFolder.Clicked += async (_, _) => await PickFolderAsync();
         _view.BindFileDrops(() => !_closed, AddFilesAsync);
         _view.CurrentDeck.SeekRequested += Seek;
         _view.IncomingDeck.SeekRequested += Seek;
@@ -91,7 +89,6 @@ public sealed class MainPage : ContentPage
         }
 
         _pickerOpen = true;
-        _view.AddFiles.IsEnabled = _view.AddFolder.IsEnabled = false;
         try
         {
             return await pick();
@@ -108,7 +105,6 @@ public sealed class MainPage : ContentPage
         finally
         {
             _pickerOpen = false;
-            _view.AddFiles.IsEnabled = _view.AddFolder.IsEnabled = !_closed;
         }
     }
 
@@ -495,7 +491,7 @@ public sealed class MainPage : ContentPage
         _openingSettings = true;
         try
         {
-            await Navigation.PushModalAsync(new PlayerSettingsPage(_settings, value => ApplySettings(value)));
+            await Navigation.PushModalAsync(new PlayerSettingsPage(_settings, value => ApplySettings(value), PickFilesAsync, PickFolderAsync));
         }
         finally
         {
