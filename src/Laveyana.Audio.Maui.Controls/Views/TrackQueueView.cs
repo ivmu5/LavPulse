@@ -22,6 +22,9 @@ internal sealed class TrackQueueView : Grid
     private readonly IDispatcherTimer _rowClock;
     private readonly long _start = Stopwatch.GetTimestamp();
     private TrackFile? _currentTrack;
+    private IDrawable? _masterSpectrum;
+    private View? _removeTarget;
+    private double? _dragStartX;
     private bool _focusCurrent;
     private TrackFile? _dragging;
     private QueueTrackRow? _dropTarget;
@@ -66,6 +69,7 @@ internal sealed class TrackQueueView : Grid
     public event Action<TrackFile>? TrackRequested;
     public event Action<TrackFile>? HistoryRequested;
     public event Action<TrackFile, TrackFile, bool>? MoveRequested;
+    public event Action<TrackFile>? RemoveRequested;
     public event Action<bool>? RecommendationsSelected;
     public Color Accent { get; set; } = MixerStyle.Accent;
 
@@ -122,27 +126,23 @@ internal sealed class TrackQueueView : Grid
     }
 
     /// <summary>Keeps row views stable while background analysis updates their contents.</summary>
-    public void ShowQueue(IReadOnlyList<TrackFile> tracks, TrackFile? current, TrackFile? next, Func<TrackFile, QueueTrackItem> read)
+    public void ShowQueue(IReadOnlyList<TrackFile> tracks, TrackFile? current, TrackFile? next, int playedCount, Func<TrackFile, QueueTrackItem> read)
     {
         _focusCurrent |= !ReferenceEquals(_currentTrack, current);
         _currentTrack = current;
         var ordered = new List<View>(tracks.Count);
         var visible = new HashSet<TrackFile>();
-        bool beforeCurrent = current is not null;
-        foreach (var file in tracks)
+        for (int index = 0; index < tracks.Count; index++)
         {
+            var file = tracks[index];
             bool playing = ReferenceEquals(file, current);
-            if (playing)
-            {
-                beforeCurrent = false;
-            }
             if (!_trackRows.TryGetValue(file, out var row))
             {
                 row = CreateRow(file);
                 _trackRows[file] = row;
             }
             visible.Add(file);
-            row.Show(read(file), playing, beforeCurrent, ReferenceEquals(next, file), Accent);
+            row.Show(read(file), playing, index < playedCount, ReferenceEquals(next, file), Accent);
             ordered.Add(row);
         }
         foreach (var file in _trackRows.Keys.Where(file => !visible.Contains(file)).ToArray())
@@ -168,6 +168,43 @@ internal sealed class TrackQueueView : Grid
         }
     }
 
+    public void SetMasterSpectrum(IDrawable drawable) => _masterSpectrum = drawable;
+
+    public void InvalidateMasterSpectrum()
+    {
+        if (_showRecommendations || _queue.Opacity == 0 || _currentTrack is not { } file ||
+            !_trackRows.TryGetValue(file, out var row)) return;
+        double scroll = _queueScroll.ScrollY;
+        if (row.Y + row.Height >= scroll && row.Y <= scroll + _queueScroll.Height)
+        {
+            row.InvalidateSpectrum();
+        }
+    }
+
+    public void AttachRemovalTarget(View target)
+    {
+        _removeTarget = target;
+        var drop = new DropGestureRecognizer { AllowDrop = true };
+        drop.DragOver += (_, args) =>
+        {
+            bool accepted = CanRemove(args.GetPosition(this));
+            args.AcceptedOperation = accepted ? DataPackageOperation.Copy : DataPackageOperation.None;
+            target.Opacity = accepted ? 1 : .65;
+        };
+        drop.DragLeave += (_, _) => target.Opacity = .65;
+        drop.Drop += (_, args) =>
+        {
+            if (!CanRemove(args.GetPosition(this)) || _dragging is not { } file) return;
+            args.Handled = true;
+            EndDrag();
+            Dispatcher.Dispatch(() => RemoveRequested?.Invoke(file));
+        };
+        target.GestureRecognizers.Add(drop);
+
+        bool CanRemove(Point? point) =>
+            _dragging is not null && (_dragStartX is not double start || point is null || point.Value.X >= start + 14);
+    }
+
     private void FocusCurrent()
     {
         if (_currentTrack is { } track && _trackRows.TryGetValue(track, out var row))
@@ -180,6 +217,7 @@ internal sealed class TrackQueueView : Grid
     private QueueTrackRow CreateRow(TrackFile file)
     {
         var row = new QueueTrackRow();
+        row.SetSpectrum(_masterSpectrum);
         var tap = new TapGestureRecognizer();
         tap.Tapped += (_, _) =>
         {
@@ -199,6 +237,12 @@ internal sealed class TrackQueueView : Grid
                 return;
             }
             _dragging = file;
+            _dragStartX = args.GetPosition(this)?.X;
+            if (_removeTarget is { } target)
+            {
+                target.Opacity = .65;
+                target.InputTransparent = false;
+            }
             args.Data.Text = "LavPulse.QueueTrack";
         };
         drag.DropCompleted += (_, _) => EndDrag();
@@ -251,6 +295,12 @@ internal sealed class TrackQueueView : Grid
     private void EndDrag()
     {
         _dragging = null;
+        _dragStartX = null;
+        if (_removeTarget is { } target)
+        {
+            target.Opacity = 0;
+            target.InputTransparent = true;
+        }
         _lastDrag = Stopwatch.GetTimestamp();
         _dragScrollDirection = 0;
         ClearDropTarget();

@@ -237,9 +237,14 @@ static async Task CheckMasterEqualizer(string directory)
     var dry = await Measure(boost);
     var boosted = await Measure(boost.WithEnabled(true));
     var cutResult = await Measure(cut);
+    var raised = await Measure(flat.WithOutputGain(6).WithEnabled(true));
+    var bypassed = await Measure(flat.WithOutputGain(12));
     Require(Math.Abs(boosted.Rms / dry.Rms - Math.Pow(10, 12d / 20)) < .05 &&
         Math.Abs(cutResult.Rms / dry.Rms - Math.Pow(10, -12d / 20)) < .015, "The selected band did not change the output by the requested gain.");
     Require(boosted.Spectrum > dry.Spectrum && dry.Spectrum > cutResult.Spectrum, "The master spectrum did not follow the filtered output.");
+    Require(Math.Abs(raised.Rms / dry.Rms - Math.Pow(10, 6d / 20)) < .02 && raised.Spectrum > dry.Spectrum,
+        "The overall gain did not reach both the audio output and the FFT.");
+    Require(bypassed.Rms == dry.Rms && bypassed.Spectrum == dry.Spectrum, "The disabled equalizer still applied overall gain.");
 
     async Task<(double Rms, float Spectrum)> Measure(EqualizerSettings settings)
     {

@@ -6,7 +6,7 @@ namespace Laveyana.Audio.Maui.Controls;
 internal static class NumericInputGestures
 {
     /// <summary>Handles the wheel even when the native slider consumes it, and resets on double tap.</summary>
-    public static void Attach(View view, Func<double, bool> scroll, Action? reset = null)
+    public static void Attach(View view, Func<double, bool> scroll, Action? reset = null, bool vertical = false)
     {
         PointerEventHandler wheel = (sender, args) =>
         {

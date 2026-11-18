@@ -12,19 +12,18 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
     private readonly SemaphoreSlim _metadataSlots = new(3);
 
     /// <summary>Adds playable files while retaining stable identities for the queue and cached tracks.</summary>
-    public IReadOnlyList<TrackFile> Add(IEnumerable<TrackFile> files)
+    public IReadOnlyList<TrackFile> Add(IEnumerable<TrackFile> files, IReadOnlyList<TrackFile> queue)
     {
         var added = new List<TrackFile>();
         foreach (var file in files)
         {
-            if (!TrackFile.IsMp3(file.Name) || _files.Contains(file) || file.LocalPath is { } path &&
-                _files.Any(item => string.Equals(item.LocalPath, path, OperatingSystem.IsWindows()
-                    ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)))
-            {
-                continue;
-            }
-            _files.Add(file);
-            added.Add(file);
+            if (!TrackFile.IsMp3(file.Name)) continue;
+            var existing = _files.FirstOrDefault(item => item == file || file.LocalPath is { } path &&
+                string.Equals(item.LocalPath, path, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal));
+            var canonical = existing ?? file;
+            if (queue.Contains(canonical) || added.Contains(canonical)) continue;
+            if (existing is null) _files.Add(canonical);
+            added.Add(canonical);
         }
         return added;
     }

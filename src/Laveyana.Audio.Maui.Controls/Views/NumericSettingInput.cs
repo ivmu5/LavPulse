@@ -14,7 +14,7 @@ internal sealed class NumericSettingInput : Grid
     private double _wheelRemainder;
     private bool _updating;
 
-    public NumericSettingInput(string name, string unit, NumericRange range, double value, bool showSlider = true)
+    public NumericSettingInput(string name, string unit, NumericRange range, double value, bool showSlider = true, bool vertical = false)
     {
         _range = range;
         ColumnDefinitions = showSlider
@@ -24,15 +24,27 @@ internal sealed class NumericSettingInput : Grid
         _entry = new Entry
         {
             Keyboard = Keyboard.Numeric, ReturnType = ReturnType.Done, HorizontalTextAlignment = TextAlignment.End,
-            FontFamily = "Inter", FontSize = showSlider ? 14 : 12, WidthRequest = showSlider ? 76 : 66, TextColor = MixerStyle.TextColor,
+            FontFamily = "Inter", FontSize = vertical ? 12 : showSlider ? 14 : 12,
+            WidthRequest = vertical ? 48 : showSlider ? 76 : 66, TextColor = MixerStyle.TextColor,
             BackgroundColor = MixerStyle.Overlay
         };
         var unitLabel = MixerStyle.Label(unit, 12, MixerStyle.Muted);
         unitLabel.VerticalOptions = LayoutOptions.Center;
         SemanticProperties.SetDescription(_entry, $"{name}, {unit}, от {range.Minimum} до {range.Maximum}");
         int fieldColumn = showSlider ? 1 : 0;
-        this.Add(_entry, fieldColumn);
-        this.Add(unitLabel, fieldColumn + 1);
+        if (vertical)
+        {
+            ColumnDefinitions = [new(GridLength.Star)];
+            RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Auto)];
+            _entry.HorizontalOptions = LayoutOptions.Center;
+            _entry.HorizontalTextAlignment = TextAlignment.Center;
+            this.Add(_entry, row: 1);
+        }
+        else
+        {
+            this.Add(_entry, fieldColumn);
+            this.Add(unitLabel, fieldColumn + 1);
+        }
         NumericInputGestures.Attach(_entry, Scroll);
         if (showSlider)
         {
@@ -45,9 +57,24 @@ internal sealed class NumericSettingInput : Grid
             var reset = MixerStyle.IconButton("player_reset.png", 32);
             SemanticProperties.SetDescription(reset, $"Сбросить. {name}");
             reset.Clicked += (_, _) => Reset();
-            this.Add(_slider);
-            this.Add(reset, 3);
-            NumericInputGestures.Attach(_slider, Scroll, Reset);
+            if (vertical)
+            {
+                const int travel = 116;
+                var slot = new AbsoluteLayout { HeightRequest = travel };
+                _slider.Rotation = -90;
+                AbsoluteLayout.SetLayoutBounds(_slider, new Rect(.5, .5, travel, 40));
+                AbsoluteLayout.SetLayoutFlags(_slider, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.PositionProportional);
+                slot.Children.Add(_slider);
+                reset.HorizontalOptions = LayoutOptions.Center;
+                this.Add(slot);
+                this.Add(reset, row: 2);
+            }
+            else
+            {
+                this.Add(_slider);
+                this.Add(reset, 3);
+            }
+            NumericInputGestures.Attach(_slider, Scroll, Reset, vertical);
             _slider.ValueChanged += (_, args) =>
             {
                 if (!_updating && IsEnabled)

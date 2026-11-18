@@ -4,7 +4,7 @@ namespace Laveyana.Audio.Maui.Controls;
 internal static class NumericInputGestures
 {
     /// <summary>Provides the standard MAUI double tap on platforms without a native input adapter.</summary>
-    public static void Attach(View view, Func<double, bool> scroll, Action? reset = null)
+    public static void Attach(View view, Func<double, bool> scroll, Action? reset = null, bool vertical = false)
     {
         if (reset is not null)
         {

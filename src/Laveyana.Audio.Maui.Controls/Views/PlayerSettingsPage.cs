@@ -7,7 +7,8 @@ public sealed class PlayerSettingsPage : ContentPage
     private bool _loading;
     private PlayerSettings _settings;
 
-    public PlayerSettingsPage(PlayerSettings settings, Action<PlayerSettings> apply, Func<Task> pickFiles, Func<Task> pickFolder)
+    public PlayerSettingsPage(PlayerSettings settings, Action<PlayerSettings> apply, Func<Task> pickFiles, Func<Task> pickFolder,
+        Func<Task>? dismiss = null)
     {
         _settings = settings;
         var defaults = new PlayerSettings();
@@ -102,7 +103,7 @@ public sealed class PlayerSettingsPage : ContentPage
 
         var save = MixerStyle.Button("Сохранить", primary: true, icon: "player_confirm.png");
         var cancel = MixerStyle.Button("Отмена", icon: "player_cancel.png");
-        save.Clicked += async (_, _) => await CloseAsync(() =>
+        save.Clicked += async (_, _) => await CloseAsync(dismiss, () =>
         {
             foreach (var input in numbers)
             {
@@ -110,7 +111,7 @@ public sealed class PlayerSettingsPage : ContentPage
             }
             apply(_settings);
         });
-        cancel.Clicked += async (_, _) => await CloseAsync(null);
+        cancel.Clicked += async (_, _) => await CloseAsync(dismiss, null);
         var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)], ColumnSpacing = 8 };
         actions.Add(cancel);
         actions.Add(save, 1);
@@ -128,8 +129,9 @@ public sealed class PlayerSettingsPage : ContentPage
         layout.Add(sections, row: 1);
         layout.Add(content, row: 2);
         layout.Add(actions, row: 3);
-        SizeChanged += (_, _) => { if (Width > 0) layout.WidthRequest = Math.Min(Width, 660); };
-        Content = layout;
+        var host = new Grid { Children = { layout } };
+        host.SizeChanged += (_, _) => { if (host.Width > 0) layout.WidthRequest = Math.Min(host.Width, 660); };
+        Content = host;
     }
 
     /// <summary>Creates one scrollable settings list and keeps its section shortcuts visible.</summary>
@@ -228,7 +230,7 @@ public sealed class PlayerSettingsPage : ContentPage
         }
     }
 
-    private async Task CloseAsync(Action? apply)
+    private async Task CloseAsync(Func<Task>? dismiss, Action? apply)
     {
         if (_closing)
         {
@@ -236,7 +238,8 @@ public sealed class PlayerSettingsPage : ContentPage
         }
         _closing = true;
         apply?.Invoke();
-        await Navigation.PopModalAsync();
+        if (dismiss is null) await Navigation.PopModalAsync();
+        else await dismiss();
     }
 
     private static (View Row, NumericSettingInput Input) Number(string name, string unit, NumericRange range, int selected, Action<int> update)

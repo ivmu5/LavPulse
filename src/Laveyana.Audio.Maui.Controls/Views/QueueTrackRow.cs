@@ -15,6 +15,7 @@ internal sealed class QueueTrackRow : Border
     private readonly Image _cover = new() { Aspect = Aspect.AspectFill, WidthRequest = 38, HeightRequest = 38, VerticalOptions = LayoutOptions.Center };
     private readonly QueueText _text = new();
     private readonly GraphicsView _graphics;
+    private readonly GraphicsView _spectrum = new() { InputTransparent = true, IsVisible = false };
     private readonly Grid _content;
     private QueueTrackItem? _shown;
     private bool _played;
@@ -38,11 +39,13 @@ internal sealed class QueueTrackRow : Border
         _content.Add(_graphics, 1);
         _content.Add(DragHandle, 2);
         _cover.IsVisible = false;
-        Content = _content;
+        Content = new Grid { IsClippedToBounds = true, Children = { _spectrum, _content } };
     }
 
     public View DragHandle { get; }
     public bool IsPlayed => _played;
+    public void SetSpectrum(IDrawable? drawable) => _spectrum.Drawable = drawable;
+    public void InvalidateSpectrum() => _spectrum.Invalidate();
 
     /// <summary>Updates only changed tags or colors so pending rows can stay under the pointer.</summary>
     public void Show(QueueTrackItem item, bool current, bool played, bool selected, Color accent)
@@ -70,6 +73,8 @@ internal sealed class QueueTrackRow : Border
         }
         _shown = item;
         _current = current;
+        _spectrum.IsVisible = current;
+        if (current) _spectrum.Invalidate();
         _played = played;
         _selected = selected;
         _accent = accent;
