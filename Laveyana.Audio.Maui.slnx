@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Laveyana.Audio/Laveyana.Audio.csproj" />
+    <Project Path="src/Laveyana.Audio.Playback/Laveyana.Audio.Playback.csproj" />
+    <Project Path="src/Laveyana.Audio.Maui.Controls/Laveyana.Audio.Maui.Controls.csproj" />
+    <Project Path="src/Laveyana.Audio.Maui.Controls/Laveyana.Audio.Maui.Controls.Android.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.csproj" />
+    <Project Path="samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.Android.csproj" />
+  </Folder>
+</Solution>

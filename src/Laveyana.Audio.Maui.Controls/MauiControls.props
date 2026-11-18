@@ -1,0 +1,16 @@
+<Project>
+  <Import Project="../../MauiPlatforms.props" />
+  <PropertyGroup>
+    <AssemblyName>Laveyana.Audio.Maui.Controls</AssemblyName>
+    <RootNamespace>Laveyana.Audio.Maui.Controls</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Laveyana.Audio.Playback/Laveyana.Audio.Playback.csproj" />
+    <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="Platforms/**/*.cs" />
+    <Compile Include="Platforms/Android/**/*.cs" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'" />
+    <Compile Include="Platforms/Windows/**/*.cs" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'" />
+  </ItemGroup>
+</Project>

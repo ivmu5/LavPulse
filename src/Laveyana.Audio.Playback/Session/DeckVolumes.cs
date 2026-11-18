@@ -1,0 +1,29 @@
+namespace Laveyana.Audio.Playback;
+
+/// <summary>Shares per-deck gains between the controls and the audio worker.</summary>
+public sealed class DeckVolumes
+{
+    private volatile float _gainA = 0.5f;
+    private volatile float _gainB = 0.5f;
+
+    /// <summary>Sets a normalized gain for the next render block.</summary>
+    public void Set(Deck deck, float gain)
+    {
+        if (!float.IsFinite(gain) || gain is < 0 or > 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(gain));
+        }
+
+        if (deck == Deck.A)
+        {
+            _gainA = gain;
+        }
+        else
+        {
+            _gainB = gain;
+        }
+    }
+
+    /// <summary>Reads the latest gain without taking a lock on the audio thread.</summary>
+    internal float Get(Deck deck) => deck == Deck.A ? _gainA : _gainB;
+}

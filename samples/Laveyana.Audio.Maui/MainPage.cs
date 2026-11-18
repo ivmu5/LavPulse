@@ -1,0 +1,521 @@
+using Laveyana.Audio.Maui.AudioOutput;
+using Laveyana.Audio.Maui.Controls;
+using Laveyana.Audio.Maui.Tracks;
+using Laveyana.Audio.Playback;
+
+namespace Laveyana.Audio.Maui;
+
+/// <summary>Coordinates the native player, its local library and one continuous playback queue.</summary>
+public sealed class MainPage : ContentPage
+{
+    private readonly PlayerView _view = new();
+    private readonly QueuePlaybackSession _playback = new();
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly PlayerLibrary _library;
+    private readonly IDispatcherTimer _positions;
+    private readonly List<TrackFile> _queue = [];
+    private readonly Stack<TrackFile> _history = new();
+    private CancellationTokenSource? _stop;
+    private Task? _worker;
+    private Task? _coverAnimation;
+    private TrackFile? _selected;
+    private TrackFile? _armed;
+    private CachedTrack? _shownCurrent;
+    private CachedTrack? _shownIncoming;
+    private bool _autoMix = true;
+    private bool _pausing;
+    private bool _pickerOpen;
+    private bool _loadingFirst;
+    private bool _closed;
+
+    private bool IsStopping => _pausing || _stop?.IsCancellationRequested == true;
+
+    public MainPage()
+    {
+        _library = new PlayerLibrary(new TrackPreparation(FileSystem.CacheDirectory), _lifetime.Token);
+        SafeAreaEdges = new SafeAreaEdges(SafeAreaRegions.None, SafeAreaRegions.Container, SafeAreaRegions.None, SafeAreaRegions.Container);
+        BackgroundColor = _view.BackgroundColor;
+        Content = _view;
+
+        _view.PlayRequested += async () => await TogglePlaybackAsync();
+        _view.NextRequested += async () => await StartMixAsync();
+        _view.PreviousRequested += async () => await PreviousAsync();
+        _view.AutoMixChanged += ToggleAutoMix;
+        _view.QueueRequested += async file => await ChooseAsync(file);
+        _view.LibraryTrackRequested += async file => await ChooseAsync(file);
+        _view.AddFiles.Clicked += async (_, _) => await PickFilesAsync();
+        _view.AddFolder.Clicked += async (_, _) => await PickFolderAsync();
+        _view.BindFileDrops(() => !_closed, AddFilesAsync);
+        _view.CurrentDeck.SeekRequested += Seek;
+        _view.IncomingDeck.SeekRequested += Seek;
+
+        _positions = Dispatcher.CreateTimer();
+        _positions.Interval = TimeSpan.FromMilliseconds(33);
+        _positions.Tick += (_, _) => UpdatePositions();
+        UpdateTransport();
+    }
+
+    /// <summary>Imports MP3s selected using the system file picker.</summary>
+    private async Task PickFilesAsync()
+    {
+        if (await WithPickerAsync(Mp3FilePicker.PickMultipleAsync) is { Count: > 0 } files)
+        {
+            await AddFilesAsync(files);
+        }
+    }
+
+    /// <summary>Adds the MP3s in a platform folder to the local library.</summary>
+    private async Task PickFolderAsync()
+    {
+        if (Window is { } window && await WithPickerAsync(() => PlatformTrackFolder.PickAsync(window, _lifetime.Token)) is { } folder)
+        {
+            if (folder.Files.Count == 0)
+            {
+                _view.Status.Text = "В этой папке нет MP3.";
+            }
+            await AddFilesAsync(folder.Files);
+        }
+    }
+
+    /// <summary>Serializes native picker launches and reports a picker error in the player.</summary>
+    private async Task<T?> WithPickerAsync<T>(Func<Task<T?>> pick) where T : class
+    {
+        if (_closed || _pickerOpen)
+        {
+            return null;
+        }
+
+        _pickerOpen = true;
+        _view.AddFiles.IsEnabled = _view.AddFolder.IsEnabled = false;
+        try
+        {
+            return await pick();
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            if (!_closed) _view.Status.Text = $"Не удалось открыть файлы. {ex.Message}";
+            return null;
+        }
+        finally
+        {
+            _pickerOpen = false;
+            _view.AddFiles.IsEnabled = _view.AddFolder.IsEnabled = !_closed;
+        }
+    }
+
+    /// <summary>Loads the initial track and preloads the following choice in the background.</summary>
+    private async Task AddFilesAsync(IReadOnlyList<TrackFile> files)
+    {
+        if (_closed)
+        {
+            return;
+        }
+
+        var added = _library.Add(files);
+        _queue.AddRange(added);
+        _view.ShowLibrary(_library.Files.ToArray());
+        if (_playback.Snapshot.Current is null && !_loadingFirst)
+        {
+            await LoadFirstAsync();
+        }
+        else
+        {
+            await SelectDefaultAsync();
+        }
+    }
+
+    /// <summary>Attempts the first playable file and keeps later candidates available.</summary>
+    private async Task LoadFirstAsync()
+    {
+        _loadingFirst = true;
+        try
+        {
+            foreach (var file in _queue.ToArray())
+            {
+                if (_closed)
+                {
+                    return;
+                }
+                if (await PrepareAsync(file) is not { } track)
+                {
+                    _queue.Remove(file);
+                    continue;
+                }
+
+                if (_closed)
+                {
+                    return;
+                }
+                _playback.SetFirst(track);
+                _queue.Remove(file);
+                ShowCurrent(_playback.Snapshot.Current!.Value);
+                break;
+            }
+        }
+        finally
+        {
+            _loadingFirst = false;
+        }
+
+        if (!_closed)
+        {
+            await SelectDefaultAsync();
+        }
+    }
+
+    /// <summary>Uses the first queued track as the default transition target.</summary>
+    private Task SelectDefaultAsync()
+    {
+        UpdateQueue();
+        return _selected is null && _playback.Snapshot.Current.HasValue && _queue.FirstOrDefault() is { } file
+            ? SelectNextAsync(file) : Task.CompletedTask;
+    }
+
+    /// <summary>Selects a candidate on the first press and mixes into it on the next press.</summary>
+    private async Task ChooseAsync(TrackFile file)
+    {
+        if (_closed || _playback.Snapshot.Incoming.HasValue || _view.IsHandingOff)
+        {
+            return;
+        }
+
+        if (_playback.Snapshot.Current is not { } current)
+        {
+            if (!_loadingFirst)
+            {
+                _queue.Remove(file);
+                _queue.Insert(0, file);
+                await LoadFirstAsync();
+            }
+            return;
+        }
+
+        if (ReferenceEquals(current.Track, _library.GetPrepared(file)))
+        {
+            return;
+        }
+
+        if (ReferenceEquals(_selected, file))
+        {
+            await StartMixAsync();
+        }
+        else
+        {
+            await SelectNextAsync(file);
+        }
+    }
+
+    /// <summary>Reorders the queue immediately and only arms a candidate after preparation succeeds.</summary>
+    private async Task SelectNextAsync(TrackFile file, bool renderQueue = true)
+    {
+        if (!_playback.SetNext(null))
+        {
+            return;
+        }
+        _armed = null;
+        _selected = file;
+        _queue.Remove(file);
+        _queue.Insert(0, file);
+        if (renderQueue)
+        {
+            UpdateQueue();
+        }
+        await ArmAsync(file);
+    }
+
+    /// <summary>Preloads a candidate and ignores earlier selections that finish out of order.</summary>
+    private async Task<bool> ArmAsync(TrackFile file)
+    {
+        if (ReferenceEquals(_armed, file))
+        {
+            return true;
+        }
+        if (await PrepareAsync(file) is not { } track || _closed || !ReferenceEquals(_selected, file))
+        {
+            return false;
+        }
+        if (!_playback.SetNext(track))
+        {
+            return false;
+        }
+
+        _armed = file;
+        if (!_view.IsHandingOff)
+        {
+            UpdateQueue();
+        }
+        return true;
+    }
+
+    /// <summary>Prepares PCM, artwork and both waveforms without blocking the UI thread.</summary>
+    private async Task<CachedTrack?> PrepareAsync(TrackFile file)
+    {
+        try
+        {
+            var task = _library.PrepareAsync(file);
+            if (!task.IsCompleted)
+            {
+                _view.Status.Text = $"Анализ MP3 · {file.Name}";
+            }
+            var result = await task;
+            if (!_closed && _view.Status.Text == $"Анализ MP3 · {file.Name}")
+            {
+                _view.Status.Text = "";
+            }
+            return result;
+        }
+        catch (OperationCanceledException) when (_closed)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            if (!_closed) _view.Status.Text = $"Не удалось загрузить {file.Name}. {ex.Message}";
+            return null;
+        }
+    }
+
+    /// <summary>Requests the pending mix and starts the output if the player was paused.</summary>
+    private async Task StartMixAsync()
+    {
+        if (_closed || _view.IsHandingOff || IsStopping ||
+            _selected is not { } file || !await ArmAsync(file) || _closed || IsStopping || !_playback.RequestMix())
+        {
+            return;
+        }
+        if (_worker is null)
+        {
+            await PlayAsync(restartAtEnd: false);
+        }
+    }
+
+    /// <summary>Restarts the current track or mixes into the most recently completed track.</summary>
+    private async Task PreviousAsync()
+    {
+        if (_closed || _view.IsHandingOff || IsStopping ||
+            _playback.Snapshot is not { Current: { } current, Incoming: null })
+        {
+            return;
+        }
+        if (current.Position > 3 * PlaybackFormat.SampleRate || !_history.TryPop(out var previous))
+        {
+            Seek(current.Track, 0);
+            return;
+        }
+        await SelectNextAsync(previous);
+        if (ReferenceEquals(_selected, previous))
+        {
+            await StartMixAsync();
+        }
+    }
+
+    /// <summary>Commits a seek preview to a still-active deck.</summary>
+    private void Seek(CachedTrack track, long frame)
+    {
+        if (!IsStopping && _playback.Seek(track, frame))
+        {
+            UpdatePositions();
+        }
+    }
+
+    private async Task TogglePlaybackAsync()
+    {
+        if (_worker is not null)
+        {
+            if (!IsStopping && _playback.RequestPause())
+            {
+                _pausing = true;
+                _view.CurrentDeck.CancelScrub();
+                UpdateTransport();
+            }
+            return;
+        }
+
+        await PlayAsync();
+    }
+
+    /// <summary>Keeps the cursor and pending transition when playback is paused and resumed.</summary>
+    private async Task PlayAsync(bool restartAtEnd = true)
+    {
+        if (_closed || _worker is not null || _playback.Snapshot.Current is not { } current)
+        {
+            return;
+        }
+
+        if (restartAtEnd && current.Position >= current.Track.Waveform.TotalFrames)
+        {
+            _playback.Seek(current.Track, 0);
+        }
+
+        using var stop = new CancellationTokenSource();
+        _stop = stop;
+        _positions.Start();
+        _view.Spectrum.Start(() => _playback.Spectrum);
+        _view.Status.Text = "";
+        _worker = _playback.RunAsync(new PlatformAudioOutput(), stop.Token);
+        UpdateTransport();
+        try
+        {
+            await _worker;
+        }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested)
+        {
+            // The window lifecycle can cancel output immediately.
+        }
+        catch (Exception ex)
+        {
+            if (!_closed) _view.Status.Text = $"Ошибка воспроизведения. {ex.Message}";
+        }
+        finally
+        {
+            _worker = null;
+            _stop = null;
+            _pausing = false;
+            _positions.Stop();
+            _view.Spectrum.Stop();
+            if (!_closed)
+            {
+                UpdatePositions();
+                UpdateTransport();
+            }
+        }
+    }
+
+    internal void StopPlayback()
+    {
+        if (_stop is { IsCancellationRequested: false } stop)
+        {
+            stop.Cancel();
+            _view.Spectrum.Stop();
+            if (!_closed) UpdateTransport();
+        }
+    }
+
+    /// <summary>Updates inexpensive position visuals and starts cover animations only on deck changes.</summary>
+    private void UpdatePositions()
+    {
+        var snapshot = _playback.Snapshot;
+        bool canSeek = !_closed && !IsStopping && snapshot.Incoming is null;
+        _view.CurrentDeck.Show(snapshot.Current, canSeek);
+        _view.IncomingDeck.Show(snapshot.Incoming, false);
+        if (snapshot.Current is not { } current)
+        {
+            return;
+        }
+
+        if (!ReferenceEquals(current.Track, _shownCurrent))
+        {
+            if (_shownCurrent is { } old && _library.Find(old) is { } outgoing)
+            {
+                _history.Push(outgoing);
+            }
+            bool animate = ReferenceEquals(_shownIncoming, current.Track);
+            _shownIncoming = null;
+            _shownCurrent = current.Track;
+            _selected = _armed = null;
+            if (_library.Find(current.Track) is { } file)
+            {
+                _queue.Remove(file);
+            }
+            if (animate)
+            {
+                _coverAnimation = FinishCoverAsync(current.Track);
+            }
+            else
+            {
+                _view.ShowCurrent(current.Track);
+                _ = SelectDefaultAsync();
+            }
+            UpdateTransport();
+        }
+
+        if (snapshot.Incoming is { } incoming && !ReferenceEquals(_shownIncoming, incoming.Track))
+        {
+            _shownIncoming = incoming.Track;
+            _ = _view.BeginMixAsync(incoming.Track, _library.Find(incoming.Track));
+            UpdateTransport();
+        }
+    }
+
+    /// <summary>Preloads the next track while the covers move between their final positions.</summary>
+    private async Task FinishCoverAsync(CachedTrack track)
+    {
+        var animation = _view.FinishMixAsync(track, UpdateQueue);
+        if (_queue.FirstOrDefault() is { } next)
+        {
+            await SelectNextAsync(next, renderQueue: false);
+        }
+        await animation;
+        if (!_closed)
+        {
+            UpdateQueue();
+        }
+    }
+
+    private void ShowCurrent(PlayingTrack track)
+    {
+        _shownCurrent = track.Track;
+        _view.ShowCurrent(track.Track);
+        _view.CurrentDeck.Show(track, true);
+    }
+
+    private void ToggleAutoMix()
+    {
+        _autoMix = !_autoMix;
+        _playback.SetAutoMix(_autoMix);
+        UpdateTransport();
+    }
+
+    private void UpdateQueue()
+    {
+        _view.ShowQueue(_queue.Take(3).ToArray(), _selected, file =>
+        {
+            var track = _library.GetPrepared(file);
+            return track is null ? Path.GetFileNameWithoutExtension(file.Name) : track.Title;
+        });
+        UpdateTransport();
+    }
+
+    private void UpdateTransport()
+    {
+        var snapshot = _playback.Snapshot;
+        bool idle = !_closed && !snapshot.Incoming.HasValue && !_view.IsHandingOff && !IsStopping;
+        _view.SetTransport(!_closed && snapshot.Current.HasValue && !IsStopping,
+            _worker is not null && _stop?.IsCancellationRequested == false,
+            idle && _selected is not null, idle && snapshot.Current.HasValue, _autoMix);
+    }
+
+    /// <summary>Stops output before closing readers and clears temporary decoded tracks.</summary>
+    internal async Task CloseAsync()
+    {
+        if (_closed)
+        {
+            return;
+        }
+
+        _closed = true;
+        _lifetime.Cancel();
+        _positions.Stop();
+        _view.CurrentDeck.CancelScrub();
+        _view.ResetAnimations();
+        StopPlayback();
+        try
+        {
+            await Task.WhenAll(_worker ?? Task.CompletedTask, _coverAnimation ?? Task.CompletedTask);
+        }
+        catch (Exception)
+        {
+            // Cleanup must also run after cancellation or an output failure.
+        }
+        finally
+        {
+            _playback.Dispose();
+            await _library.CloseAsync();
+            _lifetime.Dispose();
+        }
+    }
+}

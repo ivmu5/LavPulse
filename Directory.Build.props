@@ -1,0 +1,13 @@
+<Project>
+  <PropertyGroup>
+    <!-- Keep platform projects in the same source directory without sharing NuGet assets. -->
+    <LavPulseBuildHost Condition="'$(OS)' == 'Windows_NT'">windows</LavPulseBuildHost>
+    <LavPulseBuildHost Condition="'$(LavPulseBuildHost)' == '' and $([MSBuild]::IsOSPlatform('OSX'))">macos</LavPulseBuildHost>
+    <LavPulseBuildHost Condition="'$(LavPulseBuildHost)' == ''">unix</LavPulseBuildHost>
+    <LavPulseBuildProfile Condition="'$(LavPulsePlatform)' == 'ios' or '$(LavPulsePlatform)' == 'maccatalyst'">$(LavPulsePlatform)</LavPulseBuildProfile>
+    <LavPulseBuildProfile Condition="'$(LavPulseBuildProfile)' == ''">default</LavPulseBuildProfile>
+    <BaseIntermediateOutputPath>obj/$(LavPulseBuildHost)/$(MSBuildProjectName)/$(LavPulseBuildProfile)/</BaseIntermediateOutputPath>
+    <BaseOutputPath>bin/$(LavPulseBuildHost)/$(MSBuildProjectName)/$(LavPulseBuildProfile)/</BaseOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj/**;bin/**</DefaultItemExcludes>
+  </PropertyGroup>
+</Project>

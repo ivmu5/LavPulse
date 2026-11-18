@@ -1,0 +1,62 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install the Windows MAUI workload
+        run: dotnet workload install maui-windows
+      - name: Build the Windows app
+        run: dotnet build samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.csproj -c Debug
+
+  android:
+    name: Android and playback checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Run the playback checks
+        run: dotnet run --project tests/Laveyana.Audio.Playback.Checks -c Release
+      - name: Install the Android MAUI workload
+        run: dotnet workload install maui-android
+      - name: Install the Android SDK components
+        run: >-
+          dotnet build samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.Android.csproj
+          -t:InstallAndroidDependencies
+          -p:AndroidSdkDirectory="$ANDROID_HOME"
+          -p:JavaSdkDirectory="$JAVA_HOME"
+          -p:AcceptAndroidSDKLicenses=true
+      - name: Build the Android app
+        run: >-
+          dotnet build samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.Android.csproj
+          -c Debug
+          -p:AndroidSdkDirectory="$ANDROID_HOME"
+          -p:JavaSdkDirectory="$JAVA_HOME"
+          -p:AndroidPackageFormats=apk
+          -p:EmbedAssembliesIntoApk=true
