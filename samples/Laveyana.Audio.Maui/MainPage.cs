@@ -16,6 +16,9 @@ public sealed class MainPage : ContentPage
 #endif
     private readonly QueuePlaybackSession _playback = new();
     private readonly ISystemPlaybackIntegration _systemPlayback = new PlatformSystemPlaybackIntegration();
+#if WINDOWS
+    private bool _windowVisible = true;
+#endif
     private long _lastSystemUpdate;
     private CachedTrack? _lastSystemTrack;
     private bool _lastSystemPlaying;
@@ -491,8 +494,14 @@ public sealed class MainPage : ContentPage
         bool playing = overridePlaying ?? (_worker is not null && !_pausing && !(_stop?.IsCancellationRequested ?? false));
         bool changed = !ReferenceEquals(_lastSystemTrack, current.Track) || playing != _lastSystemPlaying;
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
+#if WINDOWS
+        // Windows SMTC extrapolates the position itself; avoid expensive COM calls every frame.
+        const int reportingIntervalMilliseconds = 5000;
+#else
+        const int reportingIntervalMilliseconds = 750;
+#endif
         if (!force && !changed &&
-            System.Diagnostics.Stopwatch.GetElapsedTime(_lastSystemUpdate, now).TotalMilliseconds < 750)
+            System.Diagnostics.Stopwatch.GetElapsedTime(_lastSystemUpdate, now).TotalMilliseconds < reportingIntervalMilliseconds)
             return;
         _lastSystemTrack = current.Track;
         _lastSystemPlaying = playing;
@@ -521,7 +530,11 @@ public sealed class MainPage : ContentPage
         try { _systemPlayback.EnsureRunning(); }
         catch (Exception ex) { _view.Status.Text = $"Системный плеер недоступен: {ex.Message}"; }
         _positions.Start();
+#if WINDOWS
+        if (_windowVisible) _view.StartPlaybackVisuals(() => _playback.Spectrum);
+#else
         _view.StartPlaybackVisuals(() => _playback.Spectrum);
+#endif
         _view.Status.Text = "";
         _worker = _playback.RunAsync(new PlatformAudioOutput(), _settings.FadeInMilliseconds, stop.Token);
         UpdateTransport();
@@ -551,6 +564,20 @@ public sealed class MainPage : ContentPage
             }
         }
     }
+
+#if WINDOWS
+    /// <summary>Reduces UI rendering when Windows hides the app; the mixer stays active.</summary>
+    internal void SetWindowVisible(bool visible)
+    {
+        if (_closed || _windowVisible == visible) return;
+        _windowVisible = visible;
+        // Keep a slower UI snapshot pump for automatic transitions and queue advancement.
+        _positions.Interval = TimeSpan.FromMilliseconds(visible ? 33 : 250);
+        if (_worker is null) return;
+        if (visible) _view.StartPlaybackVisuals(() => _playback.Spectrum);
+        else _view.StopPlaybackVisuals();
+    }
+#endif
 
     internal void StopPlayback()
     {

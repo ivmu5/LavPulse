@@ -20,6 +20,8 @@ public sealed class App : Application
         var window = new Window(page) { Title = "LavPulse" };
 #if WINDOWS
         WindowsWindowChrome.Configure(window);
+        window.Stopped += (_, _) => page.SetWindowVisible(false);
+        window.Resumed += (_, _) => page.SetWindowVisible(true);
 #endif
         window.Destroying += async (_, _) => await page.CloseAsync();
         return window;

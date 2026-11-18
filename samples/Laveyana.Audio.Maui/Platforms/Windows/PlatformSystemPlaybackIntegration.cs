@@ -12,6 +12,9 @@ internal sealed class PlatformSystemPlaybackIntegration : ISystemPlaybackIntegra
     private CachedTrack? _lastTrack;
     private InMemoryRandomAccessStream? _artStream;
     private int _artVersion;
+    private bool? _lastPlaying;
+    private bool? _lastCanNext;
+    private bool? _lastCanPrevious;
 
     public event Action<SystemPlaybackCommand>? CommandReceived;
 
@@ -45,8 +48,10 @@ internal sealed class PlatformSystemPlaybackIntegration : ISystemPlaybackIntegra
         {
             controls.IsPlayEnabled = true;
             controls.IsPauseEnabled = true;
-            controls.IsNextEnabled = state.CanNext;
-            controls.IsPreviousEnabled = state.CanPrevious;
+            if (_lastCanNext != state.CanNext) controls.IsNextEnabled = state.CanNext;
+            if (_lastCanPrevious != state.CanPrevious) controls.IsPreviousEnabled = state.CanPrevious;
+            _lastCanNext = state.CanNext;
+            _lastCanPrevious = state.CanPrevious;
             if (!ReferenceEquals(_lastTrack, state.Track))
             {
                 _lastTrack = state.Track;
@@ -59,7 +64,11 @@ internal sealed class PlatformSystemPlaybackIntegration : ISystemPlaybackIntegra
                 _ = PublishArtworkAsync(state.Track, ++_artVersion);
             }
 
-            controls.PlaybackStatus = state.Playing ? MediaPlaybackStatus.Playing : MediaPlaybackStatus.Paused;
+            if (_lastPlaying != state.Playing)
+            {
+                controls.PlaybackStatus = state.Playing ? MediaPlaybackStatus.Playing : MediaPlaybackStatus.Paused;
+                _lastPlaying = state.Playing;
+            }
             controls.UpdateTimelineProperties(new SystemMediaTransportControlsTimelineProperties
             {
                 StartTime = TimeSpan.Zero,
@@ -117,6 +126,7 @@ internal sealed class PlatformSystemPlaybackIntegration : ISystemPlaybackIntegra
     public void Stop()
     {
         _lastTrack = null;
+        _lastPlaying = _lastCanNext = _lastCanPrevious = null;
         _artVersion++;
         if (_controls is not { } controls) return;
         controls.ButtonPressed -= ButtonPressed;
