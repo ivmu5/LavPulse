@@ -26,6 +26,10 @@ public sealed class MainPage : ContentPage
     private readonly PlayerLibrary _library;
     private readonly IDispatcherTimer _positions;
     private readonly PlaybackQueue _queue = new();
+    private readonly Queue<TrackFile> _analysisPending = new();
+    private readonly HashSet<TrackFile> _analysisSeen = [];
+    private Task _analysisWorker = Task.CompletedTask;
+    private bool _analysisRunning;
     private CancellationTokenSource? _stop;
     private Task? _worker;
     private Task? _coverAnimation;
@@ -153,15 +157,21 @@ public sealed class MainPage : ContentPage
         {
             await SelectDefaultAsync();
         }
+
+        // Prepare the remaining tracks sequentially, without delaying the first playable deck.
+        EnqueueBackgroundAnalysis(added);
     }
 
     /// <summary>Attempts the first playable file and keeps later candidates available.</summary>
-    private async Task LoadFirstAsync()
+    private async Task LoadFirstAsync(TrackFile? preferred = null)
     {
         _loadingFirst = true;
         try
         {
-            foreach (var file in _queue.Tracks.ToArray())
+            IEnumerable<TrackFile> candidates = _queue.Tracks.ToArray();
+            if (preferred is not null)
+                candidates = candidates.OrderByDescending(file => ReferenceEquals(file, preferred));
+            foreach (var file in candidates)
             {
                 if (_closed)
                 {
@@ -202,49 +212,29 @@ public sealed class MainPage : ContentPage
             ? ArmAsync(next) : Task.CompletedTask;
     }
 
-    /// <summary>Selects a candidate on the first press and mixes into it on the next press.</summary>
+    /// <summary>Switches directly to a tapped track without changing the order of the queue.</summary>
     private async Task ChooseAsync(TrackFile file)
     {
-        if (_closed || _recommendations || IsTransitioning(_playback.Snapshot))
+        if (_closed || _recommendations || IsStopping || IsTransitioning(_playback.Snapshot) ||
+            !_queue.Tracks.Contains(file))
         {
             return;
         }
 
         if (_playback.Snapshot.Current is not { } current)
         {
-            if (!_loadingFirst)
-            {
-                _queue.SelectNext(file);
-                await LoadFirstAsync();
-            }
+            if (!_loadingFirst) await LoadFirstAsync(preferred: file);
             return;
         }
 
         if (ReferenceEquals(current.Track, _library.GetPrepared(file)))
-        {
             return;
-        }
 
-        if (ReferenceEquals(_selected, file))
-        {
-            await StartMixAsync();
-        }
-        else
-        {
-            await SelectNextAsync(file);
-        }
-    }
-
-    /// <summary>Reorders the queue immediately and only arms a candidate after preparation succeeds.</summary>
-    private async Task SelectNextAsync(TrackFile file)
-    {
+        // An unprepared selection is armed after decoding. A newer selection wins the race.
         if (!TrySetSelection(file))
-        {
             return;
-        }
-        _queue.SelectNext(file);
         UpdateQueue();
-        await ArmAsync(file);
+        await StartMixAsync();
     }
 
     private bool TrySetSelection(TrackFile? file)
@@ -326,6 +316,67 @@ public sealed class MainPage : ContentPage
             UpdateQueue();
         }
         return true;
+    }
+
+    /// <summary>Queues each newly added MP3 once. Only one background decoder is fed at a time.</summary>
+    private void EnqueueBackgroundAnalysis(IEnumerable<TrackFile> files)
+    {
+        foreach (var file in files)
+        {
+            if (_analysisSeen.Add(file)) _analysisPending.Enqueue(file);
+        }
+        if (_closed || _analysisRunning || _analysisPending.Count == 0) return;
+        _analysisRunning = true;
+        _analysisWorker = AnalyzeQueueSequentiallyAsync();
+    }
+
+    /// <summary>
+    /// Prepares the queue from left to right using one background lane. Direct selections use
+    /// the second decode slot, so a large imported folder never blocks user-initiated playback.
+    /// </summary>
+    private async Task AnalyzeQueueSequentiallyAsync()
+    {
+        try
+        {
+            while (!_closed && _analysisPending.TryDequeue(out var file))
+            {
+                if (!_queue.Tracks.Contains(file)) continue;
+                try
+                {
+                    // The library deduplicates concurrent preparation with foreground requests.
+                    if (_library.GetPrepared(file) is null)
+                    {
+                        var work = _library.PrepareAsync(file);
+                        if (!work.IsCompleted) ScheduleQueueRefresh();
+                        await work;
+                    }
+                }
+                catch (OperationCanceledException) when (_closed || _lifetime.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    // One damaged MP3 must not prevent the rest of the queue from being analyzed.
+                    System.Diagnostics.Debug.WriteLine($"LavPulse background analysis: {file.Name}: {ex}");
+                }
+                finally
+                {
+                    ScheduleQueueRefresh();
+                }
+
+                // Avoid sustained disk/CPU saturation while the mixer is active.
+                await Task.Delay(100, _lifetime.Token);
+            }
+        }
+        catch (OperationCanceledException) when (_closed || _lifetime.IsCancellationRequested)
+        {
+            // Closing the player cancels background work before cache files are deleted.
+        }
+        finally
+        {
+            _analysisRunning = false;
+        }
     }
 
     /// <summary>Prepares PCM, artwork and both waveforms without blocking the UI thread.</summary>
@@ -831,7 +882,7 @@ public sealed class MainPage : ContentPage
         StopPlayback();
         try
         {
-            await Task.WhenAll(_worker ?? Task.CompletedTask, _coverAnimation ?? Task.CompletedTask);
+            await Task.WhenAll(_worker ?? Task.CompletedTask, _coverAnimation ?? Task.CompletedTask, _analysisWorker);
         }
         catch (Exception)
         {

@@ -1,5 +1,6 @@
 using Laveyana.Audio;
 using Laveyana.Audio.Playback;
+using Laveyana.Audio.Maui.Tracks;
 
 const int Rate = PlaybackFormat.SampleRate;
 const int PauseFrames = Rate * 300 / 1000;
@@ -7,6 +8,7 @@ const int BlockSize = PlaybackFormat.BlockFrames;
 string directory = Directory.CreateTempSubdirectory("lavpulse-checks-").FullName;
 try
 {
+    CheckQueuePreservesOrderOnDirectSelection();
     CheckMp3AudioInfo();
     CheckSpectrumCaptureToggle();
     Console.WriteLine("OK: MP3 stream properties.");
@@ -25,6 +27,28 @@ try
 finally
 {
     Directory.Delete(directory, recursive: true);
+}
+
+/// <summary>Switching directly to any track changes the history boundary, not the playlist order.</summary>
+static void CheckQueuePreservesOrderOnDirectSelection()
+{
+    var files = Enumerable.Range(0, 6).Select(i =>
+        TrackFile.FromPath(Path.Combine("unused", $"queue-{i}.mp3"))).ToArray();
+    var queue = new PlaybackQueue();
+    queue.AddRange(files);
+    queue.SetCurrent(files[0]);
+    Require(queue.Next == files[1], "The initial successor is incorrect.");
+
+    // Simulate clicking a later row and completing the transition.
+    queue.SetCurrent(files[4]);
+    Require(queue.Tracks.SequenceEqual(files), "Selecting a later track reordered the queue.");
+    Require(queue.PlayedCount == 4 && queue.Next == files[5], "History boundary moved incorrectly.");
+
+    // Clicking a gray row plays it again, leaving every later row upcoming.
+    queue.SetCurrent(files[1]);
+    Require(queue.Tracks.SequenceEqual(files), "Replaying history reordered the queue.");
+    Require(queue.PlayedCount == 1 && queue.Previous == files[0] && queue.Next == files[2],
+        "Replaying history did not restore the proper gray/upcoming boundary.");
 }
 
 /// <summary>Checks that disabling FFT preserves playback timing and discards pre-toggle windows.</summary>

@@ -29,6 +29,9 @@ internal sealed class TrackQueueView : Grid
     private Func<TrackFile, QueueTrackItem>? _readRow;
     private TrackFile? _nextTrack;
     private int _playedCount;
+    private int _visibleStart;
+    private bool _showPlayedTracks = true;
+    private int VisibleTrackCount => Math.Max(0, _tracks.Count - _visibleStart);
     private int _firstRow = -1;
     private int _endRow = -1;
     private readonly Label _empty = MixerStyle.Label("Очередь пуста", MixerStyle.PhoneFont(12, 11), MixerStyle.Muted);
@@ -122,8 +125,16 @@ internal sealed class TrackQueueView : Grid
             if (_showRecommendations)
             {
                 SelectRecommendations(false);
+                FocusCurrent();
             }
-            FocusCurrent();
+            else
+            {
+                _showPlayedTracks = !_showPlayedTracks;
+                _focusCurrent = true;
+                UpdateVisibleRows();
+                SetTabColors();
+                if (!_showPlayedTracks) _ = _queueScroll.ScrollToAsync(0, 0, false);
+            }
         };
         _recommendationsTab.Clicked += (_, _) => SelectRecommendations(true);
         var segments = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)] };
@@ -162,7 +173,8 @@ internal sealed class TrackQueueView : Grid
         _queueTab.TextColor = _showRecommendations ? MixerStyle.Muted : MixerStyle.TextColor;
         _recommendationsTab.TextColor = _showRecommendations ? MixerStyle.TextColor : MixerStyle.Muted;
         SemanticProperties.SetDescription(_queueTab, _showRecommendations ? "Очередь" :
-            "Очередь. Нажми, чтобы перейти к текущему треку.");
+            _showPlayedTracks ? "Очередь. Нажми ещё раз, чтобы скрыть прослушанные треки." :
+            "Очередь. Нажми ещё раз, чтобы показать прослушанные треки.");
         SemanticProperties.SetDescription(_recommendationsTab, _showRecommendations ? "Рекомендации, выбраны" : "Рекомендации");
     }
 
@@ -175,16 +187,24 @@ internal sealed class TrackQueueView : Grid
         _nextTrack = next;
         _playedCount = playedCount;
         _readRow = read;
-        double contentHeight = tracks.Count == 0 ? QueueTrackRow.RowHeight : (double)tracks.Count * RowStride - 5;
-        _rows.HeightRequest = contentHeight;
+        UpdateVisibleRows();
+    }
+
+    /// <summary>Projects the same queue with or without played entries, without modifying track order.</summary>
+    private void UpdateVisibleRows()
+    {
+        _visibleStart = _showPlayedTracks ? 0 : Math.Clamp(_playedCount, 0, _tracks.Count);
+        int count = VisibleTrackCount;
+        _rows.HeightRequest = count == 0 ? QueueTrackRow.RowHeight : (double)count * RowStride - 5;
         UpdateQueueViewport();
-        if (tracks.Count == 0 && !_rows.Children.Contains(_empty))
+
+        if (count == 0 && !_rows.Children.Contains(_empty))
         {
             AbsoluteLayout.SetLayoutFlags(_empty, AbsoluteLayoutFlags.WidthProportional);
             AbsoluteLayout.SetLayoutBounds(_empty, new Rect(0, 0, 1, QueueTrackRow.RowHeight));
             _rows.Children.Add(_empty);
         }
-        else if (tracks.Count != 0)
+        else if (count > 0)
         {
             _rows.Children.Remove(_empty);
         }
@@ -199,8 +219,9 @@ internal sealed class TrackQueueView : Grid
 
         double height = _queueScroll.Height > 0 ? _queueScroll.Height : _queueScroll.HeightRequest;
         double scroll = Math.Clamp(_queueScroll.ScrollY, 0, Math.Max(0, _rows.HeightRequest - height));
-        int first = Math.Max(0, (int)(scroll / RowStride) - OverscanRows);
-        int end = Math.Min(_tracks.Count, (int)Math.Ceiling((scroll + height) / RowStride) + OverscanRows);
+        int first = _visibleStart + Math.Max(0, (int)(scroll / RowStride) - OverscanRows);
+        int end = Math.Min(_tracks.Count, _visibleStart +
+            (int)Math.Ceiling((scroll + height) / RowStride) + OverscanRows);
         if (!force && first == _firstRow && end == _endRow) return;
 
         _firstRow = first;
@@ -232,10 +253,12 @@ internal sealed class TrackQueueView : Grid
             {
                 row = _availableRows.TryPop(out var recycled) ? recycled : CreateRow();
                 row.Bind(file, i);
-                AbsoluteLayout.SetLayoutBounds(row, new Rect(0, (double)i * RowStride, 1, QueueTrackRow.RowHeight));
                 _rows.Children.Add(row);
                 _trackRows.Add(file, row);
             }
+            // Existing visible rows also move when history is hidden or shown.
+            AbsoluteLayout.SetLayoutBounds(row,
+                new Rect(0, (double)(i - _visibleStart) * RowStride, 1, QueueTrackRow.RowHeight));
             row.Show(read(file), ReferenceEquals(file, _currentTrack), i < _playedCount, ReferenceEquals(file, _nextTrack), Accent);
         }
     }
@@ -247,7 +270,7 @@ internal sealed class TrackQueueView : Grid
         if (_showRecommendations || _queue.Opacity == 0 || _currentTrack is not { } file ||
             !_trackRows.TryGetValue(file, out var row)) return;
         double scroll = _queueScroll.ScrollY;
-        double top = (double)row.Index * RowStride;
+        double top = (double)(row.Index - _visibleStart) * RowStride;
         if (top + QueueTrackRow.RowHeight >= scroll && top <= scroll + _queueScroll.Height)
         {
             row.InvalidateSpectrum();
@@ -280,14 +303,14 @@ internal sealed class TrackQueueView : Grid
 
     private void FocusCurrent()
     {
-        if (_currentTrack is not { } track || _queueScroll.Height <= 0 || _queueScroll.ContentSize.Height < _rows.HeightRequest)
+        if (_currentTrack is not { } track || _queueScroll.Height <= 0)
         {
             return;
         }
 
         int index = IndexOf(track);
-        if (index < 0) return;
-        double top = (double)index * RowStride;
+        if (index < _visibleStart) return;
+        double top = (double)(index - _visibleStart) * RowStride;
         double bottom = top + QueueTrackRow.RowHeight;
         double scroll = _queueScroll.ScrollY;
         double y = Math.Clamp(scroll, Math.Clamp(bottom - _queueScroll.Height, 0, top), top);
@@ -430,7 +453,7 @@ internal sealed class TrackQueueView : Grid
         double seconds = Stopwatch.GetElapsedTime(_start).TotalSeconds;
         foreach (var row in _trackRows.Values)
         {
-            double rowTop = (double)row.Index * RowStride;
+            double rowTop = (double)(row.Index - _visibleStart) * RowStride;
             if (rowTop < bottom && rowTop + QueueTrackRow.RowHeight > top) row.Animate(seconds);
         }
     }
@@ -447,7 +470,7 @@ internal sealed class TrackQueueView : Grid
         _incoming.Show(track, "Сведение");
         EndDrag();
         var row = file is not null && _trackRows.TryGetValue(file, out var item) ? item : null;
-        double originY = row is null ? 0 : Math.Clamp(_queueScroll.Y + (double)row.Index * RowStride - _queueScroll.ScrollY, 0, Math.Max(0, _right.Height - 44));
+        double originY = row is null ? 0 : Math.Clamp(_queueScroll.Y + (double)(row.Index - _visibleStart) * RowStride - _queueScroll.ScrollY, 0, Math.Max(0, _right.Height - 44));
         double rowHeight = Math.Max(44, row?.Height ?? 0);
         _incoming.TranslationY = originY;
         _incoming.ScaleX = .96;
