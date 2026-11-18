@@ -8,7 +8,7 @@ namespace Laveyana.Audio.Maui.Controls;
 internal sealed class TrackQueueView : Grid
 {
     private const int TrackSpacing = 5;
-    private readonly TrackCard _current = new(TextAlignment.Start);
+    private readonly TrackCard _current = new(TextAlignment.Start, showAudioInfo: true);
     private readonly TrackCard _incoming = new(TextAlignment.End);
     private readonly VerticalStackLayout _rows = new() { Spacing = TrackSpacing };
     private readonly VerticalStackLayout _queue;
@@ -432,12 +432,13 @@ internal sealed class TrackQueueView : Grid
         private readonly Image _art = new() { Aspect = Aspect.AspectFill };
         private readonly Label _title = MixerStyle.Label("", 22, bold: true);
         private readonly Label _artist = MixerStyle.Label("", 13, MixerStyle.Muted);
-        private readonly Label _audioInfo = MixerStyle.Label("", 11, MixerStyle.Muted);
+        private readonly Label? _audioInfo;
         private readonly Label _state = MixerStyle.Label("", 11);
         private readonly Border _cover;
+        private readonly Grid _details;
         private CachedTrack? _displayed;
 
-        public TrackCard(TextAlignment align)
+        public TrackCard(TextAlignment align, bool showAudioInfo = false)
         {
             Spacing = 7;
             bool right = align == TextAlignment.End;
@@ -453,10 +454,6 @@ internal sealed class TrackQueueView : Grid
                 Content = new Grid { Children = { _art, _state } }
             };
             _title.HorizontalTextAlignment = _artist.HorizontalTextAlignment = align;
-            _title.HorizontalOptions = _artist.HorizontalOptions = right ? LayoutOptions.End : LayoutOptions.Start;
-            _audioInfo.HorizontalOptions = _title.HorizontalOptions;
-            _audioInfo.HorizontalTextAlignment = TextAlignment.End;
-            _audioInfo.IsVisible = false;
             _title.MaxLines = 2;
             _title.LineBreakMode = LineBreakMode.TailTruncation;
             _artist.MaxLines = 1;
@@ -466,10 +463,24 @@ internal sealed class TrackQueueView : Grid
             _state.BackgroundColor = MixerStyle.Background;
             _state.Margin = 6;
             _state.Padding = new Thickness(5, 2);
+            _details = new Grid
+            {
+                WidthRequest = _cover.WidthRequest,
+                HorizontalOptions = _cover.HorizontalOptions,
+                ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)]
+            };
+            _details.Add(new VerticalStackLayout { Spacing = 7, Children = { _title, _artist } });
+            if (showAudioInfo)
+            {
+                _audioInfo = MixerStyle.Label("", 11, MixerStyle.Muted);
+                _audioInfo.HorizontalTextAlignment = TextAlignment.End;
+                _audioInfo.VerticalOptions = LayoutOptions.Start;
+                _audioInfo.Margin = new Thickness(8, 0, 0, 0);
+                _audioInfo.IsVisible = false;
+                _details.Add(_audioInfo, column: 1);
+            }
             Children.Add(_cover);
-            Children.Add(_title);
-            Children.Add(_artist);
-            Children.Add(_audioInfo);
+            Children.Add(_details);
         }
 
         /// <summary>Shows imported tags and audio properties, with a gradient as the artwork fallback.</summary>
@@ -480,8 +491,11 @@ internal sealed class TrackQueueView : Grid
                 _displayed = track;
                 byte[]? art = track is not null && !track.Artwork.IsEmpty ? track.Artwork.ToArray() : null;
                 _art.Source = art is null ? null : ImageSource.FromStream(() => new System.IO.MemoryStream(art, writable: false));
-                _audioInfo.Text = track?.AudioInfo is { } audio ? FormatAudioInfo(audio) : "";
-                _audioInfo.IsVisible = track?.AudioInfo is not null;
+                if (_audioInfo is { } details)
+                {
+                    details.Text = track?.AudioInfo is { } audio ? FormatAudioInfo(audio) : "";
+                    details.IsVisible = track?.AudioInfo is not null;
+                }
             }
             _title.Text = track?.Title ?? "Выбери трек";
             _artist.Text = track is null ? "" : track.Artist ?? "Неизвестный исполнитель";
@@ -512,7 +526,12 @@ internal sealed class TrackQueueView : Grid
                 return;
             }
             _cover.WidthRequest = _cover.HeightRequest = side;
-            _title.WidthRequest = _artist.WidthRequest = _audioInfo.WidthRequest = side;
+            _details.WidthRequest = side;
+            if (_audioInfo is { } details)
+            {
+                details.FontSize = side < 150 ? 10 : 11;
+                details.MaximumWidthRequest = side * .55;
+            }
         }
 
         public double CoverWidth => _cover.Width > 0 ? _cover.Width : _cover.WidthRequest;

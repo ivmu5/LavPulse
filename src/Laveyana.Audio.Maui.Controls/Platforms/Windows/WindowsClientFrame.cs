@@ -2,12 +2,11 @@ using System.Runtime.InteropServices;
 
 namespace Laveyana.Audio.Maui.Controls;
 
-/// <summary>Removes the non-client frame while retaining native window movement and resizing.</summary>
+/// <summary>Keeps the native resize frame with a thin top edge above the custom caption.</summary>
 internal sealed class WindowsClientFrame : IDisposable
 {
     private const uint WindowNonClientCalculateSize = 0x0083;
     private const uint WindowHitTest = 0x0084;
-    private const uint WindowNonClientActivate = 0x0086;
     private const uint NoSize = 0x0001;
     private const uint NoMove = 0x0002;
     private const uint NoZOrder = 0x0004;
@@ -15,10 +14,10 @@ internal sealed class WindowsClientFrame : IDisposable
     private const uint FrameChanged = 0x0020;
     private const uint NearestMonitor = 2;
     private const uint DwmBorderColor = 34;
-    private const uint DwmColorNone = 0xFFFFFFFE;
-    private const uint DwmNonClientRenderingPolicy = 2;
-    private const uint DwmNonClientRenderingDisabled = 1;
-    private const int ResizeEdge = 6;
+    private const uint FrameColor = 0x008D614C; // COLORREF for MixerStyle.BorderColor.
+    private const int TopBorderPixels = 1;
+    private const int TopResizeHeight = 6;
+    private const int TopCornerWidth = 10;
 
     private readonly nint _hwnd;
     private readonly int _captionHeight;
@@ -37,19 +36,14 @@ internal sealed class WindowsClientFrame : IDisposable
 
     public bool IsFullscreen { get; set; }
 
-    /// <summary>Clears the compositor border and forces a client-size recalculation without moving the window.</summary>
+    /// <summary>Sets the border color and forces a client-size recalculation without moving the window.</summary>
     public void Refresh()
     {
         if (!_installed || IsFullscreen) return;
         var margins = new FrameMargins();
         DwmExtendFrameIntoClientArea(_hwnd, in margins);
-        uint border = DwmColorNone;
-        if (DwmSetWindowAttribute(_hwnd, DwmBorderColor, in border, sizeof(uint)) < 0)
-        {
-            // Older Windows versions lack a border-color attribute.
-            uint policy = DwmNonClientRenderingDisabled;
-            DwmSetWindowAttribute(_hwnd, DwmNonClientRenderingPolicy, in policy, sizeof(uint));
-        }
+        uint border = FrameColor;
+        DwmSetWindowAttribute(_hwnd, DwmBorderColor, in border, sizeof(uint));
         SetWindowPos(_hwnd, 0, 0, 0, 0, 0, NoSize | NoMove | NoZOrder | NoActivate | FrameChanged);
     }
 
@@ -59,33 +53,54 @@ internal sealed class WindowsClientFrame : IDisposable
         {
             switch (message)
             {
-                case WindowNonClientCalculateSize when wParam != 0 && lParam != 0 && !IsIconic(hwnd):
-                    // NCCALCSIZE_PARAMS starts with the proposed window rectangle. Give it all to the client.
-                    if (IsZoomed(hwnd)) FitMaximizedClient(lParam);
-                    return 0;
-                case WindowNonClientActivate when !IsIconic(hwnd):
-                    return DefSubclassProc(hwnd, message, wParam, -1);
+                case WindowNonClientCalculateSize when lParam != 0 && !IsIconic(hwnd):
+                    return CalculateClientRect(hwnd, wParam, lParam);
                 case WindowHitTest when !IsIconic(hwnd):
-                    if (HitTest(hwnd, lParam) is { } hit) return (nint)hit;
-                    break;
+                    nint nativeHit = DefWindowProc(hwnd, message, wParam, lParam);
+                    if (nativeHit != (nint)WindowHit.Client && nativeHit != (nint)WindowHit.Caption)
+                    {
+                        return nativeHit; // Windows owns the resize edges and corners outside the client.
+                    }
+                    return HitTest(hwnd, lParam) is { } hit ? (nint)hit : nativeHit;
             }
         }
         return DefSubclassProc(hwnd, message, wParam, lParam);
     }
 
-    private static void FitMaximizedClient(nint rectangle)
+    /// <summary>Retains the system's side and bottom borders and replaces the top caption inset.</summary>
+    private static nint CalculateClientRect(nint hwnd, nuint wParam, nint rectangle)
     {
+        // Both WM_NCCALCSIZE forms place the proposed RECT first.
         var proposed = Marshal.PtrToStructure<NativeRectangle>(rectangle);
+        if (IsZoomed(hwnd))
+        {
+            var maximized = FitMaximizedClient(proposed);
+            Marshal.StructureToPtr(maximized, rectangle, false);
+            return 0;
+        }
+
+        DefWindowProc(hwnd, WindowNonClientCalculateSize, wParam, rectangle);
+        var native = Marshal.PtrToStructure<NativeRectangle>(rectangle);
+        var client = KeepThinTopBorder(proposed, native);
+        Marshal.StructureToPtr(client, rectangle, false);
+        return 0;
+    }
+
+    internal static NativeRectangle KeepThinTopBorder(NativeRectangle window, NativeRectangle native)
+    {
+        native.Top = Math.Min(window.Top + TopBorderPixels, native.Bottom);
+        return native;
+    }
+
+    private static NativeRectangle FitMaximizedClient(NativeRectangle proposed)
+    {
         var monitor = MonitorFromRect(in proposed, NearestMonitor);
         var info = new MonitorInfo { Size = (uint)Marshal.SizeOf<MonitorInfo>() };
-        if (monitor == 0 || !GetMonitorInfo(monitor, ref info)) return;
+        if (monitor == 0 || !GetMonitorInfo(monitor, ref info)) return proposed;
 
         // Maximized windows extend their invisible resize edges beyond the work area.
         var client = Intersect(proposed, info.WorkArea);
-        if (client.Right > client.Left && client.Bottom > client.Top)
-        {
-            Marshal.StructureToPtr(client, rectangle, false);
-        }
+        return client.Right > client.Left && client.Bottom > client.Top ? client : proposed;
     }
 
     private WindowHit? HitTest(nint hwnd, nint lParam)
@@ -96,21 +111,19 @@ internal sealed class WindowsClientFrame : IDisposable
         uint dpi = GetDpiForWindow(hwnd);
         double scale = dpi == 0 ? 1 : dpi / 96d;
         return ClassifyHit(point.X / scale, point.Y / scale, client.Right / scale, client.Bottom / scale,
-            _captionHeight, _toolbarWidth, !IsZoomed(hwnd));
+            _captionHeight, _toolbarWidth, IsZoomed(hwnd) ? 0 : TopResizeHeight - TopBorderPixels / scale);
     }
 
     internal static WindowHit? ClassifyHit(double x, double y, double width, double height,
-        double captionHeight, double toolbarWidth, bool resizable)
+        double captionHeight, double toolbarWidth, double topResizeHeight)
     {
         if (x < 0 || x >= width || y < 0 || y >= height) return null;
-        if (resizable)
+        // Extend the grab area into the caption without drawing a thicker top border.
+        if (y < topResizeHeight)
         {
-            bool left = x < ResizeEdge;
-            bool right = x >= width - ResizeEdge;
-            if (y < ResizeEdge) return left ? WindowHit.TopLeft : right ? WindowHit.TopRight : WindowHit.Top;
-            if (y >= height - ResizeEdge) return left ? WindowHit.BottomLeft : right ? WindowHit.BottomRight : WindowHit.Bottom;
-            if (left) return WindowHit.Left;
-            if (right) return WindowHit.Right;
+            if (x < TopCornerWidth) return WindowHit.TopLeft;
+            if (x >= width - TopCornerWidth) return WindowHit.TopRight;
+            return WindowHit.Top;
         }
         return y < captionHeight && x < width - toolbarWidth ? WindowHit.Caption : WindowHit.Client;
     }
@@ -132,8 +145,7 @@ internal sealed class WindowsClientFrame : IDisposable
 
     internal enum WindowHit
     {
-        Client = 1, Caption = 2, Left = 10, Right = 11, Top = 12, TopLeft = 13, TopRight = 14,
-        Bottom = 15, BottomLeft = 16, BottomRight = 17
+        Client = 1, Caption = 2, Top = 12, TopLeft = 13, TopRight = 14
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -183,6 +195,9 @@ internal sealed class WindowsClientFrame : IDisposable
 
     [DllImport("comctl32.dll")]
     private static extern nint DefSubclassProc(nint hwnd, uint message, nuint wParam, nint lParam);
+
+    [DllImport("user32.dll", EntryPoint = "DefWindowProcW", ExactSpelling = true)]
+    private static extern nint DefWindowProc(nint hwnd, uint message, nuint wParam, nint lParam);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
