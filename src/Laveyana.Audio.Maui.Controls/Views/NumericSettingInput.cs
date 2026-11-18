@@ -2,49 +2,61 @@ using System.Globalization;
 
 namespace Laveyana.Audio.Maui.Controls;
 
-/// <summary>Pairs a numeric text field with a slider and keeps their values in sync.</summary>
+internal readonly record struct NumericRange(double Minimum, double Maximum, double DefaultValue, double WheelStep, int DecimalPlaces = 0);
+
+/// <summary>Edits a bounded number using the keyboard, mouse wheel and an optional slider.</summary>
 internal sealed class NumericSettingInput : Grid
 {
     private readonly Entry _entry;
-    private readonly Slider _slider;
-    private readonly int _decimalPlaces;
+    private readonly Slider? _slider;
+    private readonly NumericRange _range;
     private double _value;
+    private double _wheelRemainder;
     private bool _updating;
 
-    public NumericSettingInput(string name, string unit, double minimum, double maximum, double value, int decimalPlaces = 0)
+    public NumericSettingInput(string name, string unit, NumericRange range, double value, bool showSlider = true)
     {
-        _decimalPlaces = decimalPlaces;
-        ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto)];
-        ColumnSpacing = 8;
-
-        _slider = new Slider
-        {
-            Maximum = maximum, Minimum = minimum, MinimumTrackColor = MixerStyle.Accent,
-            MaximumTrackColor = MixerStyle.BorderColor, ThumbColor = MixerStyle.Accent,
-            VerticalOptions = LayoutOptions.Center
-        };
+        _range = range;
+        ColumnDefinitions = showSlider
+            ? [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Auto)]
+            : [new(GridLength.Auto), new(GridLength.Auto)];
+        ColumnSpacing = showSlider ? 6 : 3;
         _entry = new Entry
         {
             Keyboard = Keyboard.Numeric, ReturnType = ReturnType.Done, HorizontalTextAlignment = TextAlignment.End,
-            FontFamily = "Inter", FontSize = 14, WidthRequest = 76, TextColor = MixerStyle.TextColor,
+            FontFamily = "Inter", FontSize = showSlider ? 14 : 12, WidthRequest = showSlider ? 76 : 66, TextColor = MixerStyle.TextColor,
             BackgroundColor = MixerStyle.Overlay
         };
         var unitLabel = MixerStyle.Label(unit, 12, MixerStyle.Muted);
         unitLabel.VerticalOptions = LayoutOptions.Center;
-        SemanticProperties.SetDescription(_slider, $"{name}, {unit}");
-        SemanticProperties.SetDescription(_entry, $"{name}, {unit}, от {minimum} до {maximum}");
-        this.Add(_slider);
-        this.Add(_entry, 1);
-        this.Add(unitLabel, 2);
-
-        Value = value;
-        _slider.ValueChanged += (_, args) =>
+        SemanticProperties.SetDescription(_entry, $"{name}, {unit}, от {range.Minimum} до {range.Maximum}");
+        int fieldColumn = showSlider ? 1 : 0;
+        this.Add(_entry, fieldColumn);
+        this.Add(unitLabel, fieldColumn + 1);
+        NumericInputGestures.Attach(_entry, Scroll);
+        if (showSlider)
         {
-            if (!_updating && IsEnabled)
+            _slider = new Slider
             {
-                SetFromUser(args.NewValue, moveSlider: false);
-            }
-        };
+                Maximum = range.Maximum, Minimum = range.Minimum, MinimumTrackColor = MixerStyle.Accent,
+                MaximumTrackColor = MixerStyle.BorderColor, ThumbColor = MixerStyle.Accent, VerticalOptions = LayoutOptions.Center
+            };
+            SemanticProperties.SetDescription(_slider, $"{name}, {unit}. Двойное нажатие сбрасывает значение.");
+            var reset = MixerStyle.IconButton("player_reset.png", 32);
+            SemanticProperties.SetDescription(reset, $"Сбросить. {name}");
+            reset.Clicked += (_, _) => Reset();
+            this.Add(_slider);
+            this.Add(reset, 3);
+            NumericInputGestures.Attach(_slider, Scroll, Reset);
+            _slider.ValueChanged += (_, args) =>
+            {
+                if (!_updating && IsEnabled)
+                {
+                    SetFromUser(args.NewValue, moveSlider: false);
+                }
+            };
+        }
+        Value = value;
         _entry.Completed += (_, _) => CommitText();
         _entry.Unfocused += (_, _) => CommitText();
     }
@@ -53,23 +65,59 @@ internal sealed class NumericSettingInput : Grid
     public double Value
     {
         get => _value;
-        set => SetValue(value, moveSlider: true);
+        set
+        {
+            _wheelRemainder = 0;
+            SetValue(value, moveSlider: true);
+        }
     }
 
+    public double DefaultValue => _range.DefaultValue;
     public event Action<double>? ValueChanged;
 
     /// <summary>Accepts either decimal separator and keeps the last valid value for incomplete input.</summary>
     public void CommitText()
     {
-        if (!IsEnabled)
+        if (IsEnabled)
         {
-            return;
+            SetFromUser(ReadText(), moveSlider: true);
         }
+    }
 
+    private double ReadText()
+    {
         string? text = _entry.Text?.Trim().Replace(',', '.');
         bool valid = double.TryParse(text, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
             CultureInfo.InvariantCulture, out double value) && double.IsFinite(value);
-        SetFromUser(valid ? value : _value, moveSlider: true);
+        return valid ? value : _value;
+    }
+
+    /// <summary>Accumulates high-resolution wheel input and applies only whole steps.</summary>
+    private bool Scroll(double turns)
+    {
+        if (!IsEnabled || !double.IsFinite(turns) || turns == 0)
+        {
+            return false;
+        }
+
+        _wheelRemainder += turns;
+        double steps = Math.Truncate(_wheelRemainder);
+        if (steps != 0)
+        {
+            _wheelRemainder -= steps;
+            double current = Math.Clamp(ReadText(), _range.Minimum, _range.Maximum);
+            SetFromUser(current + steps * _range.WheelStep, moveSlider: true);
+        }
+        return true;
+    }
+
+    private void Reset()
+    {
+        if (IsEnabled)
+        {
+            _wheelRemainder = 0;
+            SetFromUser(_range.DefaultValue, moveSlider: true);
+        }
     }
 
     private void SetFromUser(double value, bool moveSlider)
@@ -84,11 +132,11 @@ internal sealed class NumericSettingInput : Grid
 
     private void SetValue(double value, bool moveSlider)
     {
-        _value = Math.Round(Math.Clamp(value, _slider.Minimum, _slider.Maximum), _decimalPlaces, MidpointRounding.AwayFromZero);
-        if (moveSlider)
+        _value = Math.Round(Math.Clamp(value, _range.Minimum, _range.Maximum), _range.DecimalPlaces, MidpointRounding.AwayFromZero);
+        if (moveSlider && _slider is { } slider)
         {
             _updating = true;
-            _slider.Value = _value;
+            slider.Value = _value;
             _updating = false;
         }
         _entry.Text = _value.ToString(CultureInfo.CurrentCulture);

@@ -21,6 +21,12 @@ internal static class PlayerPreferences
             SpectrumLevelBrightness = Preferences.Default.Get("spectrum-level-brightness", defaults.SpectrumLevelBrightness),
             SpectrumMinimumBrightnessPercent = Math.Clamp(
                 Preferences.Default.Get("spectrum-minimum-brightness", defaults.SpectrumMinimumBrightnessPercent), 0, 100),
+            SpectrumFullBrightnessPercent = Math.Clamp(
+                Preferences.Default.Get("spectrum-full-brightness", defaults.SpectrumFullBrightnessPercent), 1, 100),
+            SpectrumTopPaddingRows = Math.Clamp(
+                Preferences.Default.Get("spectrum-top-padding", defaults.SpectrumTopPaddingRows), 0, PlayerSettings.MaximumSpectrumPaddingRows),
+            SpectrumBottomPaddingRows = Math.Clamp(
+                Preferences.Default.Get("spectrum-bottom-padding", defaults.SpectrumBottomPaddingRows), 0, PlayerSettings.MaximumSpectrumPaddingRows),
             ShowSpectrum = Preferences.Default.Get("show-spectrum", defaults.ShowSpectrum),
             ShowPeaks = Preferences.Default.Get("show-peaks", defaults.ShowPeaks)
         };
@@ -37,6 +43,9 @@ internal static class PlayerPreferences
         Preferences.Default.Set("spectrum-colors", (int)settings.SpectrumColors);
         Preferences.Default.Set("spectrum-level-brightness", settings.SpectrumLevelBrightness);
         Preferences.Default.Set("spectrum-minimum-brightness", settings.SpectrumMinimumBrightnessPercent);
+        Preferences.Default.Set("spectrum-full-brightness", settings.SpectrumFullBrightnessPercent);
+        Preferences.Default.Set("spectrum-top-padding", settings.SpectrumTopPaddingRows);
+        Preferences.Default.Set("spectrum-bottom-padding", settings.SpectrumBottomPaddingRows);
         Preferences.Default.Set("show-spectrum", settings.ShowSpectrum);
         Preferences.Default.Set("show-peaks", settings.ShowPeaks);
     }

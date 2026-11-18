@@ -10,22 +10,23 @@ public sealed class PlayerSettingsPage : ContentPage
     public PlayerSettingsPage(PlayerSettings settings, Action<PlayerSettings> apply, Func<Task> pickFiles, Func<Task> pickFolder)
     {
         _settings = settings;
+        var defaults = new PlayerSettings();
         BackgroundColor = MixerStyle.Background;
         SafeAreaEdges = new SafeAreaEdges(SafeAreaRegions.Container);
 
         var heading = MixerStyle.Label("Настройки", 23, bold: true);
         SemanticProperties.SetHeadingLevel(heading, SemanticHeadingLevel.Level1);
-        var reset = MixerStyle.Button("Сбросить");
+        var reset = MixerStyle.Button("Сбросить", icon: "player_reset.png");
         reset.HorizontalOptions = LayoutOptions.End;
         var header = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
         header.Add(heading);
         header.Add(reset, 1);
 
-        var fadeIn = Number("Плавный старт", "мс", 3000,
+        var fadeIn = Number("Плавный старт", "мс", new(0, 3000, defaults.FadeInMilliseconds, 50),
             settings.FadeInMilliseconds, value => _settings = _settings with { FadeInMilliseconds = value });
-        var fadeOut = Number("Затухание при паузе", "мс", 3000,
+        var fadeOut = Number("Затухание при паузе", "мс", new(0, 3000, defaults.FadeOutMilliseconds, 50),
             settings.FadeOutMilliseconds, value => _settings = _settings with { FadeOutMilliseconds = value });
-        var crossfade = Number("Длительность перехода", "мс", 12000,
+        var crossfade = Number("Длительность перехода", "мс", new(0, 12000, defaults.CrossfadeMilliseconds, 100),
             settings.CrossfadeMilliseconds, value => _settings = _settings with { CrossfadeMilliseconds = value });
         var autoMix = Toggle("Автомикс", settings.AutoMix, value => _settings = _settings with { AutoMix = value });
         var overview = Select("Полная дорожка", ["Полоса прогресса", "Цветная волна"], settings.WaveformOverview ? 1 : 0,
@@ -35,9 +36,21 @@ public sealed class PlayerSettingsPage : ContentPage
         var spectrum = Toggle("Показывать мастер-спектр", settings.ShowSpectrum, value => _settings = _settings with { ShowSpectrum = value });
         var spectrumColors = Select("Цвет мастер-спектра", ["Два цвета", "Градиент по частотам", "Однотонный"],
             (int)settings.SpectrumColors, index => _settings = _settings with { SpectrumColors = (SpectrumColorMode)index });
-        var brightness = Number("Минимальная яркость", "%", 100, settings.SpectrumMinimumBrightnessPercent,
+        var brightness = Number("Минимальная яркость", "%", new(0, 100, defaults.SpectrumMinimumBrightnessPercent, 1),
+            settings.SpectrumMinimumBrightnessPercent,
             value => _settings = _settings with { SpectrumMinimumBrightnessPercent = value });
-        brightness.Row.IsEnabled = settings.SpectrumLevelBrightness;
+        var fullBrightness = Number("Уровень сигнала для полной яркости", "%", new(1, 100, defaults.SpectrumFullBrightnessPercent, 1),
+            settings.SpectrumFullBrightnessPercent, value => _settings = _settings with { SpectrumFullBrightnessPercent = value });
+        var brightnessOptions = new VerticalStackLayout
+        {
+            Spacing = 8, IsEnabled = settings.SpectrumLevelBrightness, Children = { brightness.Row, fullBrightness.Row }
+        };
+        var topPadding = Number("Отступ сверху", "полосы", new(0, PlayerSettings.MaximumSpectrumPaddingRows, defaults.SpectrumTopPaddingRows, 1),
+            settings.SpectrumTopPaddingRows, value => _settings = _settings with { SpectrumTopPaddingRows = value });
+        var bottomPadding = Number("Отступ снизу", "полосы", new(0, PlayerSettings.MaximumSpectrumPaddingRows, defaults.SpectrumBottomPaddingRows, 1),
+            settings.SpectrumBottomPaddingRows, value => _settings = _settings with { SpectrumBottomPaddingRows = value });
+        NumericSettingInput[] numbers = [fadeIn.Input, fadeOut.Input, crossfade.Input, brightness.Input, fullBrightness.Input,
+            topPadding.Input, bottomPadding.Input];
         var adaptiveBrightness = new CheckBox { IsChecked = settings.SpectrumLevelBrightness, Color = MixerStyle.Accent };
         SemanticProperties.SetDescription(adaptiveBrightness, "Яркость по уровню частоты");
         adaptiveBrightness.CheckedChanged += (_, args) =>
@@ -45,8 +58,9 @@ public sealed class PlayerSettingsPage : ContentPage
             if (!_loading)
             {
                 brightness.Input.CommitText();
+                fullBrightness.Input.CommitText();
                 _settings = _settings with { SpectrumLevelBrightness = args.Value };
-                brightness.Row.IsEnabled = args.Value;
+                brightnessOptions.IsEnabled = args.Value;
             }
         };
         var brightnessToggle = ControlRow("Яркость по уровню частоты", adaptiveBrightness);
@@ -58,36 +72,36 @@ public sealed class PlayerSettingsPage : ContentPage
             Section("Воспроизведение", fadeIn.Row, fadeOut.Row),
             Section("Сведение", autoMix.Row, crossfade.Row),
             Section("Дорожки", overview.Row),
-            Section("Оформление и спектр", palette.Row, spectrum.Row, spectrumColors.Row, brightnessToggle, brightness.Row, peaks.Row)
+            Section("Оформление и спектр", palette.Row, spectrum.Row, spectrumColors.Row, brightnessToggle, brightnessOptions,
+                topPadding.Row, bottomPadding.Row, peaks.Row)
         ];
         reset.Clicked += (_, _) =>
         {
-            var defaults = new PlayerSettings();
             _loading = true;
-            fadeIn.Input.Value = defaults.FadeInMilliseconds;
-            fadeOut.Input.Value = defaults.FadeOutMilliseconds;
-            crossfade.Input.Value = defaults.CrossfadeMilliseconds;
+            foreach (var input in numbers)
+            {
+                input.Value = input.DefaultValue;
+            }
             autoMix.Switch.IsToggled = defaults.AutoMix;
             overview.Picker.SelectedIndex = defaults.WaveformOverview ? 1 : 0;
             palette.Picker.SelectedIndex = (int)defaults.Palette;
             spectrumColors.Picker.SelectedIndex = (int)defaults.SpectrumColors;
             adaptiveBrightness.IsChecked = defaults.SpectrumLevelBrightness;
-            brightness.Row.IsEnabled = defaults.SpectrumLevelBrightness;
-            brightness.Input.Value = defaults.SpectrumMinimumBrightnessPercent;
+            brightnessOptions.IsEnabled = defaults.SpectrumLevelBrightness;
             spectrum.Switch.IsToggled = defaults.ShowSpectrum;
             peaks.Switch.IsToggled = defaults.ShowPeaks;
             _settings = defaults;
             _loading = false;
         };
 
-        var save = MixerStyle.Button("Сохранить", primary: true);
-        var cancel = MixerStyle.Button("Отмена");
+        var save = MixerStyle.Button("Сохранить", primary: true, icon: "player_confirm.png");
+        var cancel = MixerStyle.Button("Отмена", icon: "player_cancel.png");
         save.Clicked += async (_, _) => await CloseAsync(() =>
         {
-            fadeIn.Input.CommitText();
-            fadeOut.Input.CommitText();
-            crossfade.Input.CommitText();
-            brightness.Input.CommitText();
+            foreach (var input in numbers)
+            {
+                input.CommitText();
+            }
             apply(_settings);
         });
         cancel.Clicked += async (_, _) => await CloseAsync(null);
@@ -115,8 +129,8 @@ public sealed class PlayerSettingsPage : ContentPage
     /// <summary>Keeps native file and folder import available from settings.</summary>
     private static Border CreateLibrarySection(Func<Task> pickFiles, Func<Task> pickFolder)
     {
-        var files = MixerStyle.Button("Открыть файлы");
-        var folder = MixerStyle.Button("Открыть папку");
+        var files = MixerStyle.Button("Открыть файлы", icon: "player_file.png");
+        var folder = MixerStyle.Button("Открыть папку", icon: "player_folder.png");
         files.Clicked += async (_, _) => await ImportAsync(pickFiles);
         folder.Clicked += async (_, _) => await ImportAsync(pickFolder);
         var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)], ColumnSpacing = 8 };
@@ -149,9 +163,9 @@ public sealed class PlayerSettingsPage : ContentPage
         await Navigation.PopModalAsync();
     }
 
-    private static (View Row, NumericSettingInput Input) Number(string name, string unit, int maximum, int selected, Action<int> update)
+    private static (View Row, NumericSettingInput Input) Number(string name, string unit, NumericRange range, int selected, Action<int> update)
     {
-        var input = new NumericSettingInput(name, unit, 0, maximum, selected);
+        var input = new NumericSettingInput(name, unit, range, selected);
         input.ValueChanged += value => update((int)value);
         return (new VerticalStackLayout { Spacing = 3, Children = { MixerStyle.Label(name, 13), input } }, input);
     }

@@ -4,7 +4,6 @@ namespace Laveyana.Audio.Maui.Controls;
 
 internal sealed class SpectrumDrawable : IDrawable
 {
-    private const int EdgePaddingRows = 2;
     private const float PeakHoldSeconds = .28f;
     private const float PeakFallPerSecond = 1.8f;
     private const int BrightnessIntervals = 100;
@@ -13,14 +12,21 @@ internal sealed class SpectrumDrawable : IDrawable
     private readonly float[] _peaks = new float[PlaybackFormat.SpectrumBars];
     private readonly float[] _peakTimers = new float[PlaybackFormat.SpectrumBars];
     private bool _showPeaks;
+    private float _fullBrightnessLevel;
+    private int _topPaddingRows;
+    private int _bottomPaddingRows;
 
-    public SpectrumDrawable() => SetAppearance(PlayerColors.For(PlayerPalette.LavPulse), SpectrumColorMode.Split, true);
+    public SpectrumDrawable() => SetAppearance(PlayerColors.For(PlayerPalette.LavPulse), new PlayerSettings());
 
-    /// <summary>Caches the color and brightness steps so drawing needs no per-frame color allocations.</summary>
-    public void SetAppearance(PlayerColors colors, SpectrumColorMode mode, bool showPeaks, int? minimumBrightnessPercent = null)
+    /// <summary>Updates the edge margins and caches brightness steps for allocation-free drawing.</summary>
+    public void SetAppearance(PlayerColors colors, PlayerSettings settings)
     {
-        _showPeaks = showPeaks;
-        float minimum = Math.Clamp(minimumBrightnessPercent ?? 100, 0, 100) / 100f;
+        _showPeaks = settings.ShowPeaks;
+        _fullBrightnessLevel = Math.Clamp(settings.SpectrumFullBrightnessPercent, 1, 100) / 100f;
+        _topPaddingRows = Math.Clamp(settings.SpectrumTopPaddingRows, 0, PlayerSettings.MaximumSpectrumPaddingRows);
+        _bottomPaddingRows = Math.Clamp(settings.SpectrumBottomPaddingRows, 0, PlayerSettings.MaximumSpectrumPaddingRows);
+        float minimum = settings.SpectrumLevelBrightness ? Math.Clamp(settings.SpectrumMinimumBrightnessPercent, 0, 100) / 100f : 1;
+        var mode = settings.SpectrumColors;
         if (mode != SpectrumColorMode.FrequencyGradient)
         {
             var right = mode == SpectrumColorMode.Split ? colors.Alternate : colors.Accent;
@@ -75,8 +81,8 @@ internal sealed class SpectrumDrawable : IDrawable
         }
     }
 
-    private static BandPaint PaintAtLevel(BandPaint[] steps, float level) =>
-        steps[(int)MathF.Round(Math.Clamp(level, 0, 1) * (steps.Length - 1))];
+    private BandPaint PaintAtLevel(BandPaint[] steps, float level) =>
+        steps[(int)MathF.Round(Math.Clamp(level / _fullBrightnessLevel, 0, 1) * (steps.Length - 1))];
 
     /// <summary>Smooths each band and holds its peak briefly before it falls.</summary>
     public bool Advance(ReadOnlySpan<float> levels, float elapsedSeconds)
@@ -131,13 +137,13 @@ internal sealed class SpectrumDrawable : IDrawable
             return;
         }
 
-        float spacing = bounds.Height / (_bars.Length + 2 * EdgePaddingRows);
+        float spacing = bounds.Height / (_bars.Length + _topPaddingRows + _bottomPaddingRows);
         float thickness = Math.Min(4, spacing * .52f);
         float maximum = bounds.Width * .2f;
         float markerWidth = Math.Min(7, maximum);
         for (int band = 0; band < _bars.Length; band++)
         {
-            float y = bounds.Bottom - (EdgePaddingRows + band + .5f) * spacing - thickness / 2;
+            float y = bounds.Bottom - (_bottomPaddingRows + band + .5f) * spacing - thickness / 2;
             float level = _bars[band];
             float length = maximum * level;
             var steps = _paint[band];

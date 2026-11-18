@@ -11,8 +11,8 @@ internal sealed class TrackQueueView : Grid
     private readonly VerticalStackLayout _rows = new() { Spacing = 5 };
     private readonly VerticalStackLayout _queue;
     private readonly Grid _right;
-    private readonly Button _queueTab = MixerStyle.Button("Очередь");
-    private readonly Button _recommendationsTab = MixerStyle.Button("Рекомендации");
+    private readonly Button _queueTab = MixerStyle.Button("Очередь", icon: "player_queue.png", stacked: true);
+    private readonly Button _recommendationsTab = MixerStyle.Button("Рекомендации", icon: "player_recommendations.png", stacked: true);
     private readonly ScrollView _queueScroll;
     private readonly Label _recommendations = MixerStyle.Label("В разработке", 13, MixerStyle.Muted);
     private readonly Dictionary<TrackFile, Button> _buttons = new();
@@ -48,10 +48,7 @@ internal sealed class TrackQueueView : Grid
     /// <summary>Groups the two playback sources in a single segmented control.</summary>
     private Border CreateFeedSelector()
     {
-        _queueTab.FontSize = _recommendationsTab.FontSize = 10;
-        _queueTab.Padding = _recommendationsTab.Padding = new Thickness(4, 2);
         _queueTab.CornerRadius = _recommendationsTab.CornerRadius = 7;
-        _queueTab.LineBreakMode = _recommendationsTab.LineBreakMode = LineBreakMode.CharacterWrap;
         _queueTab.Clicked += (_, _) => SelectRecommendations(false);
         _recommendationsTab.Clicked += (_, _) => SelectRecommendations(true);
         var segments = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)] };

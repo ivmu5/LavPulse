@@ -17,6 +17,8 @@ public enum SpectrumColorMode
 /// <summary>Contains the user-facing preferences for playback and the player visuals.</summary>
 public sealed record PlayerSettings
 {
+    public const int MaximumSpectrumPaddingRows = 28;
+
     public int FadeInMilliseconds { get; init; } = 300;
     public int FadeOutMilliseconds { get; init; } = 300;
     public int CrossfadeMilliseconds { get; init; } = 6000;
@@ -26,6 +28,9 @@ public sealed record PlayerSettings
     public SpectrumColorMode SpectrumColors { get; init; }
     public bool SpectrumLevelBrightness { get; init; }
     public int SpectrumMinimumBrightnessPercent { get; init; } = 50;
+    public int SpectrumFullBrightnessPercent { get; init; } = 100;
+    public int SpectrumTopPaddingRows { get; init; } = 2;
+    public int SpectrumBottomPaddingRows { get; init; } = 2;
     public bool ShowSpectrum { get; init; } = true;
     public bool ShowPeaks { get; init; } = true;
 }

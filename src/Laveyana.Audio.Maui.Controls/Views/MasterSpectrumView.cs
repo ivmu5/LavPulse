@@ -20,8 +20,7 @@ public sealed partial class MasterSpectrumView : ContentView
 
     internal void SetAppearance(PlayerColors colors, PlayerSettings settings)
     {
-        _drawable.SetAppearance(colors, settings.SpectrumColors, settings.ShowPeaks,
-            settings.SpectrumLevelBrightness ? settings.SpectrumMinimumBrightnessPercent : null);
+        _drawable.SetAppearance(colors, settings);
         IsVisible = settings.ShowSpectrum;
         _graphics.Invalidate();
     }

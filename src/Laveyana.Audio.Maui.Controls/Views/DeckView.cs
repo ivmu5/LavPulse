@@ -5,8 +5,7 @@ namespace Laveyana.Audio.Maui.Controls;
 /// <summary>Shows a detailed window and an overview of one deck, with commit-on-release scrubbing.</summary>
 public sealed class DeckView : Border
 {
-    private readonly NumericSettingInput _trackSpeed = new("Скорость трека", "×", .75, 1.25, 1, decimalPlaces: 3);
-    private readonly Grid _speedRow;
+    private readonly NumericSettingInput _trackSpeed = new("Скорость трека", "×", new(.75, 1.25, 1, .125, 3), 1, showSlider: false);
     private readonly Label _name = MixerStyle.Label("", 13, bold: true);
     private readonly Label _time = MixerStyle.Label("", 11, MixerStyle.Muted);
     private readonly Label _previewLabel = MixerStyle.Label("", 12);
@@ -40,7 +39,7 @@ public sealed class DeckView : Border
         _previewLabel.InputTransparent = true;
         _previewLabel.IsVisible = false;
 
-        var header = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
+        var header = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto)], ColumnSpacing = 8 };
         _name.MaxLines = 1;
         _name.LineBreakMode = LineBreakMode.TailTruncation;
         _name.VerticalTextAlignment = _time.VerticalTextAlignment = TextAlignment.Center;
@@ -53,13 +52,9 @@ public sealed class DeckView : Border
         };
         header.Add(_name);
         header.Add(_time, 1);
-        var speedLabel = MixerStyle.Label("Скорость", 11, MixerStyle.Muted);
-        speedLabel.VerticalOptions = LayoutOptions.Center;
-        _speedRow = new Grid { ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Star)], ColumnSpacing = 8 };
-        _speedRow.Add(speedLabel);
-        _speedRow.Add(_trackSpeed, 1);
+        header.Add(_trackSpeed, 2);
         var detailLayer = new Grid { Children = { _detail, _previewLabel } };
-        MixerStyle.StyleCard(this, new VerticalStackLayout { Spacing = 5, Children = { header, _speedRow, detailLayer, _overview } });
+        MixerStyle.StyleCard(this, new VerticalStackLayout { Spacing = 5, Children = { header, detailLayer, _overview } });
         Padding = new Thickness(10, 7);
 
         _timer = Dispatcher.CreateTimer();
@@ -89,7 +84,7 @@ public sealed class DeckView : Border
         _trackSpeed.IsEnabled = canSeek;
         _detail.InputTransparent = _overview.InputTransparent = !canSeek;
         bool revealOverview = !_overview.IsVisible && showOverview;
-        _overview.IsVisible = _speedRow.IsVisible = showOverview;
+        _overview.IsVisible = _trackSpeed.IsVisible = showOverview;
         if (!_canSeek || !ReferenceEquals(_track, playing?.Track))
         {
             CancelScrub();
