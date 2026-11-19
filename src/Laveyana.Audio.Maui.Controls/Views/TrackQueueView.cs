@@ -27,7 +27,6 @@ internal sealed partial class TrackQueueView : Grid
     private readonly List<TrackFile> _leavingRows = new();
     private IReadOnlyList<TrackFile> _tracks = [];
     private Func<TrackFile, QueueTrackItem>? _readRow;
-    private TrackFile? _nextTrack;
     private int _playedCount;
     private int _visibleStart;
     private bool _showPlayedTracks;
@@ -194,12 +193,11 @@ internal sealed partial class TrackQueueView : Grid
     }
 
     /// <summary>Updates the queue model and rebinds only the visible window of rows.</summary>
-    public void ShowQueue(IReadOnlyList<TrackFile> tracks, TrackFile? current, TrackFile? next, int playedCount, Func<TrackFile, QueueTrackItem> read)
+    public void ShowQueue(IReadOnlyList<TrackFile> tracks, TrackFile? current, int playedCount, Func<TrackFile, QueueTrackItem> read)
     {
         _focusCurrent |= !ReferenceEquals(_currentTrack, current);
         _tracks = tracks;
         _currentTrack = current;
-        _nextTrack = next;
         _playedCount = playedCount;
         _readRow = read;
         UpdateVisibleRows();
@@ -274,7 +272,7 @@ internal sealed partial class TrackQueueView : Grid
             // Existing visible rows also move when history is hidden or shown.
             AbsoluteLayout.SetLayoutBounds(row,
                 new Rect(0, (double)(i - _visibleStart) * RowStride, 1, QueueTrackRow.RowHeight));
-            row.Show(read(file), ReferenceEquals(file, _currentTrack), i < _playedCount, ReferenceEquals(file, _nextTrack), _theme);
+            row.Show(read(file), ReferenceEquals(file, _currentTrack), i < _playedCount, _theme);
         }
     }
 

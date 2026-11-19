@@ -1,7 +1,5 @@
 using Laveyana.Audio.Playback;
 using Microsoft.Maui.Controls.Shapes;
-using Microsoft.Maui.Layouts;
-using System.Diagnostics;
 
 namespace Laveyana.Audio.Maui.Controls;
 
@@ -18,6 +16,7 @@ internal sealed partial class TrackQueueView
         private readonly Grid _coverRow;
         private readonly VerticalStackLayout _details;
         private CachedTrack? _displayed;
+        private PlayerColors _palette = MixerTheme.Default.Artwork;
 
         public TrackCard(TextAlignment align, bool showAudioInfo = false)
         {
@@ -31,7 +30,7 @@ internal sealed partial class TrackQueueView
                 StrokeShape = new RoundRectangle { CornerRadius = 10 },
                 Content = new Grid { Children = { _art, _state } }
             };
-            ApplyPalette(MixerTheme.Default.Artwork);
+            UpdateCoverBackground();
             _title.HorizontalTextAlignment = _artist.HorizontalTextAlignment = align;
             _title.MaxLines = 2;
             _title.LineBreakMode = LineBreakMode.TailTruncation;
@@ -65,9 +64,15 @@ internal sealed partial class TrackQueueView
             Children.Add(_details);
         }
 
-        public void ApplyPalette(PlayerColors colors) => _cover.Background = new LinearGradientBrush(
-            [new(colors.WaveLow.WithAlpha(.65f), 0), new(colors.WaveMid.WithAlpha(.5f), .5f), new(colors.Alternate.WithAlpha(.7f), 1)],
-            new Point(0, 0), new Point(1, 1));
+        public void ApplyPalette(PlayerColors colors)
+        {
+            if (_palette == colors) return;
+            _palette = colors;
+            UpdateCoverBackground();
+        }
+
+        private void UpdateCoverBackground() => _cover.Background =
+            _displayed is { Artwork.IsEmpty: false } ? null : TrackCoverGradient.Create(_palette, _displayed?.Name);
 
         /// <summary>Shows imported tags and audio properties, with a gradient as the artwork fallback.</summary>
         public void Show(CachedTrack? track, string state = "")
@@ -76,6 +81,7 @@ internal sealed partial class TrackQueueView
             {
                 _displayed = track;
                 byte[]? art = track is not null && !track.Artwork.IsEmpty ? track.Artwork.ToArray() : null;
+                UpdateCoverBackground();
                 _art.Source = art is null ? null : ImageSource.FromStream(() => new System.IO.MemoryStream(art, writable: false));
                 if (_audioInfo is { } details)
                 {

@@ -11,14 +11,14 @@ public sealed partial class MainPage
 {
     private void UpdateQueue()
     {
-        if (IsPlayerVisible)
-        {
-            _view.ShowQueue(_queue.Tracks, _queue.Current, _selected ?? _queue.Next, _queue.PlayedCount, ReadQueueItem);
-        }
         if (!_loadingFirst)
         {
             var snapshot = _playback.Snapshot;
             _library.Trim(snapshot.Current?.Track, snapshot.Incoming?.Track, _selected, _armed);
+        }
+        if (IsPlayerVisible)
+        {
+            _view.ShowQueue(_queue.Tracks, _queue.Current, _queue.PlayedCount, ReadQueueItem);
         }
         UpdateTransport();
     }
@@ -29,7 +29,10 @@ public sealed partial class MainPage
         var track = _library.GetPrepared(file);
         var tags = _library.GetMetadata(file);
         return new(track?.Title ?? tags?.Title ?? Path.GetFileNameWithoutExtension(file.Name),
-            track?.Artist ?? tags?.Artist, tags?.Artwork ?? default, _library.IsAnalyzing(file));
+            track?.Artist ?? tags?.Artist, tags?.Artwork ?? default, _library.IsPreparing(file))
+        {
+            IsLoaded = track is not null
+        };
     }
 
     private void UpdateTransport()
