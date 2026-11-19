@@ -46,6 +46,7 @@ internal sealed class PlatformAudioOutput : IAudioOutput
 
         var available = Channel.CreateUnbounded<AVAudioPcmBuffer>(new UnboundedChannelOptions { SingleReader = true });
         var buffers = new List<AVAudioPcmBuffer>(BufferCount);
+        source.ReportOutputPosition(0);
         try
         {
             for (int i = 0; i < BufferCount; i++)
@@ -63,16 +64,18 @@ internal sealed class PlatformAudioOutput : IAudioOutput
             var block = new float[PlaybackFormat.BlockFrames * PlaybackFormat.Channels];
             var left = new float[PlaybackFormat.BlockFrames];
             var right = new float[PlaybackFormat.BlockFrames];
+            int scheduled = 0;
             bool started = false;
 
             while (true)
             {
                 AVAudioPcmBuffer buffer = await TakeBufferAsync(available.Reader, token).ConfigureAwait(false);
+                if (started) ReportOutputPosition(player, source);
                 int frames = source.Render(block);
                 IntPtr channels = buffer.FloatChannelData;
                 if (frames == 0)
                 {
-                    if (started)
+                    if (scheduled > 0)
                     {
                         // Wait for the device to play a final silent frame before stopping the engine.
                         var drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -81,6 +84,7 @@ internal sealed class PlatformAudioOutput : IAudioOutput
                         Marshal.WriteInt32(Marshal.ReadIntPtr(channels, IntPtr.Size), 0);
                         player.ScheduleBuffer(buffer, AVAudioPlayerNodeCompletionCallbackType.PlayedBack,
                             _ => drained.TrySetResult());
+                        if (!started) player.Play();
                         await drained.Task.WaitAsync(TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
                     }
 
@@ -99,7 +103,7 @@ internal sealed class PlatformAudioOutput : IAudioOutput
 
                 player.ScheduleBuffer(buffer, AVAudioPlayerNodeCompletionCallbackType.Rendered,
                     _ => available.Writer.TryWrite(buffer));
-                if (!started)
+                if (!started && ++scheduled == BufferCount)
                 {
                     player.Play();
                     started = true;
@@ -116,6 +120,15 @@ internal sealed class PlatformAudioOutput : IAudioOutput
                 buffer.Dispose();
             }
         }
+    }
+
+    private static void ReportOutputPosition(AVAudioPlayerNode player, IAudioRenderSource source)
+    {
+        using var renderTime = player.LastRenderTime;
+        if (renderTime is null) return;
+        using var playerTime = player.GetPlayerTimeFromNodeTime(renderTime);
+        if (playerTime is { SampleTimeValid: true, SampleRate: > 0 })
+            source.ReportOutputPosition(Math.Max(0, (long)(playerTime.SampleTime * PlaybackFormat.SampleRate / playerTime.SampleRate)));
     }
 
     /// <summary>Waits for an available native buffer with cancellation and a device timeout.</summary>

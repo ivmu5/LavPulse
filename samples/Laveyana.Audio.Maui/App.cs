@@ -40,6 +40,10 @@ public sealed class App : Application
                 window.Destroying += (_, _) => activity.PlayerVisibilityChanged -= page.SetWindowVisible;
             }
         };
+#elif IOS || MACCATALYST
+        window.Activated += (_, _) => page.SetWindowVisible(true);
+        window.Deactivated += (_, _) => page.SetWindowVisible(false);
+        window.Stopped += (_, _) => page.SetWindowVisible(false);
 #endif
         window.Destroying += async (_, _) => await page.CloseAsync();
         return window;

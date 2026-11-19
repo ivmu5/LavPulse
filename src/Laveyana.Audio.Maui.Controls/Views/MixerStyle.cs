@@ -50,7 +50,7 @@ internal static partial class MixerStyle
 
     internal static void StyleSwitch(Switch toggle)
     {
-#if ANDROID
+#if ANDROID || IOS
         UseColor(toggle, Switch.OnColorProperty, MixerColor.SwitchTrack);
         toggle.Toggled += (_, args) => UpdateThumb(args.Value);
         UpdateThumb(toggle.IsToggled);

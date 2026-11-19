@@ -209,7 +209,7 @@ public sealed partial class PlayerSettingsPanel : ContentView
             Spacing = 8,
             Children = { Section("Тема интерфейса", themeOptions, backgrounds) }
         };
-#if ANDROID
+#if ANDROID || IOS
         sections.Add(Section("Экран", Toggle("Скрывать строку состояния", _settings.HideStatusBar, value =>
         {
             _settings = _settings with { HideStatusBar = value };

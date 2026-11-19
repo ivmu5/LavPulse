@@ -4,6 +4,10 @@ using Laveyana.Audio.Maui.Tracks;
 using Laveyana.Audio.Maui.Settings;
 using Laveyana.Audio.Playback;
 using Microsoft.Maui.ApplicationModel;
+#if IOS
+using IosPage = Microsoft.Maui.Controls.PlatformConfiguration.iOSSpecific.Page;
+using IosStatusBarHiddenMode = Microsoft.Maui.Controls.PlatformConfiguration.iOSSpecific.StatusBarHiddenMode;
+#endif
 
 namespace Laveyana.Audio.Maui;
 
@@ -123,6 +127,8 @@ public sealed partial class MainPage
 #if ANDROID
             if (Window?.Handler?.PlatformView is MainActivity activity)
                 activity.ApplySystemBarAppearance(_view.IsLightAppearance, settings.HideStatusBar);
+#elif IOS
+            IosPage.SetPrefersStatusBarHidden(this, settings.HideStatusBar ? IosStatusBarHiddenMode.True : IosStatusBarHiddenMode.False);
 #endif
         }
         finally { _applyingAppearance = false; }

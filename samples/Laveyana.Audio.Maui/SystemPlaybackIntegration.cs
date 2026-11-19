@@ -3,11 +3,11 @@ using Laveyana.Audio.Playback;
 namespace Laveyana.Audio.Maui;
 
 /// <summary>Commands accepted by both the MAUI transport and the system media controls.</summary>
-internal enum SystemPlaybackCommand { Play, Pause, Next, Previous }
+internal enum SystemPlaybackCommand { Play, Pause, Next, Previous, Interrupted }
 
 /// <summary>A snapshot of the actual master playback, not a second media player.</summary>
 internal readonly record struct SystemPlaybackState(
-    CachedTrack Track, long PositionFrames, bool Playing, bool CanNext, bool CanPrevious)
+    CachedTrack Track, long PositionFrames, bool Playing, bool CanNext, bool CanPrevious, double Speed = 1)
 {
     public long PositionMilliseconds => Math.Max(0, PositionFrames * 1000 / PlaybackFormat.SampleRate);
     public long DurationMilliseconds => Math.Max(0, Track.Waveform.TotalFrames * 1000 / PlaybackFormat.SampleRate);
