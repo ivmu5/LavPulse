@@ -3,12 +3,16 @@ using Laveyana.Audio.Maui.Controls;
 using Laveyana.Audio.Maui.Tracks;
 using Laveyana.Audio.Maui.Settings;
 using Laveyana.Audio.Playback;
+using Microsoft.Maui.ApplicationModel;
 
 namespace Laveyana.Audio.Maui;
 
 /// <summary>Coordinates the panels and applies player preferences.</summary>
 public sealed partial class MainPage
 {
+    private PlayerSettings? _appearanceDraft;
+    private bool _applyingAppearance;
+
     private void ApplyEqualizer(EqualizerSettings settings)
     {
         _equalizer = settings;
@@ -33,7 +37,8 @@ public sealed partial class MainPage
     }
 
     private void OpenSettings() =>
-        OpenPanel(() => new PlayerSettingsPanel(_settings, value => ApplySettings(value), PickFilesAsync, PickFolderAsync, ClosePanel));
+        OpenPanel(() => new PlayerSettingsPanel(_settings, value => ApplySettings(value), PickFilesAsync, PickFolderAsync,
+            ClosePanel, PreviewAppearance));
 
     private void OpenPanel(Func<View> createPanel)
     {
@@ -60,6 +65,11 @@ public sealed partial class MainPage
         var snapshot = _playback.Snapshot;
         UpdatePositions(snapshot);
         _view.ShowPanel(null);
+        if (_appearanceDraft is not null)
+        {
+            _appearanceDraft = null;
+            RefreshAppearance();
+        }
         UpdatePositionRefreshInterval();
         if (IsPlayerVisible) RestorePlayer(snapshot);
     }
@@ -81,13 +91,51 @@ public sealed partial class MainPage
         return true;
     }
 
+    private void PreviewAppearance(PlayerSettings draft)
+    {
+        _appearanceDraft = _settings with
+        {
+            Theme = draft.Theme, DarkBackground = draft.DarkBackground,
+            Palette = draft.Palette, CustomColors = draft.CustomColors, SpectrumColors = draft.SpectrumColors
+        };
+        RefreshAppearance();
+    }
+
+    internal void RefreshAppearance()
+    {
+        if (_applyingAppearance || _closed) return;
+        _applyingAppearance = true;
+        try
+        {
+            var settings = _appearanceDraft ?? _settings;
+#if !WINDOWS
+            var app = Application.Current;
+            if (app is not null)
+                app.UserAppTheme = settings.Theme switch
+                {
+                    PlayerTheme.Light => AppTheme.Light,
+                    PlayerTheme.Dark => AppTheme.Dark,
+                    _ => AppTheme.Unspecified
+                };
+#endif
+            _view.ApplyAppearance(settings);
+            BackgroundColor = _view.BackgroundColor;
+#if ANDROID
+            if (Window?.Handler?.PlatformView is MainActivity activity)
+                activity.ApplySystemBarAppearance(_view.IsLightAppearance);
+#endif
+        }
+        finally { _applyingAppearance = false; }
+    }
+
     private void ApplySettings(PlayerSettings value, bool save = true)
     {
+        _appearanceDraft = null;
         _settings = value;
         _playback.SetAutoMix(value.AutoMix);
         _playback.SetCrossfadeDuration(value.CrossfadeMilliseconds);
         UpdateSpectrumAnalysis();
-        _view.ApplyAppearance(value);
+        RefreshAppearance();
         if (save)
         {
             PlayerPreferences.Save(value);

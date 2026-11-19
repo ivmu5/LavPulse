@@ -10,6 +10,7 @@ public sealed partial class PlayerSettingsPanel
         _paletteEditorHost.Content = new PaletteEditor(_settings, colors =>
         {
             _settings = _settings with { Palette = PlayerPalette.Custom, CustomColors = colors };
+            _previewAppearance?.Invoke(_settings);
             TryClosePaletteEditor();
             ShowSection(_activeSection, commit: false);
         }, () => TryClosePaletteEditor());
@@ -36,14 +37,16 @@ public sealed partial class PlayerSettingsPanel
         private static readonly string[] Channels = ["R", "G", "B"];
         private readonly BoxView[] _swatches = new BoxView[Roles.Length];
         private readonly Slider[] _channels = new Slider[Channels.Length];
+        private readonly Label[] _channelValues = new Label[Channels.Length];
+        private readonly PaletteColorPicker _picker = new();
         private readonly Entry _hex = new()
         {
-            Placeholder = "#RRGGBB", MaxLength = 7, FontFamily = "Inter",
-            TextColor = MixerStyle.TextColor, BackgroundColor = MixerStyle.Overlay
+            Placeholder = "#RRGGBB", MaxLength = 7, FontFamily = "Inter", MinimumWidthRequest = 110
         };
-        private readonly Label _validation = MixerStyle.Label("Введите цвет в формате #RRGGBB.", 12, MixerStyle.Preview);
+        private readonly Label _validation = MixerStyle.Label("Введите цвет в формате #RRGGBB.", 12, MixerColor.Preview);
         private readonly Button _apply = MixerStyle.Button("Применить", primary: true);
         private readonly PlayerSettings _spectrumAppearance;
+        private readonly PlayerSettings _appearance;
         private readonly SpectrumDrawable _spectrum;
         private readonly GraphicsView _preview;
         private PlayerColors _colors;
@@ -53,13 +56,16 @@ public sealed partial class PlayerSettingsPanel
         public PaletteEditor(PlayerSettings settings, Action<PlayerColors> apply, Action dismiss)
         {
             _colors = settings.CustomColors;
+            _appearance = settings with { Palette = PlayerPalette.Custom };
             var previewSettings = settings with { SpectrumLevelBrightness = false };
             _spectrumAppearance = SpectrumPreviewSettings(previewSettings, settings.SpectrumColors);
-            _preview = CreateSpectrumPreview(previewSettings, _colors, settings.SpectrumColors, out _spectrum);
+            var theme = CreatePreviewTheme();
+            _preview = CreateSpectrumPreview(previewSettings, theme.Visualization, settings.SpectrumColors, out _spectrum, theme.IsLight);
             _preview.HeightRequest = 48;
 
             var heading = MixerStyle.Label("Своя палитра", 20, bold: true);
             SemanticProperties.SetHeadingLevel(heading, SemanticHeadingLevel.Level1);
+            MixerStyle.StyleEntry(_hex);
             SemanticProperties.SetDescription(_hex, "Цвет в формате RGB HEX");
             _hex.TextChanged += (_, args) =>
             {
@@ -86,12 +92,14 @@ public sealed partial class PlayerSettingsPanel
                 _role = role;
                 SyncInputs(ReadColor(role), syncHex: true);
             }));
+            _picker.ColorPicked += color => SetColor(color, syncHex: true, syncPicker: false);
+            inputs.Add(_picker);
             inputs.Add(ControlRow("HEX", _hex));
             inputs.Add(_validation);
             for (int channel = 0; channel < Channels.Length; channel++)
             {
-                var slider = new Slider { Minimum = 0, Maximum = 255, MinimumTrackColor = MixerStyle.Accent,
-                    MaximumTrackColor = MixerStyle.BorderColor, ThumbColor = MixerStyle.Accent };
+                var slider = new Slider { Minimum = 0, Maximum = 255 };
+                MixerStyle.StyleSlider(slider);
                 SemanticProperties.SetDescription(slider, $"Канал {Channels[channel]}");
                 _channels[channel] = slider;
                 slider.ValueChanged += (_, _) =>
@@ -100,11 +108,16 @@ public sealed partial class PlayerSettingsPanel
                     SetColor(Color.FromRgb((int)Math.Round(_channels[0].Value), (int)Math.Round(_channels[1].Value),
                         (int)Math.Round(_channels[2].Value)), syncHex: true);
                 };
-                var row = new Grid { ColumnDefinitions = [new(22), new(GridLength.Star)] };
+                var row = new Grid { ColumnDefinitions = [new(22), new(GridLength.Star), new(28)], ColumnSpacing = 4 };
                 var label = MixerStyle.Label(Channels[channel], 13);
                 label.VerticalOptions = LayoutOptions.Center;
                 row.Add(label);
                 row.Add(slider, 1);
+                var value = MixerStyle.Label("00", 13, MixerColor.Muted);
+                value.VerticalOptions = LayoutOptions.Center;
+                value.HorizontalTextAlignment = TextAlignment.End;
+                _channelValues[channel] = value;
+                row.Add(value, 2);
                 inputs.Add(row);
             }
             inputs.Add(MixerStyle.Label("Мастер-спектр", 13));
@@ -123,12 +136,13 @@ public sealed partial class PlayerSettingsPanel
             layout.Add(actions, row: 2);
             var dialog = new Border { HorizontalOptions = LayoutOptions.Center, VerticalOptions = LayoutOptions.Center };
             MixerStyle.StyleCard(dialog, layout);
-            dialog.BackgroundColor = MixerStyle.Overlay;
+            MixerStyle.UseColor(dialog, BackgroundColorProperty, MixerColor.Overlay);
             var overlay = new Grid
             {
-                Padding = 16, BackgroundColor = MixerStyle.Background.WithAlpha(.78f),
+                Padding = 16,
                 Children = { dialog }
             };
+            MixerStyle.UseColor(overlay, BackgroundColorProperty, MixerColor.Scrim);
             overlay.SizeChanged += (_, _) =>
             {
                 if (overlay.Width > 32) dialog.WidthRequest = Math.Min(480, overlay.Width - 32);
@@ -146,7 +160,7 @@ public sealed partial class PlayerSettingsPanel
             _ => _colors.WaveMid
         };
 
-        private void SetColor(Color color, bool syncHex)
+        private void SetColor(Color color, bool syncHex, bool syncPicker = true)
         {
             _colors = _role switch
             {
@@ -156,19 +170,27 @@ public sealed partial class PlayerSettingsPanel
                 _ => _colors with { WaveMid = color }
             };
             _swatches[(int)_role].Color = color;
-            _spectrum.SetAppearance(_colors, _spectrumAppearance);
+            var theme = CreatePreviewTheme();
+            _spectrum.SetAppearance(theme.Visualization, _spectrumAppearance, theme.IsLight);
             _preview.Invalidate();
-            SyncInputs(color, syncHex);
+            SyncInputs(color, syncHex, syncPicker);
         }
 
-        private void SyncInputs(Color color, bool syncHex)
+        private MixerTheme CreatePreviewTheme() =>
+            MixerTheme.Create(_appearance with { CustomColors = _colors }, MixerTheme.SystemTheme);
+
+        private void SyncInputs(Color color, bool syncHex, bool syncPicker = true)
         {
             _updatingInputs = true;
             color.ToRgb(out byte red, out byte green, out byte blue);
             _channels[0].Value = red;
             _channels[1].Value = green;
             _channels[2].Value = blue;
-            if (syncHex) _hex.Text = color.ToHex();
+            _channelValues[0].Text = red.ToString("X2");
+            _channelValues[1].Text = green.ToString("X2");
+            _channelValues[2].Text = blue.ToString("X2");
+            if (syncHex) _hex.Text = $"#{red:X2}{green:X2}{blue:X2}";
+            if (syncPicker) _picker.SetColor(color);
             _validation.IsVisible = false;
             _apply.IsEnabled = true;
             _updatingInputs = false;

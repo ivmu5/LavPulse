@@ -14,7 +14,6 @@ internal sealed class WindowsClientFrame : IDisposable
     private const uint FrameChanged = 0x0020;
     private const uint NearestMonitor = 2;
     private const uint DwmBorderColor = 34;
-    private const uint FrameColor = 0x008D614C; // COLORREF for MixerStyle.BorderColor.
     private const int TopBorderPixels = 1;
     private const int TopResizeHeight = 6;
     private const int TopCornerWidth = 10;
@@ -37,18 +36,19 @@ internal sealed class WindowsClientFrame : IDisposable
     public bool IsFullscreen { get; set; }
 
     /// <summary>Sets the border color and forces a client-size recalculation without moving the window.</summary>
-    public void Refresh()
+    public void Refresh(Color color)
     {
         if (!_installed || IsFullscreen) return;
         var margins = new FrameMargins();
         DwmExtendFrameIntoClientArea(_hwnd, in margins);
-        ApplyBorderColor(_hwnd);
+        ApplyBorderColor(_hwnd, color);
         SetWindowPos(_hwnd, 0, 0, 0, 0, 0, NoSize | NoMove | NoZOrder | NoActivate | FrameChanged);
     }
 
-    internal static void ApplyBorderColor(nint hwnd)
+    internal static void ApplyBorderColor(nint hwnd, Color color)
     {
-        uint border = FrameColor;
+        color.ToRgb(out byte red, out byte green, out byte blue);
+        uint border = (uint)(red | green << 8 | blue << 16);
         DwmSetWindowAttribute(hwnd, DwmBorderColor, in border, sizeof(uint));
     }
 

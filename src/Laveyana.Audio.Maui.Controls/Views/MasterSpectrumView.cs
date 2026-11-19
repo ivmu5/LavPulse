@@ -25,9 +25,9 @@ public sealed partial class MasterSpectrumView : ContentView
     internal event Action? PlaybackFrame;
     internal VisualElement? FrameRateHost { get; set; }
 
-    internal void SetAppearance(PlayerColors colors, PlayerSettings settings)
+    internal void SetAppearance(MixerTheme theme, PlayerSettings settings)
     {
-        _drawable.SetAppearance(colors, settings);
+        _drawable.SetAppearance(theme.Visualization, settings, theme.IsLight);
         IsVisible = settings.ShowSpectrum && settings.SpectrumWidthPercent > 0;
         SyncFrameLoop();
         if (!IsVisible) ResetLevels();

@@ -3,6 +3,7 @@ namespace Laveyana.Audio.Maui.Controls;
 /// <summary>Edits one preference set with one expanded, lazily created section at a time.</summary>
 public sealed partial class PlayerSettingsPanel : ContentView
 {
+    private readonly Action<PlayerSettings>? _previewAppearance;
     private readonly Func<Task> _pickFiles;
     private readonly Func<Task> _pickFolder;
     private readonly ContentView[] _sectionHosts = new ContentView[6];
@@ -15,9 +16,10 @@ public sealed partial class PlayerSettingsPanel : ContentView
     private bool _loading;
 
     public PlayerSettingsPanel(PlayerSettings settings, Action<PlayerSettings> apply, Func<Task> pickFiles,
-        Func<Task> pickFolder, Action dismiss)
+        Func<Task> pickFolder, Action dismiss, Action<PlayerSettings>? previewAppearance = null)
     {
         _settings = settings;
+        _previewAppearance = previewAppearance;
         _pickFiles = pickFiles;
         _pickFolder = pickFolder;
         var heading = MixerStyle.Label("Настройки", MixerStyle.PhoneFont(23, 20), bold: true);
@@ -26,6 +28,7 @@ public sealed partial class PlayerSettingsPanel : ContentView
         reset.Clicked += (_, _) =>
         {
             _settings = new PlayerSettings();
+            _previewAppearance?.Invoke(_settings);
             ShowSection(_activeSection, commit: false);
         };
         var header = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
@@ -108,7 +111,7 @@ public sealed partial class PlayerSettingsPanel : ContentView
         for (int section = 0; section < _sectionButtons.Length; section++)
         {
             bool selected = section == index;
-            _sectionButtons[section].BackgroundColor = selected ? MixerStyle.SelectedBackground : MixerStyle.ButtonBackground;
+            MixerStyle.UseColor(_sectionButtons[section], BackgroundColorProperty, selected ? MixerColor.Selected : MixerColor.Button);
             _sectionButtons[section].FontAttributes = selected ? FontAttributes.Bold : FontAttributes.None;
         }
         _loading = false;
@@ -153,41 +156,59 @@ public sealed partial class PlayerSettingsPanel : ContentView
             new(PlayerSettings.MinimumWaveformDetailSeconds, PlayerSettings.MaximumWaveformDetailSeconds,
                 defaults.WaveformDetailSeconds, 1), _settings.WaveformDetailSeconds,
             value => _settings = _settings with { WaveformDetailSeconds = value });
-        var colors = PlayerColors.For(_settings);
         var overview = Select("Вид нижней дорожки", [(false, "Полоса прогресса"), (true, "Цветная волна")],
-            _settings.WaveformOverview, waveform => CreateTimelinePreview(colors, waveform),
+            _settings.WaveformOverview, CreateTimelinePreview,
             waveform => _settings = _settings with { WaveformOverview = waveform });
         return Section("Дорожки деки", detail.Row, overview);
     }
 
     private View CreateColorSection()
     {
+        var samples = new List<Action>();
         var previews = new List<(SpectrumColorMode Mode, SpectrumDrawable Drawable, GraphicsView View)>();
+        void Preview(PlayerSettings settings)
+        {
+            _settings = settings;
+            _previewAppearance?.Invoke(settings);
+            var theme = MixerTheme.Create(settings, MixerTheme.SystemTheme);
+            foreach (var sample in samples) sample();
+            foreach (var preview in previews)
+            {
+                preview.Drawable.SetAppearance(theme.Visualization, SpectrumPreviewSettings(settings, preview.Mode), theme.IsLight);
+                preview.View.Invalidate();
+            }
+        }
+
+        var themeOptions = Select("Режим", [(PlayerTheme.System, "Системная"), (PlayerTheme.Dark, "Тёмная"),
+            (PlayerTheme.Light, "Светлая")], _settings.Theme,
+            mode => ThemePreview(() => _settings with { Theme = mode }, mode == PlayerTheme.System, samples),
+            mode => Preview(_settings with { Theme = mode }));
+        var backgrounds = Select("Фон тёмной темы", [(DarkBackground.Classic, "Обычный"), (DarkBackground.Amoled, "AMOLED")],
+            _settings.DarkBackground,
+            background => ThemePreview(() => _settings with { Theme = PlayerTheme.Dark, DarkBackground = background }, false, samples),
+            background => Preview(_settings with { DarkBackground = background }));
         var spectrum = Select("Цвет мастер-спектра",
             [(SpectrumColorMode.Split, "Два цвета"), (SpectrumColorMode.FrequencyGradient, "Градиент по частотам"),
              (SpectrumColorMode.Monochrome, "Однотонный")],
             _settings.SpectrumColors, mode =>
             {
-                var view = CreateSpectrumPreview(_settings, PlayerColors.For(_settings), mode, out var drawable);
+                var theme = MixerTheme.Create(_settings, MixerTheme.SystemTheme);
+                var view = CreateSpectrumPreview(_settings, theme.Visualization, mode, out var drawable, theme.IsLight);
                 previews.Add((mode, drawable, view));
                 return view;
-            }, mode => _settings = _settings with { SpectrumColors = mode });
+            }, mode => Preview(_settings with { SpectrumColors = mode }));
         var palette = Select("Палитра", [(PlayerPalette.LavPulse, "LavPulse"), (PlayerPalette.Ocean, "Океан"),
             (PlayerPalette.Warm, "Тёплая"), (PlayerPalette.Custom, "Своя")], _settings.Palette,
-            choice => CreatePalettePreview(PlayerColors.For(_settings with { Palette = choice })), choice =>
-        {
-            _settings = _settings with { Palette = choice };
-            var colors = PlayerColors.For(_settings);
-            foreach (var preview in previews)
-            {
-                preview.Drawable.SetAppearance(colors, SpectrumPreviewSettings(_settings, preview.Mode));
-                preview.View.Invalidate();
-            }
-        });
+            choice => CreatePalettePreview(PlayerColors.For(_settings with { Palette = choice })),
+            choice => Preview(_settings with { Palette = choice }));
         var edit = MixerStyle.Button("Настроить свою палитру");
-        edit.HorizontalOptions = LayoutOptions.Center;
+        edit.HorizontalOptions = LayoutOptions.Fill;
         edit.Clicked += (_, _) => OpenPaletteEditor();
-        return Section("Цветовая палитра", palette, edit, spectrum);
+        return new VerticalStackLayout
+        {
+            Spacing = 8,
+            Children = { Section("Тема интерфейса", themeOptions, backgrounds), Section("Цветовая палитра", palette, edit, spectrum) }
+        };
     }
 
     private View CreateSpectrumSection()
@@ -223,7 +244,8 @@ public sealed partial class PlayerSettingsPanel : ContentView
             IsEnabled = _settings.SpectrumLevelBrightness,
             Children = { Pair(brightness.Row, full.Row) }
         };
-        var adaptive = new CheckBox { IsChecked = _settings.SpectrumLevelBrightness, Color = MixerStyle.Accent };
+        var adaptive = new CheckBox { IsChecked = _settings.SpectrumLevelBrightness };
+        MixerStyle.UseColor(adaptive, CheckBox.ColorProperty, MixerColor.Accent);
         SemanticProperties.SetDescription(adaptive, "Яркость по уровню частоты");
         adaptive.CheckedChanged += (_, args) =>
         {
@@ -248,7 +270,8 @@ public sealed partial class PlayerSettingsPanel : ContentView
 
     private View Toggle(string name, bool selected, Action<bool> update)
     {
-        var toggle = new Switch { IsToggled = selected, OnColor = MixerStyle.Accent };
+        var toggle = new Switch { IsToggled = selected };
+        MixerStyle.UseColor(toggle, Switch.OnColorProperty, MixerColor.Accent);
         SemanticProperties.SetDescription(toggle, name);
         toggle.Toggled += (_, args) => { if (!_loading) update(args.Value); };
         return ControlRow(name, toggle);
@@ -296,7 +319,7 @@ public sealed partial class PlayerSettingsPanel : ContentView
     private static Border Section(string title, params View[] rows)
     {
         var stack = new VerticalStackLayout { Spacing = 8 };
-        var heading = MixerStyle.Label(title, 15, MixerStyle.Accent, bold: true);
+        var heading = MixerStyle.Label(title, 15, MixerColor.Accent, bold: true);
         SemanticProperties.SetHeadingLevel(heading, SemanticHeadingLevel.Level2);
         stack.Children.Add(heading);
         foreach (var row in rows) stack.Children.Add(row);

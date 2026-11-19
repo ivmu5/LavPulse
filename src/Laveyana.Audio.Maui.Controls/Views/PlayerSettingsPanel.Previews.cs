@@ -1,5 +1,7 @@
 using Laveyana.Audio.Playback;
 using Microsoft.Maui.Controls.Shapes;
+using Microsoft.Maui.ApplicationModel;
+using Microsoft.Maui.Controls.Internals;
 
 namespace Laveyana.Audio.Maui.Controls;
 
@@ -66,26 +68,62 @@ public sealed partial class PlayerSettingsPanel
         // The native presenter can measure the template at its desired width. Match the assigned column instead.
         border.SetBinding(WidthRequestProperty, new Binding(nameof(RadioButton.Width), source: RelativeBindingSource.TemplatedParent));
         var states = new VisualStateGroup { Name = "CheckedStates" };
-        states.States.Add(new VisualState
-        {
-            Name = "Unchecked",
-            Setters =
-            {
-                new Setter { Property = Border.BackgroundColorProperty, Value = MixerStyle.Surface },
-                new Setter { Property = Border.StrokeProperty, Value = new SolidColorBrush(MixerStyle.BorderColor) }
-            }
-        });
-        states.States.Add(new VisualState
-        {
-            Name = "Checked",
-            Setters =
-            {
-                new Setter { Property = Border.BackgroundColorProperty, Value = MixerStyle.SelectedBackground },
-                new Setter { Property = Border.StrokeProperty, Value = new SolidColorBrush(MixerStyle.Accent) }
-            }
-        });
+        states.States.Add(ChoiceState("Unchecked", MixerColor.Surface, MixerColor.Border));
+        states.States.Add(ChoiceState("Checked", MixerColor.Selected, MixerColor.Accent));
         VisualStateManager.SetVisualStateGroups(border, new VisualStateGroupList { states });
         return border;
+    }
+
+    private static VisualState ChoiceState(string name, MixerColor background, MixerColor stroke) => new()
+    {
+        Name = name,
+        Setters =
+        {
+            new Setter { Property = BackgroundColorProperty, Value = new DynamicResource(MixerStyle.ColorKey(background)) },
+            new Setter { Property = Border.StrokeProperty, Value = new DynamicResource(MixerStyle.BrushKey(stroke)) }
+        }
+    };
+
+    private static GraphicsView ThemePreview(Func<PlayerSettings> settings, bool split, List<Action> samples)
+    {
+        var drawable = new ThemeSample();
+        var view = new GraphicsView { Drawable = drawable, InputTransparent = true };
+        void Refresh()
+        {
+            var options = settings();
+            drawable.First = MixerTheme.Create(options, AppTheme.Dark);
+            drawable.Second = split ? MixerTheme.Create(options, AppTheme.Light) : null;
+            view.Invalidate();
+        }
+        samples.Add(Refresh);
+        Refresh();
+        return view;
+    }
+
+    private sealed class ThemeSample : IDrawable
+    {
+        public MixerTheme First { get; set; } = MixerTheme.Default;
+        public MixerTheme? Second { get; set; }
+
+        public void Draw(ICanvas canvas, RectF rect)
+        {
+            float width = Second is null ? rect.Width : rect.Width / 2;
+            DrawTheme(canvas, new(rect.X, rect.Y, width, rect.Height), First);
+            if (Second is not null) DrawTheme(canvas, new(rect.X + width, rect.Y, width, rect.Height), Second);
+        }
+
+        private static void DrawTheme(ICanvas canvas, RectF rect, MixerTheme theme)
+        {
+            canvas.FillColor = theme[MixerColor.Background];
+            canvas.FillRectangle(rect);
+            if (rect.Width < 10 || rect.Height < 12) return;
+            canvas.FillColor = theme[MixerColor.Card];
+            canvas.FillRoundedRectangle(rect.X + 3, rect.Y + 5, rect.Width - 6, rect.Height - 10, 4);
+            canvas.FillColor = theme[MixerColor.Primary];
+            canvas.FillRoundedRectangle(rect.X + rect.Width * .26f, rect.Y + rect.Height * .57f, rect.Width * .48f, 4, 2);
+            canvas.FillColor = theme[MixerColor.Text];
+            canvas.FillRoundedRectangle(rect.X + rect.Width * .26f, rect.Y + rect.Height * .34f, rect.Width * .33f, 2, 1);
+        }
     }
 
     private static View CreatePalettePreview(PlayerColors colors)
@@ -101,11 +139,13 @@ public sealed partial class PlayerSettingsPanel
     }
 
     private static GraphicsView CreateSpectrumPreview(PlayerSettings settings, PlayerColors colors,
-        SpectrumColorMode mode, out SpectrumDrawable drawable)
+        SpectrumColorMode mode, out SpectrumDrawable drawable, bool light = false)
     {
-        drawable = new SpectrumDrawable(SampleLevels.Length, colors, SpectrumPreviewSettings(settings, mode));
+        drawable = new SpectrumDrawable(SampleLevels.Length, colors, SpectrumPreviewSettings(settings, mode), light);
         drawable.Advance(SampleLevels, .1f);
-        return new GraphicsView { Drawable = drawable, BackgroundColor = MixerStyle.Overlay };
+        var view = new GraphicsView { Drawable = drawable };
+        MixerStyle.UseColor(view, BackgroundColorProperty, MixerColor.Overlay);
+        return view;
     }
 
     private static PlayerSettings SpectrumPreviewSettings(PlayerSettings settings, SpectrumColorMode mode) => settings with
@@ -114,20 +154,23 @@ public sealed partial class PlayerSettingsPanel
         SpectrumTopPaddingRows = 0, SpectrumBottomPaddingRows = 0
     };
 
-    private View CreateTimelinePreview(PlayerColors colors, bool waveform)
+    private View CreateTimelinePreview(bool waveform)
     {
+        var theme = MixerTheme.Create(_settings, MixerTheme.SystemTheme);
         var drawable = new WaveformDrawable
         {
-            Colors = colors,
+            Theme = theme,
+            Colors = theme.Visualization,
             UseProgressBar = !waveform,
             Waveform = TimelineSample,
             DetailWindowSeconds = _settings.WaveformDetailSeconds,
             Position = TimelineSample.TotalFrames * 3 / 5
         };
-        return new Grid
+        var view = new Grid
         {
-            BackgroundColor = MixerStyle.Overlay,
             Children = { new GraphicsView { Drawable = drawable }, new GraphicsView { Drawable = drawable.CreateCursor() } }
         };
+        MixerStyle.UseColor(view, BackgroundColorProperty, MixerColor.Overlay);
+        return view;
     }
 }

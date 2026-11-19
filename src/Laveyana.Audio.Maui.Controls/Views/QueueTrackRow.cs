@@ -23,7 +23,7 @@ internal sealed class QueueTrackRow : Border
     private bool _current;
     private long _marqueeStart;
     private bool _selected;
-    private Color? _accent;
+    private MixerTheme? _theme;
 
     public QueueTrackRow()
     {
@@ -32,8 +32,9 @@ internal sealed class QueueTrackRow : Border
         StrokeThickness = 1;
         StrokeShape = new RoundRectangle { CornerRadius = 8 };
         _graphics = new GraphicsView { Drawable = _text, InputTransparent = true };
-        DragHandle = new Image { Source = "player_reorder.png", WidthRequest = 24, HeightRequest = 36,
+        DragHandle = new Image { WidthRequest = 24, HeightRequest = 36,
             VerticalOptions = LayoutOptions.Center, Aspect = Aspect.AspectFit };
+        MixerStyle.UseIcon(DragHandle, Image.SourceProperty, "player_reorder.png");
         SemanticProperties.SetDescription(DragHandle, "Перетащить трек");
         _content = new Grid { ColumnSpacing = 5, ColumnDefinitions = [new(0), new(GridLength.Star), new(24)] };
         _content.Add(_cover);
@@ -66,9 +67,9 @@ internal sealed class QueueTrackRow : Border
     public void InvalidateSpectrum() => _spectrum.Invalidate();
 
     /// <summary>Updates only changed tags or colors so pending rows can stay under the pointer.</summary>
-    public void Show(QueueTrackItem item, bool current, bool played, bool selected, Color accent)
+    public void Show(QueueTrackItem item, bool current, bool played, bool selected, MixerTheme theme)
     {
-        if (_shown == item && _current == current && _played == played && _selected == selected && _accent == accent)
+        if (_shown == item && _current == current && _played == played && _selected == selected && ReferenceEquals(_theme, theme))
         {
             return;
         }
@@ -96,12 +97,14 @@ internal sealed class QueueTrackRow : Border
         if (current) _spectrum.Invalidate();
         _played = played;
         _selected = selected;
-        _accent = accent;
-        _text.Color = _played ? Colors.LightGray : MixerStyle.TextColor;
+        _theme = theme;
+        var accent = theme[MixerColor.Accent];
+        _text.Color = played ? theme[MixerColor.Muted] : theme[MixerColor.Text];
+        _text.ArtistColor = theme[MixerColor.Muted];
         _text.Status = current ? "Играет" : null;
         _text.StatusColor = accent;
         Stroke = current ? accent : selected ? accent.WithAlpha(.65f) : Colors.Transparent;
-        BackgroundColor = current || selected ? MixerStyle.SelectedBackground : _played ? Color.FromArgb("#3B3E47") : MixerStyle.ButtonBackground;
+        BackgroundColor = theme[current || selected ? MixerColor.Selected : played ? MixerColor.Surface : MixerColor.Button];
         SemanticProperties.SetDescription(this, string.Join(". ", new[]
         {
             item.Title, item.Artist, current ? "Играет" :
@@ -112,7 +115,7 @@ internal sealed class QueueTrackRow : Border
         _graphics.Invalidate();
         if (!item.IsAnalyzing)
         {
-            Opacity = _played ? .7 : 1;
+            Opacity = 1;
         }
     }
 
@@ -138,6 +141,7 @@ internal sealed class QueueTrackRow : Border
         public string Title { get; set; } = "";
         public string? Artist { get; set; }
         public Color Color { get; set; } = Colors.White;
+        public Color ArtistColor { get; set; } = Colors.White;
         public string? Status { get; set; }
         public Color StatusColor { get; set; } = Colors.White;
         public double Seconds { get; set; }
@@ -162,7 +166,7 @@ internal sealed class QueueTrackRow : Border
                 DrawLine(canvas, new(bounds.X, bounds.Y + lineHeight, bounds.Width, lineHeight), Title, TitleFont, (float)MixerStyle.PhoneFont(12, 11), Color);
                 if (!string.IsNullOrWhiteSpace(Artist))
                 {
-                    DrawLine(canvas, new(bounds.X, bounds.Y + 2 * lineHeight, bounds.Width, lineHeight), Artist, ArtistFont, (float)MixerStyle.PhoneFont(10, 9), MixerStyle.Muted);
+                    DrawLine(canvas, new(bounds.X, bounds.Y + 2 * lineHeight, bounds.Width, lineHeight), Artist, ArtistFont, (float)MixerStyle.PhoneFont(10, 9), ArtistColor);
                 }
             }
             else if (string.IsNullOrWhiteSpace(Artist))
@@ -173,7 +177,7 @@ internal sealed class QueueTrackRow : Border
             {
                 float center = bounds.Center.Y;
                 DrawLine(canvas, new(bounds.X, center - 17, bounds.Width, 18), Title, TitleFont, (float)MixerStyle.PhoneFont(13, 12), Color);
-                DrawLine(canvas, new(bounds.X, center + 1, bounds.Width, 17), Artist, ArtistFont, (float)MixerStyle.PhoneFont(11, 10), MixerStyle.Muted);
+                DrawLine(canvas, new(bounds.X, center + 1, bounds.Width, 17), Artist, ArtistFont, (float)MixerStyle.PhoneFont(11, 10), ArtistColor);
             }
             canvas.RestoreState();
         }

@@ -1,10 +1,12 @@
 using Microsoft.Maui.Platform;
+using Microsoft.Maui.ApplicationModel;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
 using Windows.System;
+using Windows.UI.ViewManagement;
 using MauiWindow = Microsoft.Maui.Controls.Window;
 using NativeAutomation = Microsoft.UI.Xaml.Automation.AutomationProperties;
 using NativeButton = Microsoft.UI.Xaml.Controls.Button;
@@ -37,6 +39,17 @@ public sealed partial class WindowsWindowChrome
     private const int ToolbarRight = 8;
     private const int ToolbarWidth = ButtonWidth * 4 + ButtonSpacing * 3 + ToolbarPadding * 2 + ToolbarRight;
 
+    private static readonly UISettings SystemColors = new();
+
+    internal static AppTheme SystemTheme
+    {
+        get
+        {
+            var background = SystemColors.GetColorValue(UIColorType.Background);
+            return (5 * background.G + 2 * background.R + background.B) > 8 * 128 ? AppTheme.Light : AppTheme.Dark;
+        }
+    }
+
     private readonly MauiWindow _window;
     private readonly NativeWindow _native;
     private readonly NativePanel _root;
@@ -45,6 +58,11 @@ public sealed partial class WindowsWindowChrome
     private readonly nint _hwnd;
     private readonly NativeGrid _caption;
     private readonly NativeGrid _dragRegion;
+    private readonly NativeBorder _toolbar;
+    private readonly NativeStack _captionButtons;
+    private readonly NativeText _brandText;
+    private readonly PlayerView? _player;
+    private MixerTheme _theme = MixerTheme.Default;
     private readonly NativeButton _maximize;
     private readonly NativeButton _fullscreen;
     private readonly NativeKeyboardAccelerator _fullscreenKey;
@@ -65,7 +83,7 @@ public sealed partial class WindowsWindowChrome
     }
 
     /// <summary>Sets logical window sizes before activation and installs native controls when the root is ready.</summary>
-    public static void Configure(MauiWindow window)
+    public static void Configure(MauiWindow window, Action? systemThemeChanged = null)
     {
         window.Width = 1120;
         window.Height = 790;
@@ -79,6 +97,13 @@ public sealed partial class WindowsWindowChrome
                 native.AppWindow.Presenter is OverlappedPresenter windowed)
             {
                 _ = new WindowsWindowChrome(window, native, root, windowed);
+                if (systemThemeChanged is not null)
+                {
+                    void OnSystemColorsChanged(UISettings sender, object args) =>
+                        native.DispatcherQueue.TryEnqueue(() => systemThemeChanged());
+                    SystemColors.ColorValuesChanged += OnSystemColorsChanged;
+                    window.Destroying += (_, _) => SystemColors.ColorValuesChanged -= OnSystemColorsChanged;
+                }
             }
         };
     }
@@ -96,31 +121,29 @@ public sealed partial class WindowsWindowChrome
             _legacyFrame = new WindowsClientFrame(_hwnd, ContentInset, ToolbarWidth);
         }
 
-        var buttons = new NativeStack { Orientation = Microsoft.UI.Xaml.Controls.Orientation.Horizontal, Spacing = ButtonSpacing };
-        buttons.Children.Add(CreateButton("\uE921", "Свернуть", Minimize));
+        _captionButtons = new NativeStack { Orientation = Microsoft.UI.Xaml.Controls.Orientation.Horizontal, Spacing = ButtonSpacing };
+        _captionButtons.Children.Add(CreateButton("\uE921", "Свернуть", Minimize));
         _maximize = CreateButton("\uE922", "Развернуть", ToggleMaximize);
         _fullscreen = CreateButton("\uE92D", "На весь экран (F11)", ToggleFullscreen);
-        buttons.Children.Add(_maximize);
-        buttons.Children.Add(_fullscreen);
+        _captionButtons.Children.Add(_maximize);
+        _captionButtons.Children.Add(_fullscreen);
         var close = CreateButton("\uE8BB", "Закрыть", _native.Close);
         close.Resources["ButtonBackgroundPointerOver"] = Brush(220, 180, 36, 53);
-        buttons.Children.Add(close);
-        var toolbar = new NativeBorder
+        _captionButtons.Children.Add(close);
+        close.Resources["ButtonForegroundPointerOver"] = Brush(255, 255, 255, 255);
+        _toolbar = new NativeBorder
         {
-            Child = buttons,
+            Child = _captionButtons,
             HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Right,
             VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
             Margin = new NativeThickness(0, 0, ToolbarRight, 0),
             Padding = new NativeThickness(ToolbarPadding),
-            Background = Brush(180, 17, 24, 49),
-            CornerRadius = new Microsoft.UI.Xaml.CornerRadius(8),
-            RequestedTheme = ElementTheme.Dark
+            CornerRadius = new Microsoft.UI.Xaml.CornerRadius(8)
         };
         _caption = new NativeGrid
         {
             Height = ContentInset,
             VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Top,
-            Background = Brush(140, 11, 16, 32),
             RenderTransform = _captionTranslation
         };
         // The system consumes pointer input in the registered title area. Keep the toolbar outside it.
@@ -129,11 +152,14 @@ public sealed partial class WindowsWindowChrome
             Background = Brush(0, 0, 0, 0),
             Margin = new NativeThickness(0, 0, ToolbarWidth, 0)
         };
-        _dragRegion.Children.Add(CreateBrand(window.Title));
+        _dragRegion.Children.Add(CreateBrand(window.Title, out _brandText));
         _caption.Children.Add(_dragRegion);
-        _caption.Children.Add(toolbar);
+        _caption.Children.Add(_toolbar);
         Microsoft.UI.Xaml.Controls.Canvas.SetZIndex(_caption, 1000);
         // MAUI's root panel keeps overlays above the page and any modal pages.
+        _player = (window.Page as ContentPage)?.Content as PlayerView;
+        if (_player is not null) _player.ThemeChanged += ApplyTheme;
+        ApplyTheme(_player?.Theme ?? _theme);
         _root.Children.Add(_caption);
         _dragRegion.Loaded += OnDragRegionLoaded;
         AttachFullscreenCaption();
@@ -164,7 +190,7 @@ public sealed partial class WindowsWindowChrome
     }
 
     /// <summary>Displays the app ribbon on the same line as the window controls.</summary>
-    private static NativeStack CreateBrand(string? title)
+    private static NativeStack CreateBrand(string? title, out NativeText text)
     {
         var brand = new NativeStack
         {
@@ -180,12 +206,26 @@ public sealed partial class WindowsWindowChrome
             Width = 44, Height = 26,
             Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform
         });
-        brand.Children.Add(new NativeText
+        text = new NativeText
         {
             Text = title ?? "LavPulse", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center, Foreground = Brush(255, 244, 246, 255)
-        });
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center
+        };
+        brand.Children.Add(text);
         return brand;
+    }
+
+    private void ApplyTheme(MixerTheme theme)
+    {
+        _theme = theme;
+        _root.RequestedTheme = theme.IsLight ? ElementTheme.Light : ElementTheme.Dark;
+        _caption.Background = Brush(theme[MixerColor.Background], 146);
+        _toolbar.Background = Brush(theme[MixerColor.Card], 230);
+        var foreground = Brush(theme[MixerColor.Text]);
+        _brandText.Foreground = foreground;
+        foreach (var button in _captionButtons.Children.OfType<NativeButton>())
+            button.Foreground = foreground;
+        if (!IsFullscreen) WindowsClientFrame.ApplyBorderColor(_hwnd, theme[MixerColor.Border]);
     }
 
     private void OnDragRegionLoaded(object sender, RoutedEventArgs args)
@@ -201,13 +241,13 @@ public sealed partial class WindowsWindowChrome
             {
                 _windowed.SetBorderAndTitleBar(hasBorder: true, hasTitleBar: false);
             }
-            _legacyFrame.Refresh();
+            _legacyFrame.Refresh(_theme[MixerColor.Border]);
             return;
         }
 
         PrepareNativeCaption(_native);
         if (_dragRegion.IsLoaded) _native.SetTitleBar(_dragRegion);
-        WindowsClientFrame.ApplyBorderColor(_hwnd);
+        WindowsClientFrame.ApplyBorderColor(_hwnd, _theme[MixerColor.Border]);
     }
 
     private void Minimize()
@@ -316,6 +356,7 @@ public sealed partial class WindowsWindowChrome
 
     private void OnClosed(object sender, WindowEventArgs args)
     {
+        if (_player is not null) _player.ThemeChanged -= ApplyTheme;
         DetachFullscreenCaption();
         _legacyFrame?.Dispose();
         _appWindow.Changed -= OnWindowChanged;
@@ -338,7 +379,6 @@ public sealed partial class WindowsWindowChrome
             HorizontalContentAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Center,
             VerticalContentAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
             Background = Brush(0, 0, 0, 0),
-            Foreground = Brush(255, 244, 246, 255),
             Content = new Microsoft.UI.Xaml.Controls.FontIcon { FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 13 }
         };
         button.Click += (_, _) => action();
@@ -351,6 +391,12 @@ public sealed partial class WindowsWindowChrome
         ((Microsoft.UI.Xaml.Controls.FontIcon)button.Content).Glyph = glyph;
         NativeAutomation.SetName(button, description);
         Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(button, description);
+    }
+
+    private static NativeSolidBrush Brush(Microsoft.Maui.Graphics.Color color, byte alpha = 255)
+    {
+        color.ToRgb(out byte red, out byte green, out byte blue);
+        return Brush(alpha, red, green, blue);
     }
 
     private static NativeSolidBrush Brush(byte a, byte r, byte g, byte b) => new(NativeColor.FromArgb(a, r, g, b));
