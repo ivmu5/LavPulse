@@ -19,6 +19,7 @@ public sealed class DeckView : Border
     private readonly GraphicsView _overviewCursor;
     private readonly Grid _overviewLayer;
     private long _detailStart = -1;
+    private long _overviewPaintedPosition;
     private readonly IDispatcherTimer _timer;
     private CachedTrack? _track;
     private GraphicsView? _gesture;
@@ -44,7 +45,7 @@ public sealed class DeckView : Border
         _overviewCursor = new GraphicsView { Drawable = _overviewDrawable.CreateCursor(), InputTransparent = true };
         _overviewLayer = new Grid { Children = { _overview, _overviewCursor } };
         SemanticProperties.SetDescription(_detail, "Детальная волна. Удерживай и веди в сторону. Жест вверх отменяет перемотку.");
-        SemanticProperties.SetDescription(_overview, "Обзорная волна. Нажми или перетащи к нужной позиции. Жест вверх отменяет перемотку.");
+        SemanticProperties.SetDescription(_overview, "Полоса прогресса. Нажми или перетащи к нужной позиции. Жест вверх отменяет перемотку.");
         _previewLabel.HorizontalOptions = LayoutOptions.Center;
         _previewLabel.VerticalOptions = LayoutOptions.Center;
         _previewLabel.Padding = new Thickness(7, 3);
@@ -108,7 +109,7 @@ public sealed class DeckView : Border
         long position = _playhead.Advance(time, track.Waveform.TotalFrames);
         if (_displayPosition == position) return;
         _displayPosition = position;
-        Redraw();
+        Redraw(forceOverview: false);
     }
 
     /// <summary>Keeps the last visible playhead while the deck leaves the screen.</summary>
@@ -177,15 +178,27 @@ public sealed class DeckView : Border
     /// <summary>Restyles both timelines while retaining position and seek gestures.</summary>
     internal void SetAppearance(PlayerSettings settings, MixerTheme theme)
     {
-        _overviewDrawable.UseProgressBar = !settings.WaveformOverview;
-        _detailDrawable.DetailWindowSeconds = _overviewDrawable.DetailWindowSeconds = Math.Clamp(settings.WaveformDetailSeconds,
+        bool progressBar = !settings.WaveformOverview;
+        int detailSeconds = Math.Clamp(settings.WaveformDetailSeconds,
             PlayerSettings.MinimumWaveformDetailSeconds, PlayerSettings.MaximumWaveformDetailSeconds);
-        _detailDrawable.Colors = _overviewDrawable.Colors = theme.Visualization;
-        _detailDrawable.Theme = _overviewDrawable.Theme = theme;
-        SemanticProperties.SetDescription(_overview, settings.WaveformOverview
-            ? "Обзорная волна. Нажми или перетащи к нужной позиции. Жест вверх отменяет перемотку."
-            : "Полоса прогресса. Нажми или перетащи к нужной позиции. Жест вверх отменяет перемотку.");
-        UpdateTitleColor();
+        bool themeChanged = !ReferenceEquals(_detailDrawable.Theme, theme);
+        bool overviewChanged = _overviewDrawable.UseProgressBar != progressBar;
+        if (!themeChanged && !overviewChanged && _detailDrawable.DetailWindowSeconds == detailSeconds) return;
+
+        _detailDrawable.DetailWindowSeconds = _overviewDrawable.DetailWindowSeconds = detailSeconds;
+        if (themeChanged)
+        {
+            _detailDrawable.Colors = _overviewDrawable.Colors = theme.Visualization;
+            _detailDrawable.Theme = _overviewDrawable.Theme = theme;
+            UpdateTitleColor();
+        }
+        if (overviewChanged)
+        {
+            _overviewDrawable.UseProgressBar = progressBar;
+            SemanticProperties.SetDescription(_overview, progressBar
+                ? "Полоса прогресса. Нажми или перетащи к нужной позиции. Жест вверх отменяет перемотку."
+                : "Обзорная волна. Нажми или перетащи к нужной позиции. Жест вверх отменяет перемотку.");
+        }
         InvalidateWaveGeometry();
         Redraw();
     }
@@ -306,7 +319,7 @@ public sealed class DeckView : Border
     }
 
     /// <summary>Draws both the real cursor and the pending seek with distinct markers.</summary>
-    private void Redraw()
+    private void Redraw(bool forceOverview = true)
     {
         if (_track is null)
         {
@@ -333,7 +346,12 @@ public sealed class DeckView : Border
             _detail.Invalidate();
         }
         _detailCursor.Invalidate();
-        if (_overviewLayer.IsVisible) _overviewCursor.Invalidate();
+        if (_overviewLayer.IsVisible && (forceOverview || _overviewDrawable.OverviewCursorMoved(
+            _overviewPaintedPosition, _overview.Width)))
+        {
+            _overviewPaintedPosition = _displayPosition;
+            _overviewCursor.Invalidate();
+        }
     }
 
     private void InvalidateWaveGeometry()

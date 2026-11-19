@@ -49,8 +49,6 @@ public sealed class PlayerView : Grid
         MixerStyle.UseColor(_equalizerGroup, BackgroundColorProperty, MixerColor.Button);
         IsClippedToBounds = true;
         this.Add(Spectrum);
-        Spectrum.FrameRateHost = this;
-        Spectrum.PlaybackFrame += DrawPlayheads;
         _automix.FontSize = _settings.FontSize = MixerStyle.PhoneFont(12, 10.5);
         _decks.Children.Add(CurrentDeck);
         _decks.Children.Add(IncomingDeck);
@@ -302,16 +300,20 @@ public sealed class PlayerView : Grid
 
     public void ApplyAppearance(PlayerSettings settings, AppTheme systemTheme)
     {
-        var theme = MixerTheme.Create(settings, systemTheme);
-        bool refreshIcons = theme.IsLight != Theme.IsLight;
-        Theme = theme;
-        MixerStyle.ApplyTheme(Resources, theme, refreshIcons);
-        BackgroundColor = theme[MixerColor.Background];
-        _queue.SetTheme(theme);
+        var theme = MixerTheme.Create(settings, systemTheme, Theme);
+        bool themeChanged = !ReferenceEquals(Theme, theme);
+        if (themeChanged)
+        {
+            bool refreshIcons = theme.IsLight != Theme.IsLight;
+            Theme = theme;
+            MixerStyle.ApplyTheme(Resources, theme, refreshIcons);
+            BackgroundColor = theme[MixerColor.Background];
+            _queue.SetTheme(theme);
+        }
         CurrentDeck.SetAppearance(settings, theme);
         IncomingDeck.SetAppearance(settings, theme);
         Spectrum.SetAppearance(theme, settings);
-        ThemeChanged?.Invoke(theme);
+        if (themeChanged) ThemeChanged?.Invoke(theme);
     }
 
     public void ShowQueue(IReadOnlyList<TrackFile> tracks, TrackFile? current, TrackFile? next, int playedCount, Func<TrackFile, QueueTrackItem> read)
@@ -337,6 +339,7 @@ public sealed class PlayerView : Grid
     {
         CurrentDeck.SetPlayheadAnimation(enabled);
         IncomingDeck.SetPlayheadAnimation(enabled);
+        Spectrum.SetPlayheadCallback(enabled ? DrawPlayheads : null);
     }
 
     public void SnapPlayheadsOnNextPosition()
@@ -466,8 +469,8 @@ public sealed class PlayerView : Grid
         {
             _playIconPlaying = playing;
             MixerStyle.UseIcon(_play, ImageButton.SourceProperty, playing ? PauseIcon : PlayIcon);
+            SemanticProperties.SetDescription(_play, playing ? "Пауза" : "Воспроизвести");
         }
-        SemanticProperties.SetDescription(_play, playing ? "Пауза" : "Воспроизвести");
         _play.IsEnabled = canPlay;
         _next.IsEnabled = canMix;
         _previous.IsEnabled = canGoBack;
@@ -475,8 +478,8 @@ public sealed class PlayerView : Grid
         {
             _autoMixAppearance = automix;
             MixerStyle.UseColor(_automix, BackgroundColorProperty, automix ? MixerColor.Selected : MixerColor.Card);
+            SemanticProperties.SetDescription(_automix, automix ? "Автомикс включён" : "Автомикс выключен");
         }
-        SemanticProperties.SetDescription(_automix, automix ? "Автомикс включён" : "Автомикс выключен");
     }
 
     /// <summary>Enables direct Explorer drops through the app's native Windows drag router.</summary>

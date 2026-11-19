@@ -63,8 +63,8 @@ internal sealed partial class TrackQueueView : Grid
         Loaded += (_, _) =>
         {
             if (!_rowAnimationsEnabled) return;
-            _rowClock.Start();
             FocusCurrent();
+            SyncRowClock();
         };
         Unloaded += (_, _) => _rowClock.Stop();
         _recommendations.IsVisible = false;
@@ -173,6 +173,7 @@ internal sealed partial class TrackQueueView : Grid
         _recommendations.IsVisible = show;
         SetTabColors();
         if (!show) RefreshRows(force: true);
+        else SyncRowClock();
         RecommendationsSelected?.Invoke(show);
     }
 
@@ -228,14 +229,22 @@ internal sealed partial class TrackQueueView : Grid
 
     private void RefreshRows(bool force = false)
     {
-        if (_showRecommendations || _readRow is not { } read) return;
+        if (_showRecommendations || _readRow is not { } read)
+        {
+            SyncRowClock();
+            return;
+        }
 
         double height = _queueScroll.Height > 0 ? _queueScroll.Height : _queueScroll.HeightRequest;
         double scroll = Math.Clamp(_queueScroll.ScrollY, 0, Math.Max(0, _rows.HeightRequest - height));
         int first = _visibleStart + Math.Max(0, (int)(scroll / RowStride) - OverscanRows);
         int end = Math.Min(_tracks.Count, _visibleStart +
             (int)Math.Ceiling((scroll + height) / RowStride) + OverscanRows);
-        if (!force && first == _firstRow && end == _endRow) return;
+        if (!force && first == _firstRow && end == _endRow)
+        {
+            SyncRowClock();
+            return;
+        }
 
         _firstRow = first;
         _endRow = end;
@@ -270,10 +279,11 @@ internal sealed partial class TrackQueueView : Grid
                 _trackRows.Add(file, row);
             }
             // Existing visible rows also move when history is hidden or shown.
-            AbsoluteLayout.SetLayoutBounds(row,
-                new Rect(0, (double)(i - _visibleStart) * RowStride, 1, QueueTrackRow.RowHeight));
+            var bounds = new Rect(0, (double)(i - _visibleStart) * RowStride, 1, QueueTrackRow.RowHeight);
+            if (AbsoluteLayout.GetLayoutBounds(row) != bounds) AbsoluteLayout.SetLayoutBounds(row, bounds);
             row.Show(read(file), ReferenceEquals(file, _currentTrack), i < _playedCount, _theme);
         }
+        SyncRowClock();
     }
 
     public void SetMasterSpectrum(IDrawable drawable) => _masterSpectrum = drawable;
@@ -343,6 +353,7 @@ internal sealed partial class TrackQueueView : Grid
     private QueueTrackRow CreateRow()
     {
         var row = new QueueTrackRow();
+        row.AnimationStateChanged += SyncRowClock;
         row.SetSpectrum(_masterSpectrum);
         AbsoluteLayout.SetLayoutFlags(row, AbsoluteLayoutFlags.WidthProportional);
         var tap = new TapGestureRecognizer();
@@ -389,7 +400,12 @@ internal sealed partial class TrackQueueView : Grid
             }
             if (_dragging is not null && args.GetPosition(_queueScroll) is { } point)
             {
-                _dragScrollDirection = point.Y < 26 ? -1 : point.Y > _queueScroll.Height - 26 ? 1 : 0;
+                int direction = point.Y < 26 ? -1 : point.Y > _queueScroll.Height - 26 ? 1 : 0;
+                if (_dragScrollDirection != direction)
+                {
+                    _dragScrollDirection = direction;
+                    SyncRowClock();
+                }
             }
         };
         drop.DragLeave += (_, _) =>
@@ -398,6 +414,7 @@ internal sealed partial class TrackQueueView : Grid
             {
                 ClearDropTarget();
                 _dragScrollDirection = 0;
+                SyncRowClock();
             }
         };
         drop.Drop += (_, args) =>
@@ -433,6 +450,7 @@ internal sealed partial class TrackQueueView : Grid
         _lastDrag = Stopwatch.GetTimestamp();
         _dragScrollDirection = 0;
         ClearDropTarget();
+        SyncRowClock();
         if (wasDragging && _rowAnimationsEnabled)
         {
             Dispatcher.Dispatch(() =>
@@ -451,13 +469,37 @@ internal sealed partial class TrackQueueView : Grid
         }
     }
 
+    private bool CanAnimateRows => IsLoaded && _rowAnimationsEnabled && !_showRecommendations &&
+        _queue.Opacity > 0 && _queueScroll.Height > 0;
+
+    private void SyncRowClock()
+    {
+        bool needed = false;
+        if (CanAnimateRows)
+        {
+            needed = _dragScrollDirection != 0;
+            foreach (var row in _trackRows.Values)
+            {
+                if (needed) break;
+                needed = row.NeedsAnimation && IsInViewport(row);
+            }
+        }
+        if (needed == _rowClock.IsRunning) return;
+        if (needed) _rowClock.Start();
+        else _rowClock.Stop();
+    }
+
+    private bool IsInViewport(QueueTrackRow row)
+    {
+        double top = _queueScroll.ScrollY;
+        double rowTop = (double)(row.Index - _visibleStart) * RowStride;
+        return rowTop < top + _queueScroll.Height && rowTop + QueueTrackRow.RowHeight > top;
+    }
+
     /// <summary>Animates only rows inside the scroll viewport, including the slow text marquee.</summary>
     private void AnimateRows()
     {
-        if (!_rowAnimationsEnabled || _showRecommendations || _queue.Opacity == 0 || _queueScroll.Height <= 0)
-        {
-            return;
-        }
+        if (!CanAnimateRows) return;
         if (_focusCurrent) FocusCurrent();
         if (_dragScrollDirection != 0 && Stopwatch.GetElapsedTime(_lastDragScroll).TotalMilliseconds >= 120)
         {
@@ -467,13 +509,10 @@ internal sealed partial class TrackQueueView : Grid
             if (y != _queueScroll.ScrollY) _ = _queueScroll.ScrollToAsync(0, y, false);
         }
 
-        double top = _queueScroll.ScrollY;
-        double bottom = top + _queueScroll.Height;
         double seconds = Stopwatch.GetElapsedTime(_start).TotalSeconds;
         foreach (var row in _trackRows.Values)
         {
-            double rowTop = (double)(row.Index - _visibleStart) * RowStride;
-            if (rowTop < bottom && rowTop + QueueTrackRow.RowHeight > top) row.Animate(seconds);
+            if (row.NeedsAnimation && IsInViewport(row)) row.Animate(seconds);
         }
     }
 
@@ -543,6 +582,7 @@ internal sealed partial class TrackQueueView : Grid
         // The parent page clips the content beyond the device's right edge.
         _queue.TranslationX = Math.Max(0, (Window?.Width ?? Width) - _right.X);
         _queue.Opacity = 1;
+        SyncRowClock();
         await _queue.TranslateToAsync(0, 0, 340, Easing.CubicOut);
         if (animation == _animation)
         {
@@ -576,7 +616,7 @@ internal sealed partial class TrackQueueView : Grid
     public void ResumeAnimations()
     {
         _rowAnimationsEnabled = true;
-        if (IsLoaded) _rowClock.Start();
+        SyncRowClock();
     }
 
     public bool IsHandingOff => _handoff;

@@ -4,7 +4,18 @@ namespace Laveyana.Audio.Maui.Controls;
 
 internal sealed class WaveformDrawable : IDrawable
 {
-    public PlayerColors Colors { get; set; } = PlayerColors.For(PlayerPalette.LavPulse);
+    private PlayerColors _colors = MixerTheme.Default.Visualization;
+    private Color _overviewHighlight = MixerTheme.Default.Visualization.Accent.WithAlpha(.16f);
+
+    public PlayerColors Colors
+    {
+        get => _colors;
+        set
+        {
+            _colors = value;
+            _overviewHighlight = value.Accent.WithAlpha(.16f);
+        }
+    }
     internal MixerTheme Theme { get; set; } = MixerTheme.Default;
     public bool UseProgressBar { get; set; }
 
@@ -48,6 +59,11 @@ internal sealed class WaveformDrawable : IDrawable
         double fraction = Math.Clamp((x - HorizontalInset) / Math.Max(1, width - 2 * HorizontalInset), 0, 1);
         return fraction * waveform.TotalFrames;
     }
+
+    internal bool OverviewCursorMoved(long paintedPosition, double width) =>
+        Waveform is { TotalFrames: > 0 } waveform &&
+        Math.Abs(Position - paintedPosition) * Math.Max(0, width - 2 * HorizontalInset)
+            >= .5 * waveform.TotalFrames;
 
     private static int Columns(float width) => Math.Max(1, (int)(width / 1.65f));
 
@@ -172,7 +188,7 @@ internal sealed class WaveformDrawable : IDrawable
         if (!Detailed)
         {
             long detailStart = Math.Clamp((Preview ?? Position) - detailLength / 2, 0, waveform.TotalFrames - detailLength);
-            canvas.FillColor = Colors.Accent.WithAlpha(.16f);
+            canvas.FillColor = _overviewHighlight;
             canvas.FillRectangle(x + width * detailStart / waveform.TotalFrames, bounds.Y + 4,
                 width * detailLength / waveform.TotalFrames, bounds.Height - 8);
         }

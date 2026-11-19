@@ -13,6 +13,7 @@ internal sealed class MixerTheme
     private static readonly Color DarkInk = Color.FromArgb("#0B2137");
     private static readonly Color LightInk = Color.FromArgb("#F4F6FF");
     private readonly Dictionary<MixerColor, Color> _colors;
+    private readonly bool _amoled;
 
     public static AppTheme SystemTheme =>
 #if WINDOWS
@@ -32,6 +33,7 @@ internal sealed class MixerTheme
     {
         Artwork = palette;
         IsLight = light;
+        _amoled = amoled;
         Color tint = Blend(palette.WaveLow, palette.WaveMid, .5f);
         Color basis = light ? Color.FromArgb("#F7F9FC") : Color.FromArgb("#0B1020");
         Color background = amoled ? Colors.Black : Blend(basis, tint, light ? .04f : .025f);
@@ -72,10 +74,13 @@ internal sealed class MixerTheme
         };
     }
 
-    public static MixerTheme Create(PlayerSettings settings, AppTheme systemTheme)
+    public static MixerTheme Create(PlayerSettings settings, AppTheme systemTheme, MixerTheme? current = null)
     {
         bool light = settings.Theme == PlayerTheme.Light || settings.Theme == PlayerTheme.System && systemTheme == AppTheme.Light;
-        return new MixerTheme(PlayerColors.For(settings), light, !light && settings.DarkBackground == DarkBackground.Amoled);
+        bool amoled = !light && settings.DarkBackground == DarkBackground.Amoled;
+        var palette = PlayerColors.For(settings);
+        return current is not null && current.IsLight == light && current._amoled == amoled && current.Artwork == palette
+            ? current : new MixerTheme(palette, light, amoled);
     }
 
     internal static Color Blend(Color first, Color second, float amount) => new(

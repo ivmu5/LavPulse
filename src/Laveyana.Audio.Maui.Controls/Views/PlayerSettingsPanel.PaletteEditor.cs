@@ -171,8 +171,7 @@ public sealed partial class PlayerSettingsPanel
             };
             _swatches[(int)_role].Color = color;
             var theme = CreatePreviewTheme();
-            _spectrum.SetAppearance(theme.Visualization, _spectrumAppearance, theme.IsLight);
-            _preview.Invalidate();
+            if (_spectrum.SetAppearance(theme.Visualization, _spectrumAppearance, theme.IsLight)) _preview.Invalidate();
             SyncInputs(color, syncHex, syncPicker);
         }
 

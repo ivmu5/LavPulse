@@ -25,6 +25,7 @@ internal sealed class AndroidMediaPlaybackService : Service
     private Bitmap? _artwork;
     private object? _artworkTrack;
     private bool _foreground;
+    private bool _notificationPlaying;
     private bool _closing;
 
     internal static AndroidMediaPlaybackService? Instance { get; private set; }
@@ -73,7 +74,8 @@ internal sealed class AndroidMediaPlaybackService : Service
         if (_closing || _session is null || PlatformSystemPlaybackIntegration.Latest is not { } state)
             return;
 
-        if (!ReferenceEquals(_artworkTrack, state.Track))
+        bool trackChanged = !ReferenceEquals(_artworkTrack, state.Track);
+        if (trackChanged)
         {
             _artworkTrack = state.Track;
             _artwork?.Dispose();
@@ -111,12 +113,15 @@ internal sealed class AndroidMediaPlaybackService : Service
         if (state.CanPrevious) actions |= PlaybackState.ActionSkipToPrevious;
         builder.SetActions(actions);
         builder.SetState(state.Playing ? PlaybackStateCode.Playing : PlaybackStateCode.Paused,
-            state.PositionMilliseconds, state.Playing ? 1f : 0f);
+            state.PositionMilliseconds, state.Playing ? (float)state.Speed : 0f);
         using var playbackState = builder.Build();
         _session.SetPlaybackState(playbackState);
 
         if (state.Playing && _wakeLock?.IsHeld == false) _wakeLock.Acquire();
         if (!state.Playing && _wakeLock?.IsHeld == true) _wakeLock.Release();
+
+        // The media session reports progress. Only the track and play/pause button affect the notification itself.
+        if (_foreground && !trackChanged && _notificationPlaying == state.Playing) return;
 
         using var notification = BuildNotification(state);
         if (!_foreground)
@@ -126,6 +131,7 @@ internal sealed class AndroidMediaPlaybackService : Service
         }
         else
             ((NotificationManager?)GetSystemService(NotificationService))?.Notify(NotificationId, notification);
+        _notificationPlaying = state.Playing;
     }
 
     private Notification BuildNotification(SystemPlaybackState state)

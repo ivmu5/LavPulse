@@ -33,16 +33,16 @@ public sealed partial class MainPage
 
     private void UpdateTransport()
     {
+        var snapshot = _playback.Snapshot;
         if (IsPlayerVisible)
         {
-            var snapshot = _playback.Snapshot;
             bool idle = !_closed && !IsTransitioning(snapshot) && !IsStopping;
             _view.SetTransport(!_closed && snapshot.Current.HasValue && !IsStopping,
                 _worker is not null && _stop?.IsCancellationRequested == false,
                 idle && !_recommendations && _selected is not null, idle && snapshot.Current.HasValue, _settings.AutoMix);
             _view.SetRepeatOne(_repeatOne);
         }
-        UpdateSystemPlayback(force: true);
+        UpdateSystemPlayback(snapshot.Current, updateCommands: true);
     }
 
     /// <summary>Stops output before closing readers and clears temporary decoded tracks.</summary>

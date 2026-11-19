@@ -25,7 +25,7 @@ public sealed partial class MainPage
         using var stop = new CancellationTokenSource();
         _stop = stop;
         // Start Android's foreground service before allowing the activity to go into background.
-        UpdateSystemPlayback(force: true, overridePlaying: true);
+        UpdateSystemPlayback(current, force: true, overridePlaying: true);
         try { _systemPlayback.EnsureRunning(); }
         catch (Exception ex) { _view.Status.Text = $"Системный плеер недоступен: {ex.Message}"; }
         _positions.Start();
@@ -114,7 +114,7 @@ public sealed partial class MainPage
     private void UpdatePositions(QueueSnapshot snapshot)
     {
         UpdateDecks(snapshot);
-        UpdateSystemPlayback();
+        UpdateSystemPlayback(snapshot.Current);
         if (snapshot.Current is not { } current)
         {
             return;

@@ -17,6 +17,7 @@ internal sealed class SpectrumDrawable : IDrawable
     private int _bottomPaddingRows;
     private float _widthFraction;
     private bool _showSpectrum;
+    private (PlayerColors Colors, SpectrumColorMode Mode, float Minimum, bool Light)? _paintSettings;
 
     public SpectrumDrawable() : this(PlaybackFormat.SpectrumBars, PlayerColors.For(PlayerPalette.LavPulse), new PlayerSettings())
     {
@@ -32,32 +33,44 @@ internal sealed class SpectrumDrawable : IDrawable
     }
 
     /// <summary>Updates the edge margins and caches brightness steps for allocation-free drawing.</summary>
-    public void SetAppearance(PlayerColors colors, PlayerSettings settings, bool light = false)
+    public bool SetAppearance(PlayerColors colors, PlayerSettings settings, bool light = false)
     {
+        float fullBrightness = Math.Clamp(settings.SpectrumFullBrightnessPercent, 1, 100) / 100f;
+        int top = Math.Clamp(settings.SpectrumTopPaddingRows, 0, PlayerSettings.MaximumSpectrumPaddingRows);
+        int bottom = Math.Clamp(settings.SpectrumBottomPaddingRows, 0, PlayerSettings.MaximumSpectrumPaddingRows);
+        float width = Math.Clamp(settings.SpectrumWidthPercent, 0, PlayerSettings.MaximumSpectrumWidthPercent) / 100f;
+        bool geometryChanged = _showPeaks != settings.ShowPeaks || _showSpectrum != settings.ShowSpectrum ||
+            _fullBrightnessLevel != fullBrightness || _topPaddingRows != top || _bottomPaddingRows != bottom ||
+            _widthFraction != width;
         _showPeaks = settings.ShowPeaks;
         _showSpectrum = settings.ShowSpectrum;
-        _fullBrightnessLevel = Math.Clamp(settings.SpectrumFullBrightnessPercent, 1, 100) / 100f;
-        _topPaddingRows = Math.Clamp(settings.SpectrumTopPaddingRows, 0, PlayerSettings.MaximumSpectrumPaddingRows);
-        _bottomPaddingRows = Math.Clamp(settings.SpectrumBottomPaddingRows, 0, PlayerSettings.MaximumSpectrumPaddingRows);
-        _widthFraction = Math.Clamp(settings.SpectrumWidthPercent, 0, PlayerSettings.MaximumSpectrumWidthPercent) / 100f;
+        _fullBrightnessLevel = fullBrightness;
+        _topPaddingRows = top;
+        _bottomPaddingRows = bottom;
+        _widthFraction = width;
         float minimum = settings.SpectrumLevelBrightness ? Math.Clamp(settings.SpectrumMinimumBrightnessPercent, 0, 100) / 100f : 1;
         var mode = settings.SpectrumColors;
+        var paintSettings = (colors, mode, minimum, light);
+        if (_paintSettings == paintSettings) return geometryChanged;
+
+        _paintSettings = paintSettings;
         if (mode != SpectrumColorMode.FrequencyGradient)
         {
             var right = mode == SpectrumColorMode.Split ? colors.Alternate : colors.Accent;
             Array.Fill(_paint, CreatePaint(colors.Accent, right, minimum, light));
-            return;
+            return true;
         }
 
         for (int band = 0; band < _paint.Length; band++)
         {
             // Band zero is the lowest frequency and is drawn at the bottom.
-            float position = band / (float)(_paint.Length - 1);
+            float position = band / (float)Math.Max(1, _paint.Length - 1);
             var color = position <= .5f
                 ? Interpolate(colors.WaveLow, colors.WaveMid, position * 2)
                 : Interpolate(colors.WaveMid, colors.Alternate, position * 2 - 1);
             _paint[band] = CreatePaint(color, color, minimum, light);
         }
+        return true;
     }
 
     /// <summary>Paints the same audible bands as a subdued background in the active queue row.</summary>
@@ -123,11 +136,12 @@ internal sealed class SpectrumDrawable : IDrawable
         steps[(int)MathF.Round(Math.Clamp(level / _fullBrightnessLevel, 0, 1) * (steps.Length - 1))];
 
     /// <summary>Smooths each band and holds its peak briefly before it falls.</summary>
-    public bool Advance(ReadOnlySpan<float> levels, float elapsedSeconds)
+    public bool Advance(ReadOnlySpan<float> levels, float elapsedSeconds, out bool barsChanged)
     {
         float attack = 1 - MathF.Exp(-elapsedSeconds / .008f);
         float release = 1 - MathF.Exp(-elapsedSeconds / .055f);
-        bool changed = false;
+        barsChanged = false;
+        bool peaksChanged = false;
         for (int i = 0; i < _bars.Length; i++)
         {
             float prior = _bars[i];
@@ -152,11 +166,12 @@ internal sealed class SpectrumDrawable : IDrawable
                 _peaks[i] = Math.Max(level, peak - PeakFallPerSecond * fallTime);
             }
 
-            changed |= level != prior || _peaks[i] != peak;
+            barsChanged |= level != prior;
+            peaksChanged |= _peaks[i] != peak;
             _bars[i] = level;
         }
 
-        return changed;
+        return barsChanged || (_showPeaks && peaksChanged);
     }
 
     /// <summary>Clears the bars and peak markers when playback stops.</summary>

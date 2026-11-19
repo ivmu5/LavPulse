@@ -36,6 +36,7 @@ internal sealed class QueueTrackRow : Border
         StrokeThickness = 1;
         StrokeShape = new RoundRectangle { CornerRadius = 8 };
         _graphics = new GraphicsView { Drawable = _text, InputTransparent = true };
+        _text.OverflowChanged += () => AnimationStateChanged?.Invoke();
         DragHandle = new Image { WidthRequest = 24, HeightRequest = 36,
             VerticalOptions = LayoutOptions.Center, Aspect = Aspect.AspectFit };
         MixerStyle.UseIcon(DragHandle, Image.SourceProperty, "player_reorder.png");
@@ -54,8 +55,10 @@ internal sealed class QueueTrackRow : Border
 
     public View DragHandle { get; }
     public bool IsPlayed => _played;
+    public bool NeedsAnimation => File is not null && (_loading || _text.IsOverflowing);
     public TrackFile? File { get; private set; }
     public int Index { get; private set; }
+    public event Action? AnimationStateChanged;
 
     public void Bind(TrackFile file, int index)
     {
@@ -83,6 +86,7 @@ internal sealed class QueueTrackRow : Border
         {
             return;
         }
+        bool animated = NeedsAnimation;
         bool artworkChanged = _shown?.Artwork.Equals(item.Artwork) != true;
         if (artworkChanged)
         {
@@ -129,6 +133,7 @@ internal sealed class QueueTrackRow : Border
         SemanticProperties.SetDescription(this, string.Join(". ", new[] { item.Title, item.Artist, status }
             .Where(text => !string.IsNullOrWhiteSpace(text))));
         _graphics.Invalidate();
+        if (animated != NeedsAnimation) AnimationStateChanged?.Invoke();
     }
 
     public void Animate(double seconds)
@@ -164,15 +169,22 @@ internal sealed class QueueTrackRow : Border
         public Color StatusColor { get; set; } = Colors.White;
         public double Seconds { get; set; }
         public bool IsOverflowing { get; private set; }
+        public event Action? OverflowChanged;
         private readonly Dictionary<(string Text, Font Font, float Size), float> _widths = new();
 
-        public void ResetWidths() => _widths.Clear();
+        public void ResetWidths()
+        {
+            _widths.Clear();
+            IsOverflowing = false;
+        }
 
         public void Draw(ICanvas canvas, RectF bounds)
         {
+            bool overflowed = IsOverflowing;
             IsOverflowing = false;
             if (bounds.Width <= 0 || bounds.Height <= 0)
             {
+                if (overflowed) OverflowChanged?.Invoke();
                 return;
             }
             canvas.SaveState();
@@ -198,6 +210,7 @@ internal sealed class QueueTrackRow : Border
                 DrawLine(canvas, new(bounds.X, center + 1, bounds.Width, 17), Artist, ArtistFont, (float)MixerStyle.PhoneFont(11, 10), ArtistColor);
             }
             canvas.RestoreState();
+            if (overflowed != IsOverflowing) OverflowChanged?.Invoke();
         }
 
         private void DrawLine(ICanvas canvas, RectF bounds, string value, Font font, float size, Color color)
