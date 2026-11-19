@@ -16,11 +16,12 @@ public sealed class PlayerView : Grid
     private readonly ImageButton _equalizer = MixerStyle.IconButton("player_equalizer.png", 44);
     private readonly Switch _equalizerToggle = new()
     {
-        OnColor = MixerStyle.Accent, WidthRequest = 54, VerticalOptions = LayoutOptions.Center
+        OnColor = MixerStyle.Accent, WidthRequest = 48, VerticalOptions = LayoutOptions.Center
     };
     private readonly Border _equalizerGroup = new()
     {
         BackgroundColor = MixerStyle.ButtonBackground, StrokeThickness = 0,
+        HeightRequest = 44, VerticalOptions = LayoutOptions.Center,
         StrokeShape = new RoundRectangle { CornerRadius = 9 }
     };
     private readonly Button _settings = MixerStyle.Button("Настройки", icon: "player_settings.png", stacked: true);
@@ -198,9 +199,10 @@ public sealed class PlayerView : Grid
         SemanticProperties.SetDescription(_equalizer, "Открыть эквалайзер");
         SemanticProperties.SetDescription(_equalizerToggle, "Эквалайзер");
         _equalizer.BackgroundColor = Colors.Transparent;
+        _equalizer.BorderWidth = 0;
+        _equalizer.CornerRadius = 8;
         _equalizerGroup.Content = new HorizontalStackLayout
         {
-            Padding = new Thickness(0, 0, 6, 0),
             Children = { _equalizer, _equalizerToggle }
         };
         var left = new HorizontalStackLayout { HorizontalOptions = LayoutOptions.Start, VerticalOptions = LayoutOptions.Center,
