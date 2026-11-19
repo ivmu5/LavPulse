@@ -54,6 +54,8 @@ jobs:
           xcrun simctl bootstatus "$device" -b
           app="$(find samples/Laveyana.Audio.Maui/bin -type d -path '*/iossimulator-arm64/Laveyana.Audio.Maui.app' -print -quit)"
           test -n "$app"
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict "$app"
           xcrun simctl install "$device" "$app"
           bundle="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")"
           launched="$(xcrun simctl launch "$device" "$bundle")"

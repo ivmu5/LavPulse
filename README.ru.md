@@ -36,6 +36,8 @@ dotnet workload install maui-ios
 dotnet build samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.csproj -c Debug -p:LavPulsePlatform=ios -p:RuntimeIdentifier=iossimulator-arm64 -p:EnableCodeSigning=false
 ```
 
+Перед установкой в симулятор через `simctl install` подпиши созданный пакет командой `codesign --force --deep --sign - path/to/Laveyana.Audio.Maui.app`.
+
 После смены платформы или обновления workload выполни `dotnet restore Laveyana.Audio.Maui.slnx`. Решение разделяет промежуточные каталоги Windows и Android (см. [`Directory.Build.props`](Directory.Build.props)), чтобы не смешивать NuGet-ресурсы и не получать слишком длинные пути Android.
 
 В приложении импортируй MP3-файлы или папку через **Настройки → Медиатека**; в Windows также работает перетаскивание файлов. Выбор трека в очереди запускает переход без изменения порядка списка. Повторное нажатие на активную вкладку **Очередь** скрывает или показывает прослушанные записи.
