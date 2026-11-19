@@ -142,7 +142,7 @@ public sealed partial class PlayerSettingsPanel
         SpectrumColorMode mode, out SpectrumDrawable drawable, bool light = false)
     {
         drawable = new SpectrumDrawable(SampleLevels.Length, colors, SpectrumPreviewSettings(settings, mode), light);
-        drawable.Advance(SampleLevels, .1f);
+        drawable.Advance(SampleLevels, .1f, out _);
         var view = new GraphicsView { Drawable = drawable };
         MixerStyle.UseColor(view, BackgroundColorProperty, MixerColor.Overlay);
         return view;

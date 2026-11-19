@@ -48,11 +48,14 @@ public sealed partial class MainPage
     }
 
     /// <summary>Throttles position updates but immediately publishes track and transport changes.</summary>
-    private void UpdateSystemPlayback(bool force = false, bool? overridePlaying = null)
+    private void UpdateSystemPlayback(PlayingTrack? track, bool updateCommands = false, bool force = false,
+        bool? overridePlaying = null)
     {
-        if (_closed || _playback.Snapshot.Current is not { } current) return;
+        if (_closed || track is not { } current) return;
         bool playing = overridePlaying ?? (_worker is not null && !_pausing && !(_stop?.IsCancellationRequested ?? false));
-        bool changed = !ReferenceEquals(_lastSystemTrack, current.Track) || playing != _lastSystemPlaying || current.Speed != _lastSystemSpeed;
+        bool playbackChanged = _lastSystemState is not { } last || !ReferenceEquals(last.Track, current.Track) ||
+            last.Playing != playing || last.Speed != current.Speed ||
+            (_worker is null && last.PositionFrames != current.Position);
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
 #if WINDOWS
         // Windows SMTC extrapolates the position itself; avoid expensive COM calls every frame.
@@ -60,14 +63,17 @@ public sealed partial class MainPage
 #else
         const int reportingIntervalMilliseconds = 750;
 #endif
-        if (!force && !changed &&
-            System.Diagnostics.Stopwatch.GetElapsedTime(_lastSystemUpdate, now).TotalMilliseconds < reportingIntervalMilliseconds)
-            return;
-        _lastSystemTrack = current.Track;
-        _lastSystemPlaying = playing;
-        _lastSystemSpeed = current.Speed;
+        bool positionDue = playing &&
+            System.Diagnostics.Stopwatch.GetElapsedTime(_lastSystemUpdate, now).TotalMilliseconds >= reportingIntervalMilliseconds;
+        bool publish = force || playbackChanged || positionDue;
+        if (!publish && !updateCommands) return;
+
+        bool canNext = !_recommendations && (_selected is not null || _queue.Next is not null);
+        if (!publish && _lastSystemState?.CanNext == canNext) return;
+
+        var state = new SystemPlaybackState(current.Track, current.Position, playing, canNext, true, current.Speed);
+        _lastSystemState = state;
         _lastSystemUpdate = now;
-        _systemPlayback.Publish(new SystemPlaybackState(current.Track, current.Position, playing,
-            !_recommendations && (_selected is not null || _queue.Next is not null), true, current.Speed));
+        _systemPlayback.Publish(state);
     }
 }

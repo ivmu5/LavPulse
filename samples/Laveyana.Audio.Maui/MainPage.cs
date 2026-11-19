@@ -17,9 +17,7 @@ public sealed partial class MainPage : ContentPage
     private readonly ISystemPlaybackIntegration _systemPlayback = new PlatformSystemPlaybackIntegration();
     private volatile bool _windowVisible = true;
     private long _lastSystemUpdate;
-    private CachedTrack? _lastSystemTrack;
-    private bool _lastSystemPlaying;
-    private double _lastSystemSpeed;
+    private SystemPlaybackState? _lastSystemState;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly PlayerLibrary _library;
     private readonly IDispatcherTimer _positions;

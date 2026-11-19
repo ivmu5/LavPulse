@@ -174,8 +174,8 @@ public sealed partial class PlayerSettingsPanel : ContentView
             foreach (var sample in samples) sample();
             foreach (var preview in previews)
             {
-                preview.Drawable.SetAppearance(theme.Visualization, SpectrumPreviewSettings(settings, preview.Mode), theme.IsLight);
-                preview.View.Invalidate();
+                if (preview.Drawable.SetAppearance(theme.Visualization, SpectrumPreviewSettings(settings, preview.Mode), theme.IsLight))
+                    preview.View.Invalidate();
             }
         }
 

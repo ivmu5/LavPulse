@@ -10,6 +10,7 @@ public sealed partial class MasterSpectrumView : ContentView
     private long _version;
     private double _lastFrame = double.NaN;
     private Func<ISpectrumSource?>? _getSource;
+    private Action? _drawPlayheads;
     private bool _frameLoopRunning;
 
     public MasterSpectrumView()
@@ -22,12 +23,16 @@ public sealed partial class MasterSpectrumView : ContentView
 
     internal IDrawable QueueDrawable { get; }
     internal event Action? VisualizationChanged;
-    internal event Action? PlaybackFrame;
-    internal VisualElement? FrameRateHost { get; set; }
+
+    internal void SetPlayheadCallback(Action? drawPlayheads)
+    {
+        _drawPlayheads = drawPlayheads;
+        SyncFrameLoop();
+    }
 
     internal void SetAppearance(MixerTheme theme, PlayerSettings settings)
     {
-        _drawable.SetAppearance(theme.Visualization, settings, theme.IsLight);
+        if (!_drawable.SetAppearance(theme.Visualization, settings, theme.IsLight)) return;
         IsVisible = settings.ShowSpectrum && settings.SpectrumWidthPercent > 0;
         SyncFrameLoop();
         if (!IsVisible) ResetLevels();
@@ -64,7 +69,7 @@ public sealed partial class MasterSpectrumView : ContentView
 
     private void SyncFrameLoop()
     {
-        bool run = _getSource is not null && (IsVisible || PlaybackFrame is not null);
+        bool run = _getSource is not null && (IsVisible || _drawPlayheads is not null);
         if (run == _frameLoopRunning) return;
         _frameLoopRunning = run;
         if (run) StartFrameLoop();
@@ -82,7 +87,7 @@ public sealed partial class MasterSpectrumView : ContentView
     /// <summary>Reads the next audible spectrum and applies elapsed-time smoothing.</summary>
     private void DrawFrame(double time)
     {
-        PlaybackFrame?.Invoke();
+        _drawPlayheads?.Invoke();
         if (!IsVisible || _getSource?.Invoke() is not { } mix)
         {
             return;
@@ -96,10 +101,10 @@ public sealed partial class MasterSpectrumView : ContentView
 
         _lastFrame = time;
         mix.TryReadSpectrum(_levels, ref _version);
-        if (_drawable.Advance(_levels, elapsed))
+        if (_drawable.Advance(_levels, elapsed, out bool barsChanged))
         {
             _graphics.Invalidate();
-            VisualizationChanged?.Invoke();
+            if (barsChanged) VisualizationChanged?.Invoke();
         }
     }
 
