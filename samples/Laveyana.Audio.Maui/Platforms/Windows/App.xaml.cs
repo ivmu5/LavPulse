@@ -1,12 +1,13 @@
 namespace Laveyana.Audio.Maui.WinUI;
 
-/// <summary>Lets the WinUI compiler generate the entry point and XAML metadata for the Windows host.</summary>
+/// <summary>Loads the WinUI XAML resources for the Windows host.</summary>
 public partial class App : MauiWinUIApplication
 {
     public App()
     {
         // Register identity before the first window or media session is created.
         WindowsMediaIdentity.Initialize();
+        WindowsFileAssociation.Initialize();
         InitializeComponent();
     }
 

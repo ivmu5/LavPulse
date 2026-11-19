@@ -16,6 +16,7 @@
     <ApplicationVersion>14</ApplicationVersion>
     <CodesignEntitlements Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">Platforms/MacCatalyst/Entitlements.plist</CodesignEntitlements>
     <WindowsPackageType>None</WindowsPackageType>
+    <DefineConstants Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <ApplicationIcon Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">Platforms/Windows/lavpulse.ico</ApplicationIcon>
   </PropertyGroup>
 

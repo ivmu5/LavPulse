@@ -1,4 +1,5 @@
 using Microsoft.Maui.ApplicationModel;
+using Laveyana.Audio.Maui.Tracks;
 #if WINDOWS
 using Laveyana.Audio.Maui.Controls;
 #endif
@@ -45,6 +46,23 @@ public sealed class App : Application
         window.Deactivated += (_, _) => page.SetWindowVisible(false);
         window.Stopped += (_, _) => page.SetWindowVisible(false);
 #endif
+        void OnFilesRequested() => window.Dispatcher.Dispatch(() =>
+        {
+#if WINDOWS
+            if (window.Handler?.PlatformView is Microsoft.UI.Xaml.Window native)
+            {
+                if (native.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter &&
+                    presenter.State == Microsoft.UI.Windowing.OverlappedPresenterState.Minimized)
+                    presenter.Restore();
+                native.Activate();
+            }
+#endif
+            page.ProcessSystemTrackRequests();
+        });
+
+        SystemTrackRequests.Received += OnFilesRequested;
+        window.Activated += (_, _) => page.ActivateSystemTrackRequests();
+        window.Destroying += (_, _) => SystemTrackRequests.Received -= OnFilesRequested;
         window.Destroying += async (_, _) => await page.CloseAsync();
         return window;
     }

@@ -423,6 +423,7 @@ public sealed class PlayerView : Grid
     }
 
     public void ShowCurrent(CachedTrack? track) => _queue.ShowCurrent(track);
+    public void ShowQueueFeed() => _queue.SelectRecommendations(false);
     public Task BeginMixAsync(CachedTrack track, TrackFile? file) => _queue.BeginMixAsync(track, file);
     public Task FinishMixAsync(CachedTrack track, Action refreshQueue) => _queue.FinishMixAsync(track, refreshQueue);
 

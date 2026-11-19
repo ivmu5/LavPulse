@@ -9,6 +9,67 @@ namespace Laveyana.Audio.Maui;
 /// <summary>Partial player coordinator: import workflow.</summary>
 public sealed partial class MainPage
 {
+    private bool _canOpenSystemTracks;
+    private bool _openingSystemTracks;
+
+    internal void ActivateSystemTrackRequests()
+    {
+        _canOpenSystemTracks = true;
+        ProcessSystemTrackRequests();
+    }
+
+    internal void ProcessSystemTrackRequests()
+    {
+        if (SystemTrackRequests.HasPending && !_openingSystemTracks && CanOpenSystemTracks)
+            _ = OpenSystemTracksAsync();
+    }
+
+    private bool CanOpenSystemTracks => _canOpenSystemTracks && !_closed && _windowVisible &&
+        !_loadingFirst && !IsStopping && !IsTransitioning(_playback.Snapshot);
+
+    private async Task OpenSystemTracksAsync()
+    {
+        _openingSystemTracks = true;
+        try
+        {
+            while (CanOpenSystemTracks && SystemTrackRequests.TryTake(out var files) && files is not null)
+            {
+                try
+                {
+                    var requested = _library.Add(files, []);
+                    if (requested.Count == 0) continue;
+
+                    _view.ShowQueueFeed();
+                    var queued = new HashSet<TrackFile>(_queue.Tracks);
+                    _queue.AddRange(requested.Where(queued.Add));
+                    UpdateQueue();
+
+                    var first = requested[0];
+                    if (_playback.Snapshot.Current is not { } current)
+                        await LoadFirstAsync(first, autoPlay: true);
+                    else if (ReferenceEquals(_library.Find(current.Track), first))
+                        _ = PlayAsync();
+                    else if (TrySetSelection(first))
+                        await StartMixAsync(waitForPlayback: false);
+                    else
+                    {
+                        // The audio thread can begin a transition after the UI checks readiness.
+                        SystemTrackRequests.Open(files);
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (!_closed) _view.Status.Text = $"Не удалось открыть файл. {ex.Message}";
+                }
+            }
+        }
+        finally
+        {
+            _openingSystemTracks = false;
+        }
+    }
+
     /// <summary>Imports MP3s selected using the system file picker.</summary>
     private async Task PickFilesAsync()
     {
@@ -81,7 +142,7 @@ public sealed partial class MainPage
     }
 
     /// <summary>Attempts the first playable file and keeps later candidates available.</summary>
-    private async Task LoadFirstAsync(TrackFile? preferred = null)
+    private async Task LoadFirstAsync(TrackFile? preferred = null, bool autoPlay = false)
     {
         _loadingFirst = true;
         try
@@ -118,7 +179,9 @@ public sealed partial class MainPage
 
         if (!_closed)
         {
+            if (autoPlay) _ = PlayAsync();
             await SelectDefaultAsync();
+            ProcessSystemTrackRequests();
         }
     }
 }
