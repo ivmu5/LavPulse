@@ -10,7 +10,7 @@ public sealed partial class MasterSpectrumView
     partial void StartFrameLoop()
     {
         var link = CADisplayLink.Create(() => DrawFrame(DeckPlayhead.Now));
-        link.PreferredFrameRateRange = new CAFrameRateRange(30, 60, 60);
+        link.PreferredFrameRateRange = CAFrameRateRange.Create(30, 60, 60);
         _displayLink = link;
         link.AddToRunLoop(NSRunLoop.Main, NSRunLoopMode.Common);
     }
