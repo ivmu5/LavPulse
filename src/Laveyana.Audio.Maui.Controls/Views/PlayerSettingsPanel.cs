@@ -1,9 +1,8 @@
 namespace Laveyana.Audio.Maui.Controls;
 
 /// <summary>Edits one preference set with one expanded, lazily created section at a time.</summary>
-public sealed class PlayerSettingsPage : ContentPage
+public sealed class PlayerSettingsPanel : ContentView
 {
-    private readonly Action<PlayerSettings> _apply;
     private readonly Func<Task> _pickFiles;
     private readonly Func<Task> _pickFolder;
     private readonly ContentView[] _sectionHosts = new ContentView[6];
@@ -12,18 +11,13 @@ public sealed class PlayerSettingsPage : ContentPage
     private PlayerSettings _settings;
     private int _activeSection = -1;
     private bool _loading;
-    private bool _closing;
 
-    public PlayerSettingsPage(PlayerSettings settings, Action<PlayerSettings> apply, Func<Task> pickFiles,
-        Func<Task> pickFolder, Func<Task>? dismiss = null)
+    public PlayerSettingsPanel(PlayerSettings settings, Action<PlayerSettings> apply, Func<Task> pickFiles,
+        Func<Task> pickFolder, Action dismiss)
     {
         _settings = settings;
-        _apply = apply;
         _pickFiles = pickFiles;
         _pickFolder = pickFolder;
-        BackgroundColor = MixerStyle.Background;
-        SafeAreaEdges = new SafeAreaEdges(SafeAreaRegions.Container);
-
         var heading = MixerStyle.Label("Настройки", MixerStyle.PhoneFont(23, 20), bold: true);
         SemanticProperties.SetHeadingLevel(heading, SemanticHeadingLevel.Level1);
         var reset = MixerStyle.Button("Сбросить", icon: "player_reset.png");
@@ -53,12 +47,13 @@ public sealed class PlayerSettingsPage : ContentPage
 
         var save = MixerStyle.Button("Сохранить", primary: true, icon: "player_confirm.png");
         var cancel = MixerStyle.Button("Отмена", icon: "player_cancel.png");
-        save.Clicked += async (_, _) => await CloseAsync(dismiss, () =>
+        save.Clicked += (_, _) =>
         {
             CommitVisibleNumbers();
-            _apply(_settings);
-        });
-        cancel.Clicked += async (_, _) => await CloseAsync(dismiss, null);
+            apply(_settings);
+            dismiss();
+        };
+        cancel.Clicked += (_, _) => dismiss();
         var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)], ColumnSpacing = 8 };
         actions.Add(cancel);
         actions.Add(save, 1);
@@ -132,7 +127,7 @@ public sealed class PlayerSettingsPage : ContentPage
         var crossfade = Number("Длительность перехода", "мс", new(0, 12000, defaults.CrossfadeMilliseconds, 100),
             _settings.CrossfadeMilliseconds, value => _settings = _settings with { CrossfadeMilliseconds = value });
         var autoMix = Toggle("Автомикс", _settings.AutoMix, value => _settings = _settings with { AutoMix = value });
-        return new VerticalStackLayout
+        var sections = new VerticalStackLayout
         {
             Spacing = 8,
             Children =
@@ -141,6 +136,12 @@ public sealed class PlayerSettingsPage : ContentPage
                 Section("Переход между треками", autoMix, crossfade.Row)
             }
         };
+#if ANDROID
+        var lockScreen = Toggle("Показывать плеер поверх экрана блокировки", _settings.ShowOnLockScreen,
+            value => _settings = _settings with { ShowOnLockScreen = value });
+        sections.Add(Section("Экран блокировки", lockScreen));
+#endif
+        return sections;
     }
 
     private View CreateDeckSection()
@@ -313,14 +314,5 @@ public sealed class PlayerSettingsPage : ContentPage
             try { await pick(); }
             finally { files.IsEnabled = folder.IsEnabled = true; }
         }
-    }
-
-    private async Task CloseAsync(Func<Task>? dismiss, Action? apply)
-    {
-        if (_closing) return;
-        _closing = true;
-        apply?.Invoke();
-        if (dismiss is null) await Navigation.PopModalAsync();
-        else await dismiss();
     }
 }

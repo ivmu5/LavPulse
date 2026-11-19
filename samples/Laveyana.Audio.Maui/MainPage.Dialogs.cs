@@ -6,7 +6,7 @@ using Laveyana.Audio.Playback;
 
 namespace Laveyana.Audio.Maui;
 
-/// <summary>Partial player coordinator: dialogs workflow.</summary>
+/// <summary>Coordinates the panels and applies player preferences.</summary>
 public sealed partial class MainPage
 {
     private void ApplyEqualizer(EqualizerSettings settings)
@@ -16,8 +16,14 @@ public sealed partial class MainPage
         _view.SetEqualizerEnabled(settings.Enabled);
     }
 
-    private Task OpenEqualizerAsync() =>
-        OpenModalAsync(dismiss => new EqualizerPage(_equalizer, ApplyEqualizer, PlayerPreferences.SaveEqualizer, dismiss));
+    private void ToggleEqualizer(bool enabled)
+    {
+        ApplyEqualizer(_equalizer.WithEnabled(enabled));
+        PlayerPreferences.SaveEqualizer(_equalizer);
+    }
+
+    private void OpenEqualizer() =>
+        OpenPanel(() => new EqualizerPanel(_equalizer, ApplyEqualizer, ClosePanel));
 
     private void SelectRecommendations(bool enabled)
     {
@@ -26,85 +32,53 @@ public sealed partial class MainPage
         UpdateTransport();
     }
 
-    private Task OpenSettingsAsync() =>
-        OpenModalAsync(dismiss => new PlayerSettingsPage(_settings, value => ApplySettings(value), PickFilesAsync, PickFolderAsync, dismiss));
+    private void OpenSettings() =>
+        OpenPanel(() => new PlayerSettingsPanel(_settings, value => ApplySettings(value), PickFilesAsync, PickFolderAsync, ClosePanel));
 
-    private async Task OpenModalAsync(Func<Func<Task>?, ContentPage> createPage)
+    private void OpenPanel(Func<View> createPanel)
     {
-        if (_closed || _openingSettings || Navigation.ModalStack.Count > 0)
-        {
-            return;
-        }
-
-        _openingSettings = true;
+        if (_closed || _view.Panel is not null) return;
         try
         {
-#if WINDOWS
-            // Switching native MAUI window roots can reactivate an AppWindow title bar that is disabled.
-            if (_overlay is not null) return;
-            // Cover the transport before constructing the settings controls. Image handlers otherwise
-            // become visible at their unconstrained initial size while the new layout is measured.
-            _overlay = new ContentView
-            {
-                BackgroundColor = _view.BackgroundColor,
-                IsClippedToBounds = true
-            };
-            _view.IsVisible = false;
-            _pageRoot.Children.Add(_overlay);
-            await WaitForOverlayFrameAsync();
-            if (_closed)
-            {
-                await CloseOverlayAsync();
-                return;
-            }
-
-            var page = createPage(CloseOverlayAsync);
-            var content = page.Content;
-            page.Content = null;
-            if (content is not null)
-            {
-                content.Opacity = 0;
-                _overlay.Content = content;
-                await WaitForOverlayFrameAsync();
-                content.Opacity = 1;
-            }
-#else
-            await Navigation.PushModalAsync(createPage(null));
-#endif
+            var panel = createPanel();
+            _view.ShowPanel(panel);
+            _view.SuspendPlayerAnimations();
+            UpdatePositionRefreshInterval();
         }
         catch (Exception ex)
         {
-#if WINDOWS
-            await CloseOverlayAsync();
-#endif
-            if (!_closed) _view.Status.Text = $"Не удалось открыть настройки. {ex.Message}";
-        }
-        finally
-        {
-            _openingSettings = false;
+            ClosePanel();
+            _view.Status.Text = $"Не удалось открыть панель. {ex.Message}";
         }
     }
 
-#if WINDOWS
-    /// <summary>Allows the opaque overlay and its initial layout to reach the compositor.</summary>
-    private Task WaitForOverlayFrameAsync()
+    private void ClosePanel()
     {
-        var complete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(34), () => complete.TrySetResult());
-        return complete.Task;
+        if (_view.Panel is null) return;
+        SaveOpenEqualizer();
+
+        var snapshot = _playback.Snapshot;
+        UpdatePositions(snapshot);
+        _view.ShowPanel(null);
+        UpdatePositionRefreshInterval();
+        if (IsPlayerVisible) RestorePlayer(snapshot);
     }
 
-    private Task CloseOverlayAsync()
+    private void SaveOpenEqualizer()
     {
-        if (_overlay is { } overlay)
+        if (_view.Panel is EqualizerPanel equalizer)
         {
-            _pageRoot.Children.Remove(overlay);
-            _overlay = null;
-            _view.IsVisible = true;
+            equalizer.CommitPendingEdits();
+            PlayerPreferences.SaveEqualizer(_equalizer);
         }
-        return Task.CompletedTask;
     }
-#endif
+
+    protected override bool OnBackButtonPressed()
+    {
+        if (_view.Panel is null) return base.OnBackButtonPressed();
+        ClosePanel();
+        return true;
+    }
 
     private void ApplySettings(PlayerSettings value, bool save = true)
     {
@@ -116,6 +90,10 @@ public sealed partial class MainPage
         if (save)
         {
             PlayerPreferences.Save(value);
+#if ANDROID
+            if (Window?.Handler?.PlatformView is MainActivity activity)
+                activity.SetPlayerOnLockScreen(value.ShowOnLockScreen);
+#endif
         }
         UpdateQueue();
     }

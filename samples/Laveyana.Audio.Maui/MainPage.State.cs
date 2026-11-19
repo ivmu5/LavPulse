@@ -11,7 +11,7 @@ public sealed partial class MainPage
 {
     private void UpdateQueue()
     {
-        if (_windowVisible)
+        if (IsPlayerVisible)
         {
             _view.ShowQueue(_queue.Tracks, _queue.Current, _selected ?? _queue.Next, _queue.PlayedCount, ReadQueueItem);
         }
@@ -34,7 +34,7 @@ public sealed partial class MainPage
 
     private void UpdateTransport()
     {
-        if (_windowVisible)
+        if (IsPlayerVisible)
         {
             var snapshot = _playback.Snapshot;
             bool idle = !_closed && !IsTransitioning(snapshot) && !IsStopping;
@@ -55,6 +55,8 @@ public sealed partial class MainPage
         }
 
         _closed = true;
+        try { SaveOpenEqualizer(); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }
         _lifetime.Cancel();
         _positions.Stop();
         _view.ResetAnimations();

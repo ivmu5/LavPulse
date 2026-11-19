@@ -1,8 +1,11 @@
 using Android.App;
+using Android.Content;
+using Android.Content.PM;
+using Android.OS;
+using Android.Views;
 using AndroidX.Activity.Result;
 using AndroidX.Activity.Result.Contract;
 using AndroidUri = Android.Net.Uri;
-using Android.Content.PM;
 
 namespace Laveyana.Audio.Maui;
 
@@ -11,6 +14,10 @@ public class MainActivity : MauiAppCompatActivity
 {
     private ActivityResultLauncher? _folderLauncher;
     private TaskCompletionSource<AndroidUri?>? _folderResult;
+    private ScreenStateReceiver? _screenReceiver;
+
+    internal bool IsPlayerVisible { get; private set; }
+    internal event Action<bool>? PlayerVisibilityChanged;
 
     /// <summary>Initializes the Android activity, media volume controls and system folder picker.</summary>
     protected override void OnCreate(Android.OS.Bundle? savedInstanceState)
@@ -19,6 +26,52 @@ public class MainActivity : MauiAppCompatActivity
         VolumeControlStream = Android.Media.Stream.Music;
         _folderLauncher = RegisterForActivityResult(new ActivityResultContracts.OpenDocumentTree(),
             new FolderResult(result => _folderResult?.TrySetResult(result)));
+    }
+
+    protected override void OnStart()
+    {
+        base.OnStart();
+        using var filter = new IntentFilter(Intent.ActionScreenOn);
+        filter.AddAction(Intent.ActionScreenOff);
+        _screenReceiver = new ScreenStateReceiver(UpdatePlayerVisibility);
+        if (OperatingSystem.IsAndroidVersionAtLeast(33))
+            RegisterReceiver(_screenReceiver, filter, ReceiverFlags.NotExported);
+        else
+            RegisterReceiver(_screenReceiver, filter);
+
+        UpdatePlayerVisibility(GetSystemService(PowerService) is not PowerManager { IsInteractive: false });
+    }
+
+    protected override void OnStop()
+    {
+        if (_screenReceiver is { } receiver)
+        {
+            _screenReceiver = null;
+            UnregisterReceiver(receiver);
+            receiver.Dispose();
+        }
+
+        UpdatePlayerVisibility(false);
+        base.OnStop();
+    }
+
+    /// <summary>Allows the already open player to remain visible above the keyguard.</summary>
+    internal void SetPlayerOnLockScreen(bool enabled)
+    {
+        if (OperatingSystem.IsAndroidVersionAtLeast(27))
+            SetShowWhenLocked(enabled);
+        else if (enabled)
+            Window?.AddFlags(WindowManagerFlags.ShowWhenLocked);
+        else
+            Window?.ClearFlags(WindowManagerFlags.ShowWhenLocked);
+    }
+
+    private void UpdatePlayerVisibility(bool screenInteractive)
+    {
+        bool visible = _screenReceiver is not null && screenInteractive;
+        if (IsPlayerVisible == visible) return;
+        IsPlayerVisible = visible;
+        PlayerVisibilityChanged?.Invoke(visible);
     }
 
     /// <summary>Requests a Storage Access Framework tree URI and awaits the selection or cancellation.</summary>
@@ -47,5 +100,14 @@ public class MainActivity : MauiAppCompatActivity
     {
         /// <summary>Completes the pending folder selection with the returned URI.</summary>
         public void OnActivityResult(Java.Lang.Object? result) => picked(result as AndroidUri);
+    }
+
+    private sealed class ScreenStateReceiver(Action<bool> screenChanged) : BroadcastReceiver
+    {
+        public override void OnReceive(Context? context, Intent? intent)
+        {
+            if (intent?.Action == Intent.ActionScreenOn) screenChanged(true);
+            else if (intent?.Action == Intent.ActionScreenOff) screenChanged(false);
+        }
     }
 }

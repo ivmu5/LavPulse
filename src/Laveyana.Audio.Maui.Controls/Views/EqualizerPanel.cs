@@ -3,24 +3,17 @@ using Laveyana.Audio.Playback;
 namespace Laveyana.Audio.Maui.Controls;
 
 /// <summary>Edits the master EQ live, with an independent bypass and a flat reset.</summary>
-public sealed class EqualizerPage : ContentPage
+public sealed class EqualizerPanel : ContentView
 {
     private readonly NumericSettingInput[] _bands;
     private readonly Action<EqualizerSettings> _apply;
-    private readonly Action<EqualizerSettings> _save;
-    private bool _closing;
-    private bool _saved;
 
     public EqualizerSettings Settings { get; private set; }
 
-    public EqualizerPage(EqualizerSettings settings, Action<EqualizerSettings> apply, Action<EqualizerSettings> save, Func<Task>? dismiss = null)
+    public EqualizerPanel(EqualizerSettings settings, Action<EqualizerSettings> apply, Action dismiss)
     {
         Settings = settings;
         _apply = apply;
-        _save = save;
-        BackgroundColor = MixerStyle.Background;
-        SafeAreaEdges = new SafeAreaEdges(SafeAreaRegions.Container);
-
         var title = MixerStyle.Label("Эквалайзер", 23, bold: true);
         SemanticProperties.SetHeadingLevel(title, SemanticHeadingLevel.Level1);
         var toggle = new Switch { IsToggled = settings.Enabled, OnColor = MixerStyle.Accent };
@@ -91,14 +84,7 @@ public sealed class EqualizerPage : ContentPage
             _apply(Settings);
         };
         var close = MixerStyle.Button("Готово", primary: true, icon: "player_confirm.png");
-        close.Clicked += async (_, _) =>
-        {
-            if (_closing) return;
-            _closing = true;
-            Save();
-            if (dismiss is null) await Navigation.PopModalAsync();
-            else await dismiss();
-        };
+        close.Clicked += (_, _) => dismiss();
         var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)], ColumnSpacing = 8 };
         actions.Add(reset);
         actions.Add(close, 1);
@@ -119,17 +105,8 @@ public sealed class EqualizerPage : ContentPage
         Content = host;
     }
 
-    protected override void OnDisappearing()
+    public void CommitPendingEdits()
     {
-        Save();
-        base.OnDisappearing();
-    }
-
-    private void Save()
-    {
-        if (_saved) return;
-        _saved = true;
         foreach (var band in _bands) band.CommitText();
-        _save(Settings);
     }
 }

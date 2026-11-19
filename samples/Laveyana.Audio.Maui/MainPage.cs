@@ -13,10 +13,6 @@ public sealed partial class MainPage : ContentPage
     private static readonly TimeSpan HiddenRefreshInterval = TimeSpan.FromMilliseconds(250);
 
     private readonly PlayerView _view = new();
-#if WINDOWS
-    private readonly Grid _pageRoot = new();
-    private ContentView? _overlay;
-#endif
     private readonly QueuePlaybackSession _playback = new();
     private readonly ISystemPlaybackIntegration _systemPlayback = new PlatformSystemPlaybackIntegration();
     private bool _windowVisible = true;
@@ -42,7 +38,6 @@ public sealed partial class MainPage : ContentPage
     private EqualizerSettings _equalizer = PlayerPreferences.LoadEqualizer();
     private bool _repeatOne;
     private bool _recommendations;
-    private bool _openingSettings;
     private bool _pausing;
     private bool _pickerOpen;
     private bool _loadingFirst;
@@ -50,32 +45,32 @@ public sealed partial class MainPage : ContentPage
     private bool _closed;
 
     private bool IsStopping => _pausing || _stop?.IsCancellationRequested == true;
+    private bool IsPlayerVisible => _windowVisible && _view.Panel is null;
+#if ANDROID
+    internal bool ShowOnLockScreen => _settings.ShowOnLockScreen;
+#endif
 
     public MainPage()
     {
         _library = new PlayerLibrary(new TrackPreparation(FileSystem.CacheDirectory), _lifetime.Token);
         SafeAreaEdges = new SafeAreaEdges(SafeAreaRegions.None, SafeAreaRegions.Container, SafeAreaRegions.None, SafeAreaRegions.Container);
         BackgroundColor = _view.BackgroundColor;
-#if WINDOWS
-        _pageRoot.Children.Add(_view);
-        Content = _pageRoot;
-#else
         Content = _view;
-#endif
 
         _view.PlayRequested += async () => await TogglePlaybackAsync();
         _view.NextRequested += async () => await StartMixAsync();
         _view.PreviousRequested += async () => await PreviousAsync();
         _view.AutoMixChanged += ToggleAutoMix;
         _view.RepeatOneChanged += ToggleRepeatOne;
-        _view.EqualizerRequested += async () => await OpenEqualizerAsync();
-        _view.SettingsRequested += async () => await OpenSettingsAsync();
+        _view.EqualizerRequested += OpenEqualizer;
+        _view.EqualizerToggled += ToggleEqualizer;
+        _view.SettingsRequested += OpenSettings;
         _view.RecommendationsSelected += SelectRecommendations;
         _view.QueueRequested += async file => await ChooseAsync(file);
         _view.HistoryRequested += async file => await ReplayHistoryAsync(file);
         _view.QueueMoveRequested += async (from, to, after) => await MoveQueueAsync(from, to, after);
         _view.QueueRemoveRequested += async file => await RemoveQueueTrackAsync(file);
-        _view.BindFileDrops(() => !_closed, AddFilesAsync);
+        _view.BindFileDrops(() => !_closed && IsPlayerVisible, AddFilesAsync);
         _systemPlayback.CommandReceived += OnSystemPlaybackCommand;
         _view.CurrentDeck.SeekRequested += Seek;
         _view.IncomingDeck.SeekRequested += Seek;

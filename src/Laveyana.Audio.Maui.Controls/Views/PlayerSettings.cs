@@ -27,6 +27,7 @@ public sealed record PlayerSettings
     public int FadeOutMilliseconds { get; init; } = 300;
     public int CrossfadeMilliseconds { get; init; } = 6000;
     public bool AutoMix { get; init; } = true;
+    public bool ShowOnLockScreen { get; init; }
     public bool WaveformOverview { get; init; }
     public int WaveformDetailSeconds { get; init; } = DefaultWaveformDetailSeconds;
     public PlayerPalette Palette { get; init; }
