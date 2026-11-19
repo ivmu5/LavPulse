@@ -28,6 +28,7 @@ public sealed partial class WindowsWindowChrome
         _root.PointerEntered += OnRootPointerChanged;
         _root.PointerExited += OnRootPointerChanged;
         _native.Activated += OnWindowActivated;
+        _native.VisibilityChanged += OnWindowVisibilityChanged;
     }
 
     private void DetachFullscreenCaption()
@@ -37,6 +38,7 @@ public sealed partial class WindowsWindowChrome
         _root.PointerEntered -= OnRootPointerChanged;
         _root.PointerExited -= OnRootPointerChanged;
         _native.Activated -= OnWindowActivated;
+        _native.VisibilityChanged -= OnWindowVisibilityChanged;
     }
 
     private void OnRootPointerChanged(object sender, PointerRoutedEventArgs args)
@@ -62,6 +64,14 @@ public sealed partial class WindowsWindowChrome
         if (IsFullscreen && args.WindowActivationState == WindowActivationState.Deactivated)
         {
             SetCaptionVisible(false, animate: true);
+        }
+    }
+
+    private void OnWindowVisibilityChanged(object sender, WindowVisibilityChangedEventArgs args)
+    {
+        if (!args.Visible && IsFullscreen)
+        {
+            SetCaptionVisible(false, animate: false);
         }
     }
 

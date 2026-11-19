@@ -111,7 +111,7 @@ public sealed partial class MainPage
         _settings = value;
         _playback.SetAutoMix(value.AutoMix);
         _playback.SetCrossfadeDuration(value.CrossfadeMilliseconds);
-        _playback.SetSpectrumEnabled(value.ShowSpectrum && value.SpectrumWidthPercent > 0);
+        UpdateSpectrumAnalysis();
         _view.ApplyAppearance(value);
         if (save)
         {

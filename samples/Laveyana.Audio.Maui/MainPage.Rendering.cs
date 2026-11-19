@@ -29,11 +29,7 @@ public sealed partial class MainPage
         try { _systemPlayback.EnsureRunning(); }
         catch (Exception ex) { _view.Status.Text = $"Системный плеер недоступен: {ex.Message}"; }
         _positions.Start();
-#if WINDOWS
         if (_windowVisible) _view.StartPlaybackVisuals(() => _playback.Spectrum);
-#else
-        _view.StartPlaybackVisuals(() => _playback.Spectrum);
-#endif
         _view.Status.Text = "";
         _worker = _playback.RunAsync(new PlatformAudioOutput(), _settings.FadeInMilliseconds, stop.Token);
         UpdateTransport();
@@ -64,19 +60,31 @@ public sealed partial class MainPage
         }
     }
 
-#if WINDOWS
-    /// <summary>Reduces UI rendering when Windows hides the app; the mixer stays active.</summary>
+    /// <summary>Suspends player visuals and FFT while keeping playback and queue advancement active.</summary>
     internal void SetWindowVisible(bool visible)
     {
         if (_closed || _windowVisible == visible) return;
+
+        var snapshot = _playback.Snapshot;
+        // Reconcile the queue before redrawing, so a track change in the background never replays its animation.
+        if (visible) UpdatePositions(snapshot);
         _windowVisible = visible;
-        // Keep a slower UI snapshot pump for automatic transitions and queue advancement.
-        _positions.Interval = TimeSpan.FromMilliseconds(visible ? 33 : 250);
-        if (_worker is null) return;
-        if (visible) _view.StartPlaybackVisuals(() => _playback.Spectrum);
-        else _view.StopPlaybackVisuals();
+        _positions.Interval = visible ? VisibleRefreshInterval : HiddenRefreshInterval;
+        UpdateSpectrumAnalysis();
+        if (!visible)
+        {
+            _view.ResetAnimations();
+            return;
+        }
+
+        bool transitioning = IsTransitioning(snapshot);
+        _view.ResumeAnimations(snapshot, !IsStopping && !transitioning, showOverview: !transitioning);
+        UpdateQueue();
+        if (_worker is not null) _view.StartPlaybackVisuals(() => _playback.Spectrum);
     }
-#endif
+
+    private void UpdateSpectrumAnalysis() =>
+        _playback.SetSpectrumEnabled(_windowVisible && _settings.ShowSpectrum && _settings.SpectrumWidthPercent > 0);
 
     internal void StopPlayback()
     {
@@ -88,10 +96,11 @@ public sealed partial class MainPage
         }
     }
 
-    /// <summary>Updates inexpensive position visuals and starts cover animations only on deck changes.</summary>
-    private void UpdatePositions()
+    private void UpdatePositions() => UpdatePositions(_playback.Snapshot);
+
+    /// <summary>Advances queue and media state, updating the player view only while it is visible.</summary>
+    private void UpdatePositions(QueueSnapshot snapshot)
     {
-        var snapshot = _playback.Snapshot;
         UpdateDecks(snapshot);
         UpdateSystemPlayback();
         if (snapshot.Current is not { } current)
@@ -101,7 +110,7 @@ public sealed partial class MainPage
 
         if (!ReferenceEquals(current.Track, _shownCurrent))
         {
-            bool animate = ReferenceEquals(_shownIncoming, current.Track);
+            bool animate = _windowVisible && ReferenceEquals(_shownIncoming, current.Track);
             _shownIncoming = null;
             _shownCurrent = current.Track;
             _selected = _armed = null;
@@ -115,7 +124,7 @@ public sealed partial class MainPage
             }
             else
             {
-                _view.ShowCurrent(current.Track);
+                if (_windowVisible) _view.ShowCurrent(current.Track);
                 _ = SelectDefaultAsync();
             }
             UpdateTransport();
@@ -124,7 +133,7 @@ public sealed partial class MainPage
         if (snapshot.Incoming is { } incoming && !ReferenceEquals(_shownIncoming, incoming.Track))
         {
             _shownIncoming = incoming.Track;
-            _ = _view.BeginMixAsync(incoming.Track, _library.Find(incoming.Track));
+            if (_windowVisible) _ = _view.BeginMixAsync(incoming.Track, _library.Find(incoming.Track));
             UpdateTransport();
         }
     }
@@ -152,6 +161,7 @@ public sealed partial class MainPage
 
     private void UpdateDecks(QueueSnapshot snapshot)
     {
+        if (!_windowVisible) return;
         bool transitioning = IsTransitioning(snapshot);
         _view.ShowDecks(snapshot, !_closed && !IsStopping && !transitioning, showOverview: !transitioning);
     }
@@ -159,6 +169,7 @@ public sealed partial class MainPage
     private void ShowCurrent(PlayingTrack track)
     {
         _shownCurrent = track.Track;
+        if (!_windowVisible) return;
         _view.ShowCurrent(track.Track);
         _view.CurrentDeck.Show(track, true);
     }

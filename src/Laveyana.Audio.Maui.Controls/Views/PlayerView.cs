@@ -324,15 +324,30 @@ public sealed class PlayerView : Grid
     public void ShowCurrent(CachedTrack? track) => _queue.ShowCurrent(track);
     public Task BeginMixAsync(CachedTrack track, TrackFile? file) => _queue.BeginMixAsync(track, file);
     public Task FinishMixAsync(CachedTrack track, Action refreshQueue) => _queue.FinishMixAsync(track, refreshQueue);
+
     public void ResetAnimations()
     {
+        StopPlaybackVisuals();
         if (_leavingDeck is { } leaving)
         {
             CompleteDeckExit(leaving);
         }
+        CurrentDeck.CancelScrub();
+        IncomingDeck.CancelScrub();
         CurrentDeck.CancelAnimations();
         IncomingDeck.CancelAnimations();
+        CurrentDeck.TranslationX = IncomingDeck.TranslationX = 0;
         _queue.Reset();
+    }
+
+    /// <summary>Restores the visible player straight to the mixer's latest position.</summary>
+    public void ResumeAnimations(QueueSnapshot snapshot, bool canSeek, bool showOverview)
+    {
+        CurrentDeck.Show(snapshot.Current, canSeek, showOverview);
+        IncomingDeck.Show(snapshot.Incoming, false, showOverview: false);
+        _queue.ShowCurrent(snapshot.Current?.Track);
+        if (snapshot.Incoming is { } incoming) _queue.ShowIncoming(incoming.Track);
+        _queue.ResumeAnimations();
     }
 
     /// <summary>Reflects playback state and the availability of a prepared incoming track.</summary>

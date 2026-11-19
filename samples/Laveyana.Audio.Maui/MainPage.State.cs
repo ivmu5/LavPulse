@@ -11,7 +11,10 @@ public sealed partial class MainPage
 {
     private void UpdateQueue()
     {
-        _view.ShowQueue(_queue.Tracks, _queue.Current, _selected ?? _queue.Next, _queue.PlayedCount, ReadQueueItem);
+        if (_windowVisible)
+        {
+            _view.ShowQueue(_queue.Tracks, _queue.Current, _selected ?? _queue.Next, _queue.PlayedCount, ReadQueueItem);
+        }
         if (!_loadingFirst)
         {
             var snapshot = _playback.Snapshot;
@@ -31,12 +34,15 @@ public sealed partial class MainPage
 
     private void UpdateTransport()
     {
-        var snapshot = _playback.Snapshot;
-        bool idle = !_closed && !IsTransitioning(snapshot) && !IsStopping;
-        _view.SetTransport(!_closed && snapshot.Current.HasValue && !IsStopping,
-            _worker is not null && _stop?.IsCancellationRequested == false,
-            idle && !_recommendations && _selected is not null, idle && snapshot.Current.HasValue, _settings.AutoMix);
-        _view.SetRepeatOne(_repeatOne);
+        if (_windowVisible)
+        {
+            var snapshot = _playback.Snapshot;
+            bool idle = !_closed && !IsTransitioning(snapshot) && !IsStopping;
+            _view.SetTransport(!_closed && snapshot.Current.HasValue && !IsStopping,
+                _worker is not null && _stop?.IsCancellationRequested == false,
+                idle && !_recommendations && _selected is not null, idle && snapshot.Current.HasValue, _settings.AutoMix);
+            _view.SetRepeatOne(_repeatOne);
+        }
         UpdateSystemPlayback(force: true);
     }
 
@@ -51,7 +57,6 @@ public sealed partial class MainPage
         _closed = true;
         _lifetime.Cancel();
         _positions.Stop();
-        _view.CurrentDeck.CancelScrub();
         _view.ResetAnimations();
         StopPlayback();
         try
