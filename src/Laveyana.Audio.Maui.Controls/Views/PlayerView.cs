@@ -112,6 +112,13 @@ public sealed class PlayerView : Grid
         topPadding += WindowsWindowChrome.ContentInset;
 #endif
         int sidePadding = MixerStyle.IsPhone ? 12 : 16;
+#if IOS
+        if (MixerStyle.IsPhone)
+        {
+            topPadding = 8;
+            sidePadding = 10;
+        }
+#endif
         var player = new Grid
         {
             HorizontalOptions = LayoutOptions.Center,
@@ -137,7 +144,12 @@ public sealed class PlayerView : Grid
             if (_body.Width > 0 && _body.Height > 0)
             {
                 player.WidthRequest = Math.Min(760, _body.Width);
+#if IOS
+                bool shortPhone = MixerStyle.IsPhone && _body.Height < 430;
+                deckScroll.MaximumHeightRequest = _body.Height * (shortPhone ? .43 : .56);
+#else
                 deckScroll.MaximumHeightRequest = _body.Height * .56;
+#endif
             }
         };
         return player;
@@ -196,6 +208,12 @@ public sealed class PlayerView : Grid
             ColumnDefinitions = [new(GridLength.Star), new(0), new(GridLength.Star)],
             RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)], RowSpacing = 4
         };
+#if IOS
+        // Let the two groups take their natural widths on small iPhones, with flexible space between.
+        _equalizerToggle.WidthRequest = 52;
+        controls.ColumnDefinitions[0].Width = controls.ColumnDefinitions[2].Width = GridLength.Auto;
+        controls.ColumnDefinitions[1].Width = GridLength.Star;
+#endif
         _automix.Clicked += (_, _) => AutoMixChanged?.Invoke();
         _repeatOne.Clicked += (_, _) => RepeatOneChanged?.Invoke();
         _equalizer.Clicked += (_, _) => EqualizerRequested?.Invoke();
@@ -235,7 +253,12 @@ public sealed class PlayerView : Grid
             bool next = controls.Width >= 520;
             if (next == wide) return;
             wide = next;
+#if IOS
+            controls.ColumnDefinitions[0].Width = controls.ColumnDefinitions[2].Width = wide ? GridLength.Star : GridLength.Auto;
+            controls.ColumnDefinitions[1].Width = wide ? GridLength.Auto : GridLength.Star;
+#else
             controls.ColumnDefinitions[1].Width = wide ? GridLength.Auto : new GridLength(0);
+#endif
             Grid.SetColumnSpan(primary, wide ? 1 : 3);
             Grid.SetColumn(primary, wide ? 1 : 0);
             Grid.SetRow(primary, wide ? 0 : 1);

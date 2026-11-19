@@ -15,7 +15,13 @@ public sealed partial class MainPage
 
     private async Task ExecuteSystemPlaybackCommandAsync(SystemPlaybackCommand command)
     {
-        if (_closed || _loadingFirst || IsStopping) return;
+        if (_closed) return;
+        if (command == SystemPlaybackCommand.Interrupted)
+        {
+            StopPlayback();
+            return;
+        }
+        if (_loadingFirst || IsStopping) return;
         try
         {
             switch (command)
@@ -46,7 +52,7 @@ public sealed partial class MainPage
     {
         if (_closed || _playback.Snapshot.Current is not { } current) return;
         bool playing = overridePlaying ?? (_worker is not null && !_pausing && !(_stop?.IsCancellationRequested ?? false));
-        bool changed = !ReferenceEquals(_lastSystemTrack, current.Track) || playing != _lastSystemPlaying;
+        bool changed = !ReferenceEquals(_lastSystemTrack, current.Track) || playing != _lastSystemPlaying || current.Speed != _lastSystemSpeed;
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
 #if WINDOWS
         // Windows SMTC extrapolates the position itself; avoid expensive COM calls every frame.
@@ -59,8 +65,9 @@ public sealed partial class MainPage
             return;
         _lastSystemTrack = current.Track;
         _lastSystemPlaying = playing;
+        _lastSystemSpeed = current.Speed;
         _lastSystemUpdate = now;
         _systemPlayback.Publish(new SystemPlaybackState(current.Track, current.Position, playing,
-            !_recommendations && (_selected is not null || _queue.Next is not null), true));
+            !_recommendations && (_selected is not null || _queue.Next is not null), true, current.Speed));
     }
 }

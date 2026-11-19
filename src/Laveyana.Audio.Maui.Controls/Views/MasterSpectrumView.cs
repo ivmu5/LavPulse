@@ -113,7 +113,7 @@ public sealed partial class MasterSpectrumView : ContentView
     /// <summary>Stops the display clock and releases its callback.</summary>
     partial void StopFrameLoop();
 
-#if !ANDROID && !WINDOWS
+#if !ANDROID && !WINDOWS && !IOS && !MACCATALYST
     private IDispatcherTimer? _displayTimer;
 
     /// <summary>Starts the display clock for the current platform.</summary>

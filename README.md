@@ -4,7 +4,7 @@ English | [Русский](README.ru.md)
 
 LavPulse is a local MP3 player with a two-deck DJ mixer, built with .NET 10 and .NET MAUI.
 
-The application decodes tracks into a seekable PCM cache, mixes them on a shared 48 kHz stereo timeline, applies a configurable master equalizer, and displays waveforms and a spectrum of the resulting output. Windows and Android have separate native audio and system-media integrations; the mixing and queue logic is shared.
+The application decodes tracks into a seekable PCM cache, mixes them on a shared 48 kHz stereo timeline, applies a configurable master equalizer, and displays waveforms and a spectrum of the resulting output. Windows, Android, and iOS have native audio and system-media integrations; the mixing and queue logic is shared.
 
 ## Contents
 
@@ -22,12 +22,19 @@ The application decodes tracks into a seekable PCM cache, mixes them on a shared
 
 ## Build and run
 
-Open [`Laveyana.Audio.Maui.slnx`](Laveyana.Audio.Maui.slnx) in Visual Studio with the **.NET 10 SDK** and the **.NET MAUI** workload. For Android, install its Android SDK and JDK 21; Windows needs the WinUI/MAUI Windows tooling.
+Open [`Laveyana.Audio.Maui.slnx`](Laveyana.Audio.Maui.slnx) in Visual Studio with the **.NET 10 SDK** and the **.NET MAUI** workload. Android requires the Android SDK and JDK 21. Windows requires WinUI/MAUI tooling, and iOS requires a Mac, compatible Xcode, and the `maui-ios` workload.
 
 | Target | Project | Command |
 |---|---|---|
 | Windows | `Laveyana.Audio.Maui.csproj` | `dotnet build samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.csproj -c Debug` |
 | Android | `Laveyana.Audio.Maui.Android.csproj` | `dotnet build samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.Android.csproj -c Debug -p:AndroidPackageFormats=apk` |
+
+On a Mac, build the iPhone simulator target as follows. The [iOS workflow](.github/workflows/ios.yml) pins a compatible SDK and Xcode. To build for an iPhone, select `ios-arm64` and configure Apple development signing.
+
+```bash
+dotnet workload install maui-ios
+dotnet build samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.csproj -c Debug -p:LavPulsePlatform=ios -p:RuntimeIdentifier=iossimulator-arm64 -p:EnableCodeSigning=false
+```
 
 Run `dotnet restore Laveyana.Audio.Maui.slnx` after switching platforms or updating workloads. The solution keeps Windows and Android intermediate outputs separate (see [`Directory.Build.props`](Directory.Build.props)) to prevent mixed NuGet assets and long Android resource paths.
 
@@ -39,7 +46,7 @@ In the app, import MP3 files or a folder from **Settings → Media library**; Wi
 - Ten-band master EQ plus output gain, applied **before** master-spectrum analysis.
 - Detailed and overview waveforms, seek gestures, a frequency spectrum and an animated deck handoff.
 - Reorderable queue, played-track history, ID3 artwork/tags, and sequential background preparation of added MP3s.
-- Background playback and OS media commands on Android and Windows.
+- Background playback and OS media commands on Android, Windows, and iOS.
 
 ## Architecture
 
@@ -152,7 +159,7 @@ For one-shot, independently controlled decks, [`PlaybackSession`](src/Laveyana.A
 - `MainPage` owns `PlayerLibrary`, `PlaybackQueue`, `QueuePlaybackSession` and the OS media bridge; `CloseAsync` cancels/awaits playback and analysis before deleting cached audio.
 - Imports and waveform analysis use async tasks with bounded decoding. The native output consumes PCM on its own thread; C# MAUI views and queue state are updated on the UI dispatcher.
 - The audio mixer has one render caller. `QueueSource` synchronizes changes to the active/next deck; the latest display snapshot is read separately. The decoder-to-UI track lookup uses a concurrent dictionary.
-- Pausing and minimizing are different: minimizing does not cancel the mixer. Android uses a media foreground service; Windows publishes System Media Transport Controls.
+- Pausing and minimizing are different: minimizing does not cancel the mixer. Android uses a media foreground service, Windows publishes System Media Transport Controls, and iOS uses AVAudioSession and Now Playing.
 
 <details>
 <summary>Performance and ownership details</summary>
@@ -171,14 +178,14 @@ For platform adapters, see [Android `PlatformAudioOutput`](samples/Laveyana.Audi
 dotnet run --project tests/Laveyana.Audio.Playback.Checks -c Release
 ```
 
-It covers MP3 frame information, spectrum capture, transport fades, seek/speed, queue transitions/history, repeat-one, the master EQ and output failure cleanup. Add deterministic audio invariants here; exercise native MAUI gestures, background playback and system media sessions manually on Windows and Android. [`build.yml`](.github/workflows/build.yml) runs only by manual GitHub Actions dispatch.
+It covers MP3 frame information, spectrum capture, transport fades, seek/speed, queue transitions/history, repeat-one, the master EQ and output failure cleanup. Add deterministic audio invariants here; exercise native MAUI gestures, background playback and system media sessions on the corresponding devices. [`build.yml`](.github/workflows/build.yml) runs by manual dispatch. The [iOS workflow](.github/workflows/ios.yml) builds and launches the app in an iPhone simulator. For a manual iOS check, import two MP3s from Files, exercise mixing, EQ and seeking, then lock the screen and try the Now Playing controls.
 
 ## Limitations
 
 - The import path accepts local **MP3**, not streaming services or arbitrary codecs. Decoding supports mono/stereo MP3 with a source rate up to 48 kHz.
 - Changing deck speed resamples PCM and **changes pitch**; beat matching and pitch-preserving time stretching are not implemented here.
 - The mixer provides two playback decks and one stereo master output. It does not enumerate or synchronize several simultaneous audio devices.
-- Recommendations are a UI placeholder. Apple platform targets have output adapters, but the OS-media adapter is a placeholder; the primary tested targets are Windows and Android.
+- Recommendations are a UI placeholder.
 - Windows may show additional latency due to WaveOut buffering; system controls and background behavior depend on the OS and device.
 
 ## Extension points

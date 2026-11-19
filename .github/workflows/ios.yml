@@ -1,0 +1,61 @@
+name: iPhone simulator
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/ios.yml'
+      - 'Directory.Build.props'
+      - 'MauiPlatforms.props'
+      - 'src/**'
+      - 'samples/Laveyana.Audio.Maui/**'
+
+permissions:
+  contents: read
+
+jobs:
+  iphone:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.203'
+      - name: Select Xcode and install the iOS workload
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.4.1.app/Contents/Developer
+          xcodebuild -version
+          dotnet workload install maui-ios --version 10.0.203.1
+      - name: Build the iPhone simulator app
+        run: >-
+          dotnet build samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.csproj
+          -c Debug
+          -p:LavPulsePlatform=ios
+          -p:RuntimeIdentifier=iossimulator-arm64
+          -p:EnableCodeSigning=false
+      - name: Launch LavPulse on an iPhone simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="$(xcrun --sdk iphonesimulator --show-sdk-version)"
+          runtime="com.apple.CoreSimulator.SimRuntime.iOS-${sdk//./-}"
+          device="$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"].get(sys.argv[1], [])
+          print(next(device["udid"] for device in devices if device["name"].startswith("iPhone")))
+          ' "$runtime")"
+          trap 'xcrun simctl shutdown "$device" || true' EXIT
+          xcrun simctl boot "$device"
+          xcrun simctl bootstatus "$device" -b
+          app="$(find samples/Laveyana.Audio.Maui/bin -type d -path '*/iossimulator-arm64/Laveyana.Audio.Maui.app' -print -quit)"
+          test -n "$app"
+          xcrun simctl install "$device" "$app"
+          bundle="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")"
+          launched="$(xcrun simctl launch "$device" "$bundle")"
+          echo "$launched"
+          pid="${launched##*: }"
+          sleep 5
+          kill -0 "$pid"

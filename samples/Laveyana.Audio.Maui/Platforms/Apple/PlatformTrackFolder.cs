@@ -43,8 +43,8 @@ internal static class PlatformTrackFolder
                 token.ThrowIfCancellationRequested();
                 if (TrackFile.IsMp3(file))
                 {
-                    tracks.Add(new TrackFile(Path.GetFileName(file),
-                        (destination, copyToken) => CopyFromFolderAsync(folder, file, destination, copyToken)));
+                    tracks.Add(TrackFile.FromStream(Path.GetFileName(file), () =>
+                        Task.FromResult<Stream>(OpenScopedFile(folder, file))) with { LocalPath = file });
                 }
             }
 
@@ -59,21 +59,35 @@ internal static class PlatformTrackFolder
         }
     }
 
-    /// <summary>Opens the stream while access to the security-scoped folder is granted.</summary>
-    private static async Task CopyFromFolderAsync(NSUrl folder, string path, Stream destination, CancellationToken token)
+    /// <summary>Holds the folder's security grant for the lifetime of the seekable file.</summary>
+    private static Stream OpenScopedFile(NSUrl folder, string path)
     {
         bool scoped = folder.StartAccessingSecurityScopedResource();
         try
         {
-            await using Stream source = File.OpenRead(path);
-            await source.CopyToAsync(destination, token).ConfigureAwait(false);
+            return new ScopedFileStream(path, scoped ? folder : null);
         }
-        finally
+        catch
         {
-            if (scoped)
-            {
-                folder.StopAccessingSecurityScopedResource();
-            }
+            if (scoped) folder.StopAccessingSecurityScopedResource();
+            throw;
+        }
+    }
+
+    private sealed class ScopedFileStream(string path, NSUrl? scope) : FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)
+    {
+        private NSUrl? _scope = scope;
+
+        protected override void Dispose(bool disposing)
+        {
+            try { base.Dispose(disposing); }
+            finally { Interlocked.Exchange(ref _scope, null)?.StopAccessingSecurityScopedResource(); }
+        }
+
+        public override async ValueTask DisposeAsync()
+        {
+            try { await base.DisposeAsync().ConfigureAwait(false); }
+            finally { Interlocked.Exchange(ref _scope, null)?.StopAccessingSecurityScopedResource(); }
         }
     }
 

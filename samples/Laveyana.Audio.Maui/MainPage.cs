@@ -19,6 +19,7 @@ public sealed partial class MainPage : ContentPage
     private long _lastSystemUpdate;
     private CachedTrack? _lastSystemTrack;
     private bool _lastSystemPlaying;
+    private double _lastSystemSpeed;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly PlayerLibrary _library;
     private readonly IDispatcherTimer _positions;
@@ -53,7 +54,11 @@ public sealed partial class MainPage : ContentPage
     public MainPage()
     {
         _library = new PlayerLibrary(new TrackPreparation(FileSystem.CacheDirectory), _lifetime.Token);
+#if IOS
+        SafeAreaEdges = new SafeAreaEdges(SafeAreaRegions.Container);
+#else
         SafeAreaEdges = new SafeAreaEdges(SafeAreaRegions.None, SafeAreaRegions.Container, SafeAreaRegions.None, SafeAreaRegions.Container);
+#endif
         BackgroundColor = _view.BackgroundColor;
         Content = _view;
 
