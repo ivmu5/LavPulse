@@ -15,6 +15,17 @@ internal sealed class PlaybackQueue
     public TrackFile? Next => At(NextIndex);
     public TrackFile? Previous => At(PlayedCount - 1);
 
+    /// <summary>Copies the tracks immediately after the playback boundary in queue order.</summary>
+    public TrackFile[] GetUpcoming(int limit)
+    {
+        int start = NextIndex;
+        int count = Math.Min(limit, _tracks.Count - start);
+        if (count <= 0) return [];
+        var upcoming = new TrackFile[count];
+        _tracks.CopyTo(start, upcoming, 0, count);
+        return upcoming;
+    }
+
     public void AddRange(IEnumerable<TrackFile> files)
     {
         foreach (var file in files)

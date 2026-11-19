@@ -9,6 +9,7 @@ string directory = Directory.CreateTempSubdirectory("lavpulse-checks-").FullName
 try
 {
     CheckQueuePreservesOrderOnDirectSelection();
+    await CheckQueueAnalysisLookahead();
     CheckMp3AudioInfo();
     CheckSpectrumCaptureToggle();
     Console.WriteLine("OK: MP3 stream properties.");
@@ -28,6 +29,57 @@ try
 finally
 {
     Directory.Delete(directory, recursive: true);
+}
+
+static async Task CheckQueueAnalysisLookahead()
+{
+    var files = Enumerable.Range(0, 15).Select(i => TrackFile.FromPath($"queue-{i}.mp3")).ToArray();
+    var queue = new PlaybackQueue();
+    queue.AddRange(files);
+    queue.SetCurrent(files[0]);
+    Require(queue.GetUpcoming(10).SequenceEqual(files[1..11]), "Lookahead must start after the current track.");
+
+    var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var prepared = new System.Collections.Concurrent.ConcurrentDictionary<TrackFile, bool>();
+    var order = new List<TrackFile>();
+    using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+    var analysis = new QueueTrackAnalysis(prepared.ContainsKey, async file =>
+    {
+        order.Add(file);
+        if (file == files[1])
+        {
+            started.SetResult();
+            await release.Task.WaitAsync(stop.Token);
+        }
+        if (file == files[3]) throw new InvalidDataException("Damaged MP3.");
+        prepared[file] = true;
+    }, () => { }, stop.Token);
+
+    var first = analysis.Update(queue.GetUpcoming(10), allowed: true)!;
+    await started.Task.WaitAsync(stop.Token);
+    Require(queue.TryRemove(files[2], _ => true), "Could not remove a pending track.");
+    Require(analysis.Update(queue.GetUpcoming(10), allowed: false) is null, "A second worker started.");
+    release.SetResult();
+    await first.WaitAsync(stop.Token);
+    analysis.Finish();
+    Require(order.SequenceEqual(files[1..2]), "A new decode started after the background execution window expired.");
+
+    var resumed = analysis.Update(queue.GetUpcoming(10), allowed: true)!;
+    await resumed.WaitAsync(stop.Token);
+    analysis.Finish();
+    Require(order.SequenceEqual(new[] { files[1] }.Concat(files[3..12])),
+        "Lookahead ignored a removal, skipped viable tracks after an error, or exceeded ten positions.");
+    Require(analysis.Update(queue.GetUpcoming(10), allowed: true) is null, "Prepared or failed tracks were scheduled again.");
+
+    queue.SetCurrent(files[3]);
+    Require(queue.TryRemove(files[3], _ => true), "Could not remove the playing row.");
+    Require(queue.GetUpcoming(10).SequenceEqual(files[4..14]), "Lookahead lost the detached playback boundary.");
+    await analysis.Update(queue.GetUpcoming(10), allowed: true)!.WaitAsync(stop.Token);
+    analysis.Finish();
+    Require(order.TakeLast(2).SequenceEqual(files[12..14]) && !prepared.ContainsKey(files[14]),
+        "Advancing the queue did not refill only the new lookahead positions.");
+    Console.WriteLine("OK: rolling queue analysis, background pause and resume, and failed-track isolation.");
 }
 
 /// <summary>Switching directly to any track changes the history boundary, not the playlist order.</summary>

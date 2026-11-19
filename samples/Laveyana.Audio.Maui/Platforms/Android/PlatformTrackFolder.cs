@@ -18,7 +18,7 @@ internal static class PlatformTrackFolder
             return null;
         }
 
-        var resolver = activity.ContentResolver
+        var resolver = Android.App.Application.Context.ContentResolver
             ?? throw new InvalidOperationException("Android не открыл доступ к папке.");
         return await Task.Run(() => ReadFolder(resolver, tree, token), token);
     }

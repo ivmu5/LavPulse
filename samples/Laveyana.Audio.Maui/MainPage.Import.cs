@@ -78,9 +78,6 @@ public sealed partial class MainPage
         {
             await SelectDefaultAsync();
         }
-
-        // Prepare the remaining tracks sequentially, without delaying the first playable deck.
-        EnqueueBackgroundAnalysis(added);
     }
 
     /// <summary>Attempts the first playable file and keeps later candidates available.</summary>
