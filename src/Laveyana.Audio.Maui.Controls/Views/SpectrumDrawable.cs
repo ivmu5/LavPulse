@@ -7,10 +7,10 @@ internal sealed class SpectrumDrawable : IDrawable
     private const float PeakHoldSeconds = .28f;
     private const float PeakFallPerSecond = 1.8f;
     private const int BrightnessIntervals = 100;
-    private readonly BandPaint[][] _paint = new BandPaint[PlaybackFormat.SpectrumBars][];
-    private readonly float[] _bars = new float[PlaybackFormat.SpectrumBars];
-    private readonly float[] _peaks = new float[PlaybackFormat.SpectrumBars];
-    private readonly float[] _peakTimers = new float[PlaybackFormat.SpectrumBars];
+    private readonly BandPaint[][] _paint;
+    private readonly float[] _bars;
+    private readonly float[] _peaks;
+    private readonly float[] _peakTimers;
     private bool _showPeaks;
     private float _fullBrightnessLevel;
     private int _topPaddingRows;
@@ -18,7 +18,18 @@ internal sealed class SpectrumDrawable : IDrawable
     private float _widthFraction;
     private bool _showSpectrum;
 
-    public SpectrumDrawable() => SetAppearance(PlayerColors.For(PlayerPalette.LavPulse), new PlayerSettings());
+    public SpectrumDrawable() : this(PlaybackFormat.SpectrumBars, PlayerColors.For(PlayerPalette.LavPulse), new PlayerSettings())
+    {
+    }
+
+    internal SpectrumDrawable(int bandCount, PlayerColors colors, PlayerSettings settings)
+    {
+        _paint = new BandPaint[bandCount][];
+        _bars = new float[bandCount];
+        _peaks = new float[bandCount];
+        _peakTimers = new float[bandCount];
+        SetAppearance(colors, settings);
+    }
 
     /// <summary>Updates the edge margins and caches brightness steps for allocation-free drawing.</summary>
     public void SetAppearance(PlayerColors colors, PlayerSettings settings)

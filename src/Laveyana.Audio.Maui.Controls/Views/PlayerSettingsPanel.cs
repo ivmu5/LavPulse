@@ -1,7 +1,7 @@
 namespace Laveyana.Audio.Maui.Controls;
 
 /// <summary>Edits one preference set with one expanded, lazily created section at a time.</summary>
-public sealed class PlayerSettingsPanel : ContentView
+public sealed partial class PlayerSettingsPanel : ContentView
 {
     private readonly Func<Task> _pickFiles;
     private readonly Func<Task> _pickFolder;
@@ -151,20 +151,46 @@ public sealed class PlayerSettingsPanel : ContentView
             new(PlayerSettings.MinimumWaveformDetailSeconds, PlayerSettings.MaximumWaveformDetailSeconds,
                 defaults.WaveformDetailSeconds, 1), _settings.WaveformDetailSeconds,
             value => _settings = _settings with { WaveformDetailSeconds = value });
-        var overview = Select("Вид нижней дорожки", ["Полоса прогресса", "Цветная волна"],
-            _settings.WaveformOverview ? 1 : 0,
-            index => _settings = _settings with { WaveformOverview = index == 1 });
-        return Section("Дорожки деки", Pair(detail.Row, overview));
+        var colors = PlayerColors.For(_settings.Palette);
+        var overview = Select("Вид нижней дорожки", [(false, "Полоса прогресса"), (true, "Цветная волна")],
+            _settings.WaveformOverview, waveform => CreateTimelinePreview(colors, waveform),
+            waveform => _settings = _settings with { WaveformOverview = waveform });
+        return Section("Дорожки деки", detail.Row, overview);
     }
 
     private View CreateColorSection()
     {
-        var palette = Select("Цвета", ["LavPulse", "Океан", "Тёплая"], (int)_settings.Palette,
-            index => _settings = _settings with { Palette = (PlayerPalette)index });
-        var colors = Select("Цвет мастер-спектра", ["Два цвета", "Градиент по частотам", "Однотонный"],
-            (int)_settings.SpectrumColors, index => _settings = _settings with { SpectrumColors = (SpectrumColorMode)index });
-        return Section("Цветовая палитра", palette, colors);
+        var previews = new List<(SpectrumColorMode Mode, SpectrumDrawable Drawable, GraphicsView View)>();
+        var spectrum = Select("Цвет мастер-спектра",
+            [(SpectrumColorMode.Split, "Два цвета"), (SpectrumColorMode.FrequencyGradient, "Градиент по частотам"),
+             (SpectrumColorMode.Monochrome, "Однотонный")],
+            _settings.SpectrumColors, mode =>
+            {
+                var drawable = new SpectrumDrawable(SampleLevels.Length, PlayerColors.For(_settings.Palette), SpectrumPreviewSettings(mode));
+                drawable.Advance(SampleLevels, .1f);
+                var view = new GraphicsView { Drawable = drawable, BackgroundColor = MixerStyle.Overlay };
+                previews.Add((mode, drawable, view));
+                return view;
+            }, mode => _settings = _settings with { SpectrumColors = mode });
+        var palette = Select("Цвета", [(PlayerPalette.LavPulse, "LavPulse"), (PlayerPalette.Ocean, "Океан"),
+            (PlayerPalette.Warm, "Тёплая")], _settings.Palette, CreatePalettePreview, choice =>
+        {
+            _settings = _settings with { Palette = choice };
+            var colors = PlayerColors.For(choice);
+            foreach (var preview in previews)
+            {
+                preview.Drawable.SetAppearance(colors, SpectrumPreviewSettings(preview.Mode));
+                preview.View.Invalidate();
+            }
+        });
+        return Section("Цветовая палитра", palette, spectrum);
     }
+
+    private PlayerSettings SpectrumPreviewSettings(SpectrumColorMode mode) => _settings with
+    {
+        SpectrumColors = mode, ShowSpectrum = true, ShowPeaks = false, SpectrumWidthPercent = 42,
+        SpectrumTopPaddingRows = 0, SpectrumBottomPaddingRows = 0
+    };
 
     private View CreateSpectrumSection()
     {
@@ -220,21 +246,6 @@ public sealed class PlayerSettingsPanel : ContentView
         input.ValueChanged += value => update((int)value);
         _visibleNumbers.Add(input);
         return (new VerticalStackLayout { Spacing = 3, Children = { MixerStyle.Label(name, 13), input } }, input);
-    }
-
-    private View Select(string name, string[] labels, int selected, Action<int> update)
-    {
-        var picker = new Picker
-        {
-            ItemsSource = labels, TextColor = MixerStyle.TextColor, BackgroundColor = MixerStyle.Overlay,
-            FontSize = 14, SelectedIndex = Math.Max(0, selected)
-        };
-        SemanticProperties.SetDescription(picker, name);
-        picker.SelectedIndexChanged += (_, _) =>
-        {
-            if (!_loading && picker.SelectedIndex >= 0) update(picker.SelectedIndex);
-        };
-        return new VerticalStackLayout { Spacing = 3, Children = { MixerStyle.Label(name, 13), picker } };
     }
 
     private View Toggle(string name, bool selected, Action<bool> update)
