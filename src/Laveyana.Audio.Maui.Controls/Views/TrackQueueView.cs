@@ -50,6 +50,7 @@ internal sealed partial class TrackQueueView : Grid
     private bool _showRecommendations;
     private int _animation;
     private bool _handoff;
+    private bool _rowAnimationsEnabled = true;
 
     public TrackQueueView()
     {
@@ -62,6 +63,7 @@ internal sealed partial class TrackQueueView : Grid
         _rowClock.Tick += (_, _) => AnimateRows();
         Loaded += (_, _) =>
         {
+            if (!_rowAnimationsEnabled) return;
             _rowClock.Start();
             FocusCurrent();
         };
@@ -420,7 +422,13 @@ internal sealed partial class TrackQueueView : Grid
         _lastDrag = Stopwatch.GetTimestamp();
         _dragScrollDirection = 0;
         ClearDropTarget();
-        if (wasDragging) Dispatcher.Dispatch(() => RefreshRows(force: true));
+        if (wasDragging && _rowAnimationsEnabled)
+        {
+            Dispatcher.Dispatch(() =>
+            {
+                if (_rowAnimationsEnabled) RefreshRows(force: true);
+            });
+        }
     }
 
     private void ClearDropTarget()
@@ -435,7 +443,7 @@ internal sealed partial class TrackQueueView : Grid
     /// <summary>Animates only rows inside the scroll viewport, including the slow text marquee.</summary>
     private void AnimateRows()
     {
-        if (_showRecommendations || _queue.Opacity == 0 || _queueScroll.Height <= 0)
+        if (!_rowAnimationsEnabled || _showRecommendations || _queue.Opacity == 0 || _queueScroll.Height <= 0)
         {
             return;
         }
@@ -464,24 +472,32 @@ internal sealed partial class TrackQueueView : Grid
     /// <summary>Expands the selected row into the full incoming card over the queue.</summary>
     public async Task BeginMixAsync(CachedTrack track, TrackFile? file)
     {
+        var row = file is not null && _trackRows.TryGetValue(file, out var item) ? item : null;
+        double originY = row is null ? 0 : Math.Clamp(_queueScroll.Y + (double)(row.Index - _visibleStart) * RowStride - _queueScroll.ScrollY, 0, Math.Max(0, _right.Height - 44));
+        double rowHeight = Math.Max(44, row?.Height ?? 0);
+        ShowIncoming(track);
+        _incoming.TranslationY = originY;
+        _incoming.ScaleX = .96;
+        _incoming.ScaleY = Math.Clamp(rowHeight / Math.Max(1, _right.Height), .15, 1);
+        await Task.WhenAll(
+            _incoming.TranslateToAsync(0, 0, 260, Easing.CubicOut),
+            _incoming.ScaleXToAsync(1, 260, Easing.CubicOut),
+            _incoming.ScaleYToAsync(1, 260, Easing.CubicOut));
+    }
+
+    /// <summary>Shows the incoming card at rest, including when the app returns during a mix.</summary>
+    public void ShowIncoming(CachedTrack track)
+    {
         _animation++;
         _queue.InputTransparent = true;
         _queue.Opacity = 0;
         _incoming.Show(track, "Сведение");
         EndDrag();
-        var row = file is not null && _trackRows.TryGetValue(file, out var item) ? item : null;
-        double originY = row is null ? 0 : Math.Clamp(_queueScroll.Y + (double)(row.Index - _visibleStart) * RowStride - _queueScroll.ScrollY, 0, Math.Max(0, _right.Height - 44));
-        double rowHeight = Math.Max(44, row?.Height ?? 0);
-        _incoming.TranslationY = originY;
-        _incoming.ScaleX = .96;
-        _incoming.ScaleY = Math.Clamp(rowHeight / Math.Max(1, _right.Height), .15, 1);
+        _incoming.TranslationX = _incoming.TranslationY = 0;
+        _incoming.ScaleX = _incoming.ScaleY = 1;
         _incoming.AnchorY = 0;
         _incoming.Opacity = 1;
         _incoming.IsVisible = true;
-        await Task.WhenAll(
-            _incoming.TranslateToAsync(0, 0, 260, Easing.CubicOut),
-            _incoming.ScaleXToAsync(1, 260, Easing.CubicOut),
-            _incoming.ScaleYToAsync(1, 260, Easing.CubicOut));
     }
 
     /// <summary>Replaces the outgoing cover, then brings the next list in from the right edge.</summary>
@@ -528,9 +544,11 @@ internal sealed partial class TrackQueueView : Grid
         }
     }
 
-    /// <summary>Clears animations and restores a stable screen when the window is closing.</summary>
+    /// <summary>Clears running animations while the window is hidden or closing.</summary>
     public void Reset()
     {
+        _rowAnimationsEnabled = false;
+        _rowClock.Stop();
         _animation++;
         _current.CancelAnimations();
         _incoming.CancelAnimations();
@@ -542,7 +560,12 @@ internal sealed partial class TrackQueueView : Grid
         _queue.InputTransparent = false;
         _handoff = false;
         EndDrag();
-        _rowClock.Stop();
+    }
+
+    public void ResumeAnimations()
+    {
+        _rowAnimationsEnabled = true;
+        if (IsLoaded) _rowClock.Start();
     }
 
     public bool IsHandingOff => _handoff;

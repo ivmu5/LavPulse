@@ -20,6 +20,18 @@ public sealed class App : Application
         var window = new Window(page) { Title = "LavPulse" };
 #if WINDOWS
         WindowsWindowChrome.Configure(window);
+        window.Created += (_, _) =>
+        {
+            if (window.Handler?.PlatformView is Microsoft.UI.Xaml.Window native)
+            {
+                native.VisibilityChanged += OnVisibilityChanged;
+                window.Destroying += (_, _) => native.VisibilityChanged -= OnVisibilityChanged;
+            }
+        };
+
+        void OnVisibilityChanged(object sender, Microsoft.UI.Xaml.WindowVisibilityChangedEventArgs args) =>
+            page.SetWindowVisible(args.Visible);
+#elif ANDROID
         window.Stopped += (_, _) => page.SetWindowVisible(false);
         window.Resumed += (_, _) => page.SetWindowVisible(true);
 #endif

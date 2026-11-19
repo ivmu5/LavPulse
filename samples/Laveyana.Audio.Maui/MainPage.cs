@@ -9,6 +9,9 @@ namespace Laveyana.Audio.Maui;
 /// <summary>Coordinates the native player, its local library and one continuous playback queue.</summary>
 public sealed partial class MainPage : ContentPage
 {
+    private static readonly TimeSpan VisibleRefreshInterval = TimeSpan.FromMilliseconds(33);
+    private static readonly TimeSpan HiddenRefreshInterval = TimeSpan.FromMilliseconds(250);
+
     private readonly PlayerView _view = new();
 #if WINDOWS
     private readonly Grid _pageRoot = new();
@@ -16,9 +19,7 @@ public sealed partial class MainPage : ContentPage
 #endif
     private readonly QueuePlaybackSession _playback = new();
     private readonly ISystemPlaybackIntegration _systemPlayback = new PlatformSystemPlaybackIntegration();
-#if WINDOWS
     private bool _windowVisible = true;
-#endif
     private long _lastSystemUpdate;
     private CachedTrack? _lastSystemTrack;
     private bool _lastSystemPlaying;
@@ -82,7 +83,7 @@ public sealed partial class MainPage : ContentPage
         _view.IncomingDeck.SpeedRequested += SetTrackSpeed;
 
         _positions = Dispatcher.CreateTimer();
-        _positions.Interval = TimeSpan.FromMilliseconds(33);
+        _positions.Interval = VisibleRefreshInterval;
         _positions.Tick += (_, _) => UpdatePositions();
         ApplyEqualizer(_equalizer);
         ApplySettings(_settings, save: false);
