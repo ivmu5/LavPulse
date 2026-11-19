@@ -1,73 +1,94 @@
-using Laveyana.Audio.Maui.AudioOutput;
-using Laveyana.Audio.Maui.Controls;
-using Laveyana.Audio.Maui.Tracks;
-using Laveyana.Audio.Maui.Settings;
 using Laveyana.Audio.Playback;
+#if IOS
+using UIKit;
+#endif
 
 namespace Laveyana.Audio.Maui;
 
 /// <summary>Partial player coordinator: analysis workflow.</summary>
 public sealed partial class MainPage
 {
-    /// <summary>Queues each newly added MP3 once. Only one background decoder is fed at a time.</summary>
-    private void EnqueueBackgroundAnalysis(IEnumerable<TrackFile> files)
+    private const int QueueLookahead = 10;
+#if IOS
+    private nint _analysisBackgroundTask = UIApplication.BackgroundTaskInvalid;
+    private bool _analysisBackgroundExpired;
+#endif
+
+    private void UpdateQueueAnalysis()
     {
-        foreach (var file in files)
+        if (_closed) return;
+
+        var upcoming = _queue.GetUpcoming(QueueLookahead);
+        if (!_loadingFirst)
         {
-            if (_analysisSeen.Add(file)) _analysisPending.Enqueue(file);
+            var snapshot = _playback.Snapshot;
+            _library.Trim(snapshot.Current?.Track, snapshot.Incoming?.Track, _selected, _armed, upcoming);
         }
-        if (_closed || _analysisRunning || _analysisPending.Count == 0) return;
-        _analysisRunning = true;
-        _analysisWorker = AnalyzeQueueSequentiallyAsync();
+
+        bool allowed = true;
+#if IOS
+        if (_windowVisible) _analysisBackgroundExpired = false;
+        allowed = !_analysisBackgroundExpired || _worker is not null;
+#endif
+        var work = _queueAnalysis.Update(upcoming, allowed);
+        if (!_queueAnalysis.IsRunning) return;
+
+#if ANDROID
+        if (_windowVisible) AndroidTrackAnalysisService.Start();
+#elif IOS
+        if (_windowVisible && _analysisBackgroundTask == UIApplication.BackgroundTaskInvalid)
+        {
+            _analysisBackgroundTask = UIApplication.SharedApplication.BeginBackgroundTask(
+                "LavPulse track analysis", OnAnalysisBackgroundExpiration);
+        }
+#endif
+        if (work is not null) _analysisWorker = ObserveQueueAnalysisAsync(work);
     }
 
-    /// <summary>
-    /// Prepares the queue from left to right using one background lane. Direct selections use
-    /// the second decode slot, so a large imported folder never blocks user-initiated playback.
-    /// </summary>
-    private async Task AnalyzeQueueSequentiallyAsync()
+#if IOS
+    private void OnAnalysisBackgroundExpiration()
     {
-        try
-        {
-            while (!_closed && _analysisPending.TryDequeue(out var file))
-            {
-                if (!_queue.Tracks.Contains(file)) continue;
-                try
-                {
-                    // The library deduplicates concurrent preparation with foreground requests.
-                    if (_library.GetPrepared(file) is null)
-                    {
-                        var work = _library.PrepareAsync(file);
-                        if (!work.IsCompleted) ScheduleQueueRefresh();
-                        await work;
-                    }
-                }
-                catch (OperationCanceledException) when (_closed || _lifetime.IsCancellationRequested)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    // One damaged MP3 must not prevent the rest of the queue from being analyzed.
-                    System.Diagnostics.Debug.WriteLine($"LavPulse background analysis: {file.Name}: {ex}");
-                }
-                finally
-                {
-                    ScheduleQueueRefresh();
-                }
+        EndAnalysisBackgroundTask();
+        _analysisBackgroundExpired = true;
+        UpdateQueueAnalysis();
+    }
 
-                // Avoid sustained disk/CPU saturation while the mixer is active.
-                await Task.Delay(100, _lifetime.Token);
-            }
-        }
-        catch (OperationCanceledException) when (_closed || _lifetime.IsCancellationRequested)
-        {
-            // Closing the player cancels background work before cache files are deleted.
-        }
+    private void EndAnalysisBackgroundTask()
+    {
+        if (_analysisBackgroundTask == UIApplication.BackgroundTaskInvalid) return;
+        UIApplication.SharedApplication.EndBackgroundTask(_analysisBackgroundTask);
+        _analysisBackgroundTask = UIApplication.BackgroundTaskInvalid;
+    }
+#endif
+
+    private async Task ObserveQueueAnalysisAsync(Task work)
+    {
+        try { await work; }
         finally
         {
-            _analysisRunning = false;
+            _queueAnalysis.Finish();
+            try
+            {
+                // Keep the platform's background execution if the queue changed as the worker was exiting.
+                if (!_closed) UpdateQueue();
+            }
+            finally
+            {
+                if (!_queueAnalysis.IsRunning)
+                {
+#if ANDROID
+                    AndroidTrackAnalysisService.Stop();
+#elif IOS
+                    EndAnalysisBackgroundTask();
+#endif
+                }
+            }
         }
+    }
+
+    private void OnQueueAnalysisProgress()
+    {
+        if (_windowVisible) Dispatcher.Dispatch(ScheduleQueueRefresh);
     }
 
     /// <summary>Prepares PCM, artwork and both waveforms without blocking the UI thread.</summary>
@@ -114,10 +135,10 @@ public sealed partial class MainPage
         }
     }
 
-    /// <summary>Coalesces bursts of tag updates when a folder is added.</summary>
+    /// <summary>Coalesces visible tag and preparation updates.</summary>
     private void ScheduleQueueRefresh()
     {
-        if (_closed || _queueRefreshPending)
+        if (_closed || !IsPlayerVisible || _queueRefreshPending)
         {
             return;
         }
@@ -125,7 +146,7 @@ public sealed partial class MainPage
         Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(100), () =>
         {
             _queueRefreshPending = false;
-            if (!_closed) UpdateQueue();
+            if (!_closed && IsPlayerVisible) UpdateQueue();
         });
     }
 }

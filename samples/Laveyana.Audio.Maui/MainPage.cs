@@ -15,7 +15,7 @@ public sealed partial class MainPage : ContentPage
     private readonly PlayerView _view = new();
     private readonly QueuePlaybackSession _playback = new();
     private readonly ISystemPlaybackIntegration _systemPlayback = new PlatformSystemPlaybackIntegration();
-    private bool _windowVisible = true;
+    private volatile bool _windowVisible = true;
     private long _lastSystemUpdate;
     private CachedTrack? _lastSystemTrack;
     private bool _lastSystemPlaying;
@@ -24,10 +24,8 @@ public sealed partial class MainPage : ContentPage
     private readonly PlayerLibrary _library;
     private readonly IDispatcherTimer _positions;
     private readonly PlaybackQueue _queue = new();
-    private readonly Queue<TrackFile> _analysisPending = new();
-    private readonly HashSet<TrackFile> _analysisSeen = [];
+    private readonly QueueTrackAnalysis _queueAnalysis;
     private Task _analysisWorker = Task.CompletedTask;
-    private bool _analysisRunning;
     private CancellationTokenSource? _stop;
     private Task? _worker;
     private Task? _coverAnimation;
@@ -54,6 +52,8 @@ public sealed partial class MainPage : ContentPage
     public MainPage()
     {
         _library = new PlayerLibrary(new TrackPreparation(FileSystem.CacheDirectory), _lifetime.Token);
+        _queueAnalysis = new QueueTrackAnalysis(file => _library.GetPrepared(file) is not null,
+            _library.PrepareAsync, OnQueueAnalysisProgress, _lifetime.Token);
 #if IOS
         SafeAreaEdges = new SafeAreaEdges(SafeAreaRegions.Container);
 #else

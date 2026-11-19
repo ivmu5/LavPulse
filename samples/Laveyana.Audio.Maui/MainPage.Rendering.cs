@@ -32,6 +32,7 @@ public sealed partial class MainPage
         if (_windowVisible) _view.StartPlaybackVisuals(() => _playback.Spectrum);
         _view.Status.Text = "";
         _worker = _playback.RunAsync(new PlatformAudioOutput(), _settings.FadeInMilliseconds, stop.Token);
+        UpdateQueueAnalysis();
         UpdateTransport();
         try
         {
@@ -55,6 +56,7 @@ public sealed partial class MainPage
             if (!_closed)
             {
                 UpdatePositions();
+                UpdateQueueAnalysis();
                 UpdateTransport();
             }
         }
@@ -69,6 +71,7 @@ public sealed partial class MainPage
         // Reconcile the queue before redrawing, so a track change in the background never replays its animation.
         if (visible) UpdatePositions(snapshot);
         _windowVisible = visible;
+        UpdateQueueAnalysis();
         UpdatePositionRefreshInterval();
         UpdateSpectrumAnalysis();
         if (!visible)
@@ -129,6 +132,7 @@ public sealed partial class MainPage
             }
             if (animate)
             {
+                UpdateQueueAnalysis();
                 _coverAnimation = FinishCoverAsync(current.Track);
             }
             else

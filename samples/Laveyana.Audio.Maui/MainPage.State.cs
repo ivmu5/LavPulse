@@ -11,11 +11,7 @@ public sealed partial class MainPage
 {
     private void UpdateQueue()
     {
-        if (!_loadingFirst)
-        {
-            var snapshot = _playback.Snapshot;
-            _library.Trim(snapshot.Current?.Track, snapshot.Incoming?.Track, _selected, _armed);
-        }
+        UpdateQueueAnalysis();
         if (IsPlayerVisible)
         {
             _view.ShowQueue(_queue.Tracks, _queue.Current, _queue.PlayedCount, ReadQueueItem);

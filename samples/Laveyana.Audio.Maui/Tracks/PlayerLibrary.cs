@@ -9,6 +9,7 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
     private const long PcmBudgetBytes = 256L * 1024 * 1024;
     private const long ArtworkBudgetBytes = 32L * 1024 * 1024;
     private const long ThumbnailBudgetBytes = 24L * 1024 * 1024;
+    private readonly object _cacheGate = new();
     private readonly Dictionary<string, TrackFile> _paths = new(OperatingSystem.IsWindows()
         ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     private readonly HashSet<TrackFile> _files = [];
@@ -55,27 +56,36 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
     /// <summary>Prepares a track once. A failed import can be retried through the library.</summary>
     public Task<CachedTrack> PrepareAsync(TrackFile file)
     {
-        _pcmAccess[file] = ++_access;
-        if (!_prepared.TryGetValue(file, out var task) || task.IsFaulted || task.IsCanceled)
+        lock (_cacheGate)
         {
-            task = DecodeAsync(file, _metadata.GetValueOrDefault(file));
-            _prepared[file] = task;
+            _pcmAccess[file] = ++_access;
+            if (!_prepared.TryGetValue(file, out var task) || task.IsFaulted || task.IsCanceled)
+            {
+                task = DecodeAsync(file, _metadata.GetValueOrDefault(file));
+                _prepared[file] = task;
+            }
+            return task;
         }
-        return task;
     }
 
     public CachedTrack? GetPrepared(TrackFile file, bool forPlayback = false)
     {
-        if (!_prepared.TryGetValue(file, out var task) || !task.IsCompletedSuccessfully) return null;
-        if (forPlayback) _pcmAccess[file] = ++_access;
-        return task.Result;
+        lock (_cacheGate)
+        {
+            if (!_prepared.TryGetValue(file, out var task) || !task.IsCompletedSuccessfully) return null;
+            if (forPlayback) _pcmAccess[file] = ++_access;
+            return task.Result;
+        }
     }
 
     public TrackFile? Find(CachedTrack track)
     {
-        if (!_decodedFiles.TryGetValue(track, out var file)) return null;
-        _pcmAccess[file] = ++_access;
-        return file;
+        lock (_cacheGate)
+        {
+            if (!_decodedFiles.TryGetValue(track, out var file)) return null;
+            _pcmAccess[file] = ++_access;
+            return file;
+        }
     }
 
     public bool HasQueueMetadataRequest(TrackFile file) => _queueMetadata.ContainsKey(file);
@@ -109,14 +119,17 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
     /// <summary>Reads queue tags in parallel without making playback wait for the rest of a folder.</summary>
     public Task<TrackMetadata> ReadMetadataAsync(TrackFile file)
     {
-        _tagAccess[file] = ++_access;
-        if (!_metadata.TryGetValue(file, out var task) || task.IsFaulted || task.IsCanceled)
+        lock (_cacheGate)
         {
-            _metadata[file] = task = _prepared.TryGetValue(file, out var pending) && !pending.IsFaulted && !pending.IsCanceled
-                ? ReadPreparedMetadataAsync(pending)
-                : ReadTagsAsync(file);
+            _tagAccess[file] = ++_access;
+            if (!_metadata.TryGetValue(file, out var task) || task.IsFaulted || task.IsCanceled)
+            {
+                _metadata[file] = task = _prepared.TryGetValue(file, out var pending) && !pending.IsFaulted && !pending.IsCanceled
+                    ? ReadPreparedMetadataAsync(pending)
+                    : ReadTagsAsync(file);
+            }
+            return task;
         }
-        return task;
     }
 
     private static async Task<TrackMetadata> ReadPreparedMetadataAsync(Task<CachedTrack> pending)
@@ -127,12 +140,18 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
 
     public TrackMetadata? GetMetadata(TrackFile file)
     {
-        if (!_queueMetadata.TryGetValue(file, out var task) || !task.IsCompletedSuccessfully) return null;
-        _thumbnailAccess[file] = ++_access;
-        return task.Result;
+        lock (_cacheGate)
+        {
+            if (!_queueMetadata.TryGetValue(file, out var task) || !task.IsCompletedSuccessfully) return null;
+            _thumbnailAccess[file] = ++_access;
+            return task.Result;
+        }
     }
 
-    public bool IsPreparing(TrackFile file) => _prepared.TryGetValue(file, out var task) && !task.IsCompleted;
+    public bool IsPreparing(TrackFile file)
+    {
+        lock (_cacheGate) return _prepared.TryGetValue(file, out var task) && !task.IsCompleted;
+    }
 
     private async Task<TrackMetadata> ReadTagsAsync(TrackFile file)
     {
@@ -150,20 +169,20 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
     /// <summary>Limits simultaneous MP3 analysis on mobile while letting playback continue.</summary>
     private async Task<CachedTrack> DecodeAsync(TrackFile file, Task<TrackMetadata>? metadata)
     {
-        await _decodeSlots.WaitAsync(lifetime);
+        await _decodeSlots.WaitAsync(lifetime).ConfigureAwait(false);
         try
         {
             TrackMetadata? tags = null;
             try
             {
-                if (metadata is not null) tags = await metadata;
+                if (metadata is not null) tags = await metadata.ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 System.Diagnostics.Debug.WriteLine(ex);
             }
 
-            var track = await preparation.ImportAsync(file, tags, lifetime);
+            var track = await preparation.ImportAsync(file, tags, lifetime).ConfigureAwait(false);
             _decodedFiles[track] = file;
             return track;
         }
@@ -173,8 +192,15 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
         }
     }
 
-    /// <summary>Evicts old decoded files and source artwork. Pending work and occupied decks stay pinned.</summary>
-    public void Trim(CachedTrack? current, CachedTrack? incoming, TrackFile? selected, TrackFile? armed)
+    /// <summary>Evicts older entries. The occupied decks and upcoming tracks remain cached for playback.</summary>
+    public void Trim(CachedTrack? current, CachedTrack? incoming, TrackFile? selected, TrackFile? armed,
+        IReadOnlyCollection<TrackFile> upcoming)
+    {
+        lock (_cacheGate) TrimCache(current, incoming, selected, armed, upcoming);
+    }
+
+    private void TrimCache(CachedTrack? current, CachedTrack? incoming, TrackFile? selected, TrackFile? armed,
+        IReadOnlyCollection<TrackFile> upcoming)
     {
         long totalBytes = 0;
         long coverBytes = 0;
@@ -190,7 +216,7 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
             foreach (var file in _pcmAccess.OrderBy(entry => entry.Value).Select(entry => entry.Key).ToArray())
             {
                 if (totalBytes <= PcmBudgetBytes && coverBytes <= ArtworkBudgetBytes) break;
-                if (file == selected || file == armed || GetPrepared(file) is not { } track ||
+                if (file == selected || file == armed || upcoming.Contains(file) || GetPrepared(file) is not { } track ||
                     ReferenceEquals(track, current) || ReferenceEquals(track, incoming)) continue;
 
                 _prepared.Remove(file);

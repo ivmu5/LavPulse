@@ -47,7 +47,7 @@ In the app, import MP3 files or a folder from **Settings → Media library**; Wi
 - Two decks with manually requested or automatic hyperbolic crossfades, transport fades, repeat-one and variable playback speed.
 - Ten-band master EQ plus output gain, applied **before** master-spectrum analysis.
 - Detailed and overview waveforms, seek gestures, a frequency spectrum and an animated deck handoff.
-- Reorderable queue, played-track history, ID3 artwork/tags, and sequential background preparation of added MP3s.
+- Reorderable queue, played-track history, ID3 artwork/tags, and sequential background preparation of up to ten upcoming MP3s.
 - Background playback and OS media commands on Android, Windows, and iOS.
 
 ## Architecture
@@ -87,7 +87,7 @@ MainPage -> PlayerView / DeckView / TrackQueueView
 
 [`QueueSource`](src/Laveyana.Audio.Playback/Session/QueueSource.cs) owns the current and prepared next PCM readers, provides seek and speed control, and promotes the incoming deck when a transition finishes. A manual transition is requested before the next render block. [`MasterEqualizerSource`](src/Laveyana.Audio.Playback/Session/MasterEqualizerSource.cs) filters that **combined** signal using ten peaking bands and a gain stage; configuration changes crossfade between filter banks. [`MixedPlayback`](src/Laveyana.Audio.Playback/Session/MixedPlayback.cs) renders blocks and publishes FFT results with the native playback-head position where available.
 
-[`PlayerLibrary`](samples/Laveyana.Audio.Maui/Tracks/PlayerLibrary.cs) limits concurrent decoders, deduplicates preparation tasks and evicts old PCM files under a 256 MiB budget while keeping occupied decks protected. The app prepares imported tracks sequentially in the background; a directly selected track can use another decoding slot. The ordered [`PlaybackQueue`](samples/Laveyana.Audio.Maui/Tracks/PlaybackQueue.cs) does not reorder itself when the user selects a different track: the current position defines which entries are displayed as played.
+[`PlayerLibrary`](samples/Laveyana.Audio.Maui/Tracks/PlayerLibrary.cs) limits concurrent decoders, deduplicates preparation tasks, and protects the occupied decks and up to ten upcoming tracks from cache eviction. The app prepares that window in queue order on a worker thread. A directly selected track can use another decoding slot. The ordered [`PlaybackQueue`](samples/Laveyana.Audio.Maui/Tracks/PlaybackQueue.cs) does not reorder itself when the user selects a different track: the current position defines which entries are displayed as played.
 
 </details>
 
@@ -161,12 +161,13 @@ For one-shot, independently controlled decks, [`PlaybackSession`](src/Laveyana.A
 - `MainPage` owns `PlayerLibrary`, `PlaybackQueue`, `QueuePlaybackSession` and the OS media bridge; `CloseAsync` cancels/awaits playback and analysis before deleting cached audio.
 - Imports and waveform analysis use async tasks with bounded decoding. The native output consumes PCM on its own thread; C# MAUI views and queue state are updated on the UI dispatcher.
 - The audio mixer has one render caller. `QueueSource` synchronizes changes to the active/next deck; the latest display snapshot is read separately. The decoder-to-UI track lookup uses a concurrent dictionary.
-- Pausing and minimizing are different: minimizing does not cancel the mixer. Android uses a media foreground service, Windows publishes System Media Transport Controls, and iOS uses AVAudioSession and Now Playing.
+- While minimized, track preparation continues independently of the visual refresh. Android uses a foreground service for batches started from the player. On iOS, background audio keeps preparation running during playback. While paused, iOS grants limited background time and unfinished work resumes when the player returns. On Windows, preparation continues while the window is minimized.
+- Minimizing does not cancel the mixer. Android uses a media foreground service, Windows publishes System Media Transport Controls, and iOS uses AVAudioSession and Now Playing.
 
 <details>
 <summary>Performance and ownership details</summary>
 
-The cache budget applies to decoded PCM, not the original MP3 files. It is an eviction budget rather than a guarantee that every queued track remains ready. Preparation of a previously evicted track may take time. Queue rows are virtualized; full ID3 artwork is downscaled for thumbnails. Waveform geometry is cached separately from the playhead; the spectrum analyzer can be disabled when the master-spectrum UI is hidden. None of these visual optimizations may change the order or timing of the audio render blocks.
+The 256 MiB eviction threshold applies to decoded PCM. The cache can exceed it while keeping the active, selected, and upcoming tracks ready on disk. Preparation of a previously evicted track may take time. Queue rows are virtualized; full ID3 artwork is downscaled for thumbnails. Waveform geometry is cached separately from the playhead; the spectrum analyzer can be disabled when the master-spectrum UI is hidden. None of these visual optimizations may change the order or timing of the audio render blocks.
 
 For platform adapters, see [Android `PlatformAudioOutput`](samples/Laveyana.Audio.Maui/Platforms/Android/PlatformAudioOutput.cs) and [Windows `PlatformAudioOutput`](samples/Laveyana.Audio.Maui/Platforms/Windows/PlatformAudioOutput.cs). Android's [`AndroidMediaPlaybackService`](samples/Laveyana.Audio.Maui/Platforms/Android/AndroidMediaPlaybackService.cs) provides system controls, and [`WindowsMediaIdentity`](samples/Laveyana.Audio.Maui/Platforms/Windows/WindowsMediaIdentity.cs) registers the unpackaged desktop identity.
 
