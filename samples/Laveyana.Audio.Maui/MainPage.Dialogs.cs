@@ -76,6 +76,7 @@ public sealed partial class MainPage
     protected override bool OnBackButtonPressed()
     {
         if (_view.Panel is null) return base.OnBackButtonPressed();
+        if (_view.Panel is PlayerSettingsPanel settings && settings.TryClosePaletteEditor()) return true;
         ClosePanel();
         return true;
     }

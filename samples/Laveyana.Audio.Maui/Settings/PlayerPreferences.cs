@@ -41,7 +41,12 @@ internal static class PlayerPreferences
             WaveformOverview = Preferences.Default.Get("waveform-overview", defaults.WaveformOverview),
             WaveformDetailSeconds = Math.Clamp(Preferences.Default.Get("waveform-detail-seconds", defaults.WaveformDetailSeconds),
                 PlayerSettings.MinimumWaveformDetailSeconds, PlayerSettings.MaximumWaveformDetailSeconds),
-            Palette = (PlayerPalette)Math.Clamp(Preferences.Default.Get("palette", (int)defaults.Palette), 0, (int)PlayerPalette.Warm),
+            Palette = (PlayerPalette)Math.Clamp(Preferences.Default.Get("palette", (int)defaults.Palette), 0, (int)PlayerPalette.Custom),
+            CustomColors = new PlayerColors(
+                LoadPaletteColor("custom-palette-accent", defaults.CustomColors.Accent),
+                LoadPaletteColor("custom-palette-alternate", defaults.CustomColors.Alternate),
+                LoadPaletteColor("custom-palette-low", defaults.CustomColors.WaveLow),
+                LoadPaletteColor("custom-palette-mid", defaults.CustomColors.WaveMid)),
             SpectrumColors = (SpectrumColorMode)Math.Clamp(Preferences.Default.Get("spectrum-colors", (int)defaults.SpectrumColors),
                 0, (int)SpectrumColorMode.Monochrome),
             SpectrumLevelBrightness = Preferences.Default.Get("spectrum-level-brightness", defaults.SpectrumLevelBrightness),
@@ -70,6 +75,10 @@ internal static class PlayerPreferences
         Preferences.Default.Set("waveform-overview", settings.WaveformOverview);
         Preferences.Default.Set("waveform-detail-seconds", settings.WaveformDetailSeconds);
         Preferences.Default.Set("palette", (int)settings.Palette);
+        Preferences.Default.Set("custom-palette-accent", settings.CustomColors.Accent.ToInt());
+        Preferences.Default.Set("custom-palette-alternate", settings.CustomColors.Alternate.ToInt());
+        Preferences.Default.Set("custom-palette-low", settings.CustomColors.WaveLow.ToInt());
+        Preferences.Default.Set("custom-palette-mid", settings.CustomColors.WaveMid.ToInt());
         Preferences.Default.Set("spectrum-colors", (int)settings.SpectrumColors);
         Preferences.Default.Set("spectrum-level-brightness", settings.SpectrumLevelBrightness);
         Preferences.Default.Set("spectrum-minimum-brightness", settings.SpectrumMinimumBrightnessPercent);
@@ -79,5 +88,11 @@ internal static class PlayerPreferences
         Preferences.Default.Set("spectrum-width", settings.SpectrumWidthPercent);
         Preferences.Default.Set("show-spectrum", settings.ShowSpectrum);
         Preferences.Default.Set("show-peaks", settings.ShowPeaks);
+    }
+
+    private static Color LoadPaletteColor(string key, Color fallback)
+    {
+        var color = Color.FromInt(Preferences.Default.Get(key, fallback.ToInt()));
+        return color.Alpha == 1 ? color : fallback;
     }
 }

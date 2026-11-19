@@ -256,7 +256,7 @@ public sealed class PlayerView : Grid
     /// <summary>Applies the saved palette and timeline settings to the player.</summary>
     public void ApplyAppearance(PlayerSettings settings)
     {
-        var colors = PlayerColors.For(settings.Palette);
+        var colors = PlayerColors.For(settings);
         _play.BackgroundColor = colors.Accent;
         _queue.Accent = colors.Accent;
         CurrentDeck.SetAppearance(settings, colors);

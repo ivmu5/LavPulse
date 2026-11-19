@@ -8,6 +8,8 @@ public sealed partial class PlayerSettingsPanel : ContentView
     private readonly ContentView[] _sectionHosts = new ContentView[6];
     private readonly Button[] _sectionButtons = new Button[6];
     private readonly List<NumericSettingInput> _visibleNumbers = [];
+    private readonly Grid _settingsLayout;
+    private readonly ContentView _paletteEditorHost = new() { IsVisible = false };
     private PlayerSettings _settings;
     private int _activeSection = -1;
     private bool _loading;
@@ -62,7 +64,7 @@ public sealed partial class PlayerSettingsPanel : ContentView
 #if WINDOWS
         topInset += WindowsWindowChrome.ContentInset;
 #endif
-        var layout = new Grid
+        _settingsLayout = new Grid
         {
             Padding = new Thickness(16, topInset, 16, 16),
             RowSpacing = 12,
@@ -70,13 +72,13 @@ public sealed partial class PlayerSettingsPanel : ContentView
             HorizontalOptions = LayoutOptions.Center,
             RowDefinitions = [new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)]
         };
-        layout.Add(header);
-        layout.Add(new ScrollView { Content = sections }, row: 1);
-        layout.Add(actions, row: 2);
-        var host = new Grid { Children = { layout } };
+        _settingsLayout.Add(header);
+        _settingsLayout.Add(new ScrollView { Content = sections }, row: 1);
+        _settingsLayout.Add(actions, row: 2);
+        var host = new Grid { Children = { _settingsLayout, _paletteEditorHost } };
         host.SizeChanged += (_, _) =>
         {
-            if (host.Width > 0) layout.WidthRequest = Math.Min(host.Width, 660);
+            if (host.Width > 0) _settingsLayout.WidthRequest = Math.Min(host.Width, 660);
         };
         Content = host;
 
@@ -151,7 +153,7 @@ public sealed partial class PlayerSettingsPanel : ContentView
             new(PlayerSettings.MinimumWaveformDetailSeconds, PlayerSettings.MaximumWaveformDetailSeconds,
                 defaults.WaveformDetailSeconds, 1), _settings.WaveformDetailSeconds,
             value => _settings = _settings with { WaveformDetailSeconds = value });
-        var colors = PlayerColors.For(_settings.Palette);
+        var colors = PlayerColors.For(_settings);
         var overview = Select("Вид нижней дорожки", [(false, "Полоса прогресса"), (true, "Цветная волна")],
             _settings.WaveformOverview, waveform => CreateTimelinePreview(colors, waveform),
             waveform => _settings = _settings with { WaveformOverview = waveform });
@@ -166,31 +168,27 @@ public sealed partial class PlayerSettingsPanel : ContentView
              (SpectrumColorMode.Monochrome, "Однотонный")],
             _settings.SpectrumColors, mode =>
             {
-                var drawable = new SpectrumDrawable(SampleLevels.Length, PlayerColors.For(_settings.Palette), SpectrumPreviewSettings(mode));
-                drawable.Advance(SampleLevels, .1f);
-                var view = new GraphicsView { Drawable = drawable, BackgroundColor = MixerStyle.Overlay };
+                var view = CreateSpectrumPreview(_settings, PlayerColors.For(_settings), mode, out var drawable);
                 previews.Add((mode, drawable, view));
                 return view;
             }, mode => _settings = _settings with { SpectrumColors = mode });
-        var palette = Select("Цвета", [(PlayerPalette.LavPulse, "LavPulse"), (PlayerPalette.Ocean, "Океан"),
-            (PlayerPalette.Warm, "Тёплая")], _settings.Palette, CreatePalettePreview, choice =>
+        var palette = Select("Палитра", [(PlayerPalette.LavPulse, "LavPulse"), (PlayerPalette.Ocean, "Океан"),
+            (PlayerPalette.Warm, "Тёплая"), (PlayerPalette.Custom, "Своя")], _settings.Palette,
+            choice => CreatePalettePreview(PlayerColors.For(_settings with { Palette = choice })), choice =>
         {
             _settings = _settings with { Palette = choice };
-            var colors = PlayerColors.For(choice);
+            var colors = PlayerColors.For(_settings);
             foreach (var preview in previews)
             {
-                preview.Drawable.SetAppearance(colors, SpectrumPreviewSettings(preview.Mode));
+                preview.Drawable.SetAppearance(colors, SpectrumPreviewSettings(_settings, preview.Mode));
                 preview.View.Invalidate();
             }
         });
-        return Section("Цветовая палитра", palette, spectrum);
+        var edit = MixerStyle.Button("Настроить свою палитру");
+        edit.HorizontalOptions = LayoutOptions.Center;
+        edit.Clicked += (_, _) => OpenPaletteEditor();
+        return Section("Цветовая палитра", palette, edit, spectrum);
     }
-
-    private PlayerSettings SpectrumPreviewSettings(SpectrumColorMode mode) => _settings with
-    {
-        SpectrumColors = mode, ShowSpectrum = true, ShowPeaks = false, SpectrumWidthPercent = 42,
-        SpectrumTopPaddingRows = 0, SpectrumBottomPaddingRows = 0
-    };
 
     private View CreateSpectrumSection()
     {
