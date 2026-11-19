@@ -17,7 +17,7 @@ public sealed class EqualizerPanel : ContentView
         var title = MixerStyle.Label("Эквалайзер", 23, bold: true);
         SemanticProperties.SetHeadingLevel(title, SemanticHeadingLevel.Level1);
         var toggle = new Switch { IsToggled = settings.Enabled };
-        MixerStyle.UseColor(toggle, Switch.OnColorProperty, MixerColor.Accent);
+        MixerStyle.StyleSwitch(toggle);
         SemanticProperties.SetDescription(toggle, "Включить эквалайзер");
         var header = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)] };
         header.Add(new VerticalStackLayout { Children = { title, MixerStyle.Label("Усиление, дБ", 12, MixerColor.Muted) } });

@@ -45,7 +45,7 @@ public sealed class PlayerView : Grid
     {
         MixerStyle.ApplyTheme(Resources, Theme, refreshIcons: true);
         BackgroundColor = Theme[MixerColor.Background];
-        MixerStyle.UseColor(_equalizerToggle, Switch.OnColorProperty, MixerColor.Accent);
+        MixerStyle.StyleSwitch(_equalizerToggle);
         MixerStyle.UseColor(_equalizerGroup, BackgroundColorProperty, MixerColor.Button);
         IsClippedToBounds = true;
         this.Add(Spectrum);

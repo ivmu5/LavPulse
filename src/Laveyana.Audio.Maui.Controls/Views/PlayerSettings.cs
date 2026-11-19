@@ -33,6 +33,7 @@ public sealed record PlayerSettings
     public int CrossfadeMilliseconds { get; init; } = 2500;
     public bool AutoMix { get; init; } = true;
     public bool ShowOnLockScreen { get; init; }
+    public bool HideStatusBar { get; init; } = true;
     public bool WaveformOverview { get; init; }
     public int WaveformDetailSeconds { get; init; } = DefaultWaveformDetailSeconds;
     public PlayerPalette Palette { get; init; }

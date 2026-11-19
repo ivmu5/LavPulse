@@ -95,7 +95,7 @@ public sealed partial class MainPage
     {
         _appearanceDraft = _settings with
         {
-            Theme = draft.Theme, DarkBackground = draft.DarkBackground,
+            Theme = draft.Theme, DarkBackground = draft.DarkBackground, HideStatusBar = draft.HideStatusBar,
             Palette = draft.Palette, CustomColors = draft.CustomColors, SpectrumColors = draft.SpectrumColors
         };
         RefreshAppearance();
@@ -122,7 +122,7 @@ public sealed partial class MainPage
             BackgroundColor = _view.BackgroundColor;
 #if ANDROID
             if (Window?.Handler?.PlatformView is MainActivity activity)
-                activity.ApplySystemBarAppearance(_view.IsLightAppearance);
+                activity.ApplySystemBarAppearance(_view.IsLightAppearance, settings.HideStatusBar);
 #endif
         }
         finally { _applyingAppearance = false; }
