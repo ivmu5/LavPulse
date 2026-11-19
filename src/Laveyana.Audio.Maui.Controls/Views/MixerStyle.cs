@@ -48,6 +48,20 @@ internal static partial class MixerStyle
     internal static void UseIcon(VisualElement view, BindableProperty property, string file) =>
         view.SetDynamicResource(property, IconKey(file));
 
+    internal static void StyleSwitch(Switch toggle)
+    {
+#if ANDROID
+        UseColor(toggle, Switch.OnColorProperty, MixerColor.Selected);
+        toggle.Toggled += (_, args) => UpdateThumb(args.Value);
+        UpdateThumb(toggle.IsToggled);
+
+        void UpdateThumb(bool isOn) =>
+            UseColor(toggle, Switch.ThumbColorProperty, isOn ? MixerColor.Accent : MixerColor.Muted);
+#else
+        UseColor(toggle, Switch.OnColorProperty, MixerColor.Accent);
+#endif
+    }
+
     internal static void StyleSlider(Slider slider)
     {
         UseColor(slider, Slider.MinimumTrackColorProperty, MixerColor.Accent);

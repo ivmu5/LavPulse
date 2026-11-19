@@ -204,11 +204,20 @@ public sealed partial class PlayerSettingsPanel : ContentView
         var edit = MixerStyle.Button("Настроить свою палитру");
         edit.HorizontalOptions = LayoutOptions.Fill;
         edit.Clicked += (_, _) => OpenPaletteEditor();
-        return new VerticalStackLayout
+        var sections = new VerticalStackLayout
         {
             Spacing = 8,
-            Children = { Section("Тема интерфейса", themeOptions, backgrounds), Section("Цветовая палитра", palette, edit, spectrum) }
+            Children = { Section("Тема интерфейса", themeOptions, backgrounds) }
         };
+#if ANDROID
+        sections.Add(Section("Экран", Toggle("Скрывать строку состояния", _settings.HideStatusBar, value =>
+        {
+            _settings = _settings with { HideStatusBar = value };
+            _previewAppearance?.Invoke(_settings);
+        })));
+#endif
+        sections.Add(Section("Цветовая палитра", palette, edit, spectrum));
+        return sections;
     }
 
     private View CreateSpectrumSection()
@@ -271,7 +280,7 @@ public sealed partial class PlayerSettingsPanel : ContentView
     private View Toggle(string name, bool selected, Action<bool> update)
     {
         var toggle = new Switch { IsToggled = selected };
-        MixerStyle.UseColor(toggle, Switch.OnColorProperty, MixerColor.Accent);
+        MixerStyle.StyleSwitch(toggle);
         SemanticProperties.SetDescription(toggle, name);
         toggle.Toggled += (_, args) => { if (!_loading) update(args.Value); };
         return ControlRow(name, toggle);

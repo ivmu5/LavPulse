@@ -16,6 +16,7 @@ public class MainActivity : MauiAppCompatActivity
     private ActivityResultLauncher? _folderLauncher;
     private TaskCompletionSource<AndroidUri?>? _folderResult;
     private ScreenStateReceiver? _screenReceiver;
+    private bool? _hideStatusBar;
 
     internal bool IsPlayerVisible { get; private set; }
     internal event Action<bool>? PlayerVisibilityChanged;
@@ -56,12 +57,32 @@ public class MainActivity : MauiAppCompatActivity
         base.OnStop();
     }
 
-    internal void ApplySystemBarAppearance(bool light)
+    public override void OnWindowFocusChanged(bool hasFocus)
     {
-        if (Window is not { } window) return;
-        if (WindowCompat.GetInsetsController(window, window.DecorView) is not { } controller) return;
+        base.OnWindowFocusChanged(hasFocus);
+        if (hasFocus && _hideStatusBar is { } hide && GetInsetsController() is { } controller)
+            ApplyStatusBarVisibility(controller, hide);
+    }
+
+    internal void ApplySystemBarAppearance(bool light, bool hideStatusBar)
+    {
+        _hideStatusBar = hideStatusBar;
+        if (GetInsetsController() is not { } controller) return;
         controller.AppearanceLightStatusBars = light;
         controller.AppearanceLightNavigationBars = light;
+        ApplyStatusBarVisibility(controller, hideStatusBar);
+    }
+
+    private WindowInsetsControllerCompat? GetInsetsController() =>
+        Window is { } window ? WindowCompat.GetInsetsController(window, window.DecorView) : null;
+
+    private static void ApplyStatusBarVisibility(WindowInsetsControllerCompat controller, bool hide)
+    {
+        int statusBars = WindowInsetsCompat.Type.StatusBars();
+        controller.SystemBarsBehavior = hide ? WindowInsetsControllerCompat.BehaviorShowTransientBarsBySwipe
+            : WindowInsetsControllerCompat.BehaviorDefault;
+        if (hide) controller.Hide(statusBars);
+        else controller.Show(statusBars);
     }
 
     /// <summary>Allows the already open player to remain visible above the keyguard.</summary>
