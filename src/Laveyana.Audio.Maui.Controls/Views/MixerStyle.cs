@@ -3,7 +3,7 @@ using Microsoft.Maui.Devices;
 
 namespace Laveyana.Audio.Maui.Controls;
 
-internal static class MixerStyle
+internal static partial class MixerStyle
 {
     // The dark surfaces are derived from the blue and violet tones of the ribbon.
     public static readonly Color Background = Color.FromArgb("#0B1020");
@@ -22,6 +22,7 @@ internal static class MixerStyle
     public static readonly Color Alternate = Color.FromArgb("#FF9B65");
     public static readonly Color Preview = Color.FromArgb("#FFD0A0");
     private const double ButtonFontSize = 12;
+    private const int ButtonIconSize = 24;
 
     internal static bool IsPhone { get; } = DeviceInfo.Idiom == DeviceIdiom.Phone;
     internal static double PhoneFont(double regular, double compact) => IsPhone ? compact : regular;
@@ -50,6 +51,7 @@ internal static class MixerStyle
             button.ImageSource = icon;
             button.ContentLayout = new(stacked ? Microsoft.Maui.Controls.Button.ButtonContentLayout.ImagePosition.Top
                 : Microsoft.Maui.Controls.Button.ButtonContentLayout.ImagePosition.Left, 3);
+            SetNativeButtonIconSize(button);
         }
         if (stacked)
         {
@@ -64,14 +66,17 @@ internal static class MixerStyle
     {
         var button = new ImageButton
         {
-            Source = image, Aspect = Aspect.AspectFit, Padding = (size - 24) / 2,
+            Source = image, Aspect = Aspect.AspectFit, Padding = (size - ButtonIconSize) / 2,
             WidthRequest = size, HeightRequest = size, CornerRadius = size / 2,
             BackgroundColor = primary ? Accent : ButtonBackground,
             VerticalOptions = LayoutOptions.Center
         };
+        SetNativeButtonIconSize(button);
         ApplyDisabledOpacity(button);
         return button;
     }
+
+    static partial void SetNativeButtonIconSize(View button);
 
     private static void ApplyDisabledOpacity(VisualElement button)
     {
