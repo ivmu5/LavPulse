@@ -2,7 +2,7 @@ using Laveyana.Audio.Playback;
 
 namespace Laveyana.Audio.Maui.Controls;
 
-/// <summary>Shows a detailed window and an overview of one deck, with commit-on-release scrubbing.</summary>
+/// <summary>Shows a detailed window and an overview of one deck with tap-to-seek on the overview.</summary>
 public sealed class DeckView : Border
 {
     private const double DragThreshold = 6;
@@ -44,7 +44,7 @@ public sealed class DeckView : Border
         _overviewCursor = new GraphicsView { Drawable = _overviewDrawable.CreateCursor(), InputTransparent = true };
         _overviewLayer = new Grid { Children = { _overview, _overviewCursor } };
         SemanticProperties.SetDescription(_detail, "Детальная волна. Удерживай и веди в сторону. Жест вверх отменяет перемотку.");
-        SemanticProperties.SetDescription(_overview, "Обзорная волна. Перетащи к нужной позиции. Жест вверх отменяет перемотку.");
+        SemanticProperties.SetDescription(_overview, "Обзорная волна. Нажми или перетащи к нужной позиции. Жест вверх отменяет перемотку.");
         _previewLabel.HorizontalOptions = LayoutOptions.Center;
         _previewLabel.VerticalOptions = LayoutOptions.Center;
         _previewLabel.Padding = new Thickness(7, 3);
@@ -183,8 +183,8 @@ public sealed class DeckView : Border
         _detailDrawable.Colors = _overviewDrawable.Colors = theme.Visualization;
         _detailDrawable.Theme = _overviewDrawable.Theme = theme;
         SemanticProperties.SetDescription(_overview, settings.WaveformOverview
-            ? "Обзорная волна. Перетащи к нужной позиции. Жест вверх отменяет перемотку."
-            : "Полоса прогресса. Перетащи к нужной позиции. Жест вверх отменяет перемотку.");
+            ? "Обзорная волна. Нажми или перетащи к нужной позиции. Жест вверх отменяет перемотку."
+            : "Полоса прогресса. Нажми или перетащи к нужной позиции. Жест вверх отменяет перемотку.");
         UpdateTitleColor();
         InvalidateWaveGeometry();
         Redraw();
@@ -248,7 +248,7 @@ public sealed class DeckView : Border
         }
 
         bool inside = point.X >= 0 && point.X <= view.Width && point.Y >= 0 && point.Y <= view.Height;
-        if (inside && _moved)
+        if (inside && (view == _overview || _moved))
         {
             UpdatePreview(view, point.X);
             long target = (long)Math.Round(_preview);
@@ -278,8 +278,7 @@ public sealed class DeckView : Border
     {
         if (view == _overview)
         {
-            double fraction = Math.Clamp(x / Math.Max(1, view.Width), 0, 1);
-            _preview = fraction * _track!.Waveform.TotalFrames;
+            _preview = _overviewDrawable.OverviewPosition(x, view.Width);
             return;
         }
 

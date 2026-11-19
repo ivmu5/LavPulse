@@ -40,6 +40,15 @@ internal sealed class WaveformDrawable : IDrawable
     private long DetailLength(TrackWaveform waveform) =>
         Math.Min(waveform.TotalFrames, (long)DetailWindowSeconds * PlaybackFormat.SampleRate);
 
+    private float HorizontalInset => UseProgressBar ? 6 : 4;
+
+    internal double OverviewPosition(double x, double width)
+    {
+        if (Waveform is not { TotalFrames: > 0 } waveform) return 0;
+        double fraction = Math.Clamp((x - HorizontalInset) / Math.Max(1, width - 2 * HorizontalInset), 0, 1);
+        return fraction * waveform.TotalFrames;
+    }
+
     private static int Columns(float width) => Math.Max(1, (int)(width / 1.65f));
 
     /// <summary>Draws cached three-band geometry, independently of the playhead overlay.</summary>
@@ -50,7 +59,7 @@ internal sealed class WaveformDrawable : IDrawable
             if (bounds.Width > 12 && bounds.Height >= 12)
             {
                 canvas.FillColor = Theme[MixerColor.Border];
-                canvas.FillRoundedRectangle(bounds.Left + 6, bounds.Center.Y - 3, bounds.Width - 12, 6, 3);
+                canvas.FillRoundedRectangle(bounds.Left + HorizontalInset, bounds.Center.Y - 3, bounds.Width - 2 * HorizontalInset, 6, 3);
             }
             return;
         }
@@ -59,8 +68,8 @@ internal sealed class WaveformDrawable : IDrawable
         canvas.FillRoundedRectangle(bounds.X, bounds.Y, bounds.Width, bounds.Height, 6);
         if (bounds.Width < 8 || bounds.Height < 8) return;
 
-        float x = bounds.X + 4;
-        float width = bounds.Width - 8;
+        float x = bounds.X + HorizontalInset;
+        float width = bounds.Width - 2 * HorizontalInset;
         float middle = bounds.Center.Y;
         canvas.StrokeColor = Theme[MixerColor.Border];
         canvas.StrokeSize = 1;
@@ -155,8 +164,8 @@ internal sealed class WaveformDrawable : IDrawable
         }
 
         if (waveform.Points.Count == 0) return;
-        float x = bounds.Left + 4;
-        float width = bounds.Width - 8;
+        float x = bounds.Left + HorizontalInset;
+        float width = bounds.Width - 2 * HorizontalInset;
         long detailLength = DetailLength(waveform);
         long start = WindowStart();
         long length = Detailed ? detailLength : waveform.TotalFrames;
@@ -204,8 +213,8 @@ internal sealed class WaveformDrawable : IDrawable
 
     private void DrawProgress(ICanvas canvas, RectF bounds, long frames)
     {
-        float start = bounds.Left + 6;
-        float width = bounds.Width - 12;
+        float start = bounds.Left + HorizontalInset;
+        float width = bounds.Width - 2 * HorizontalInset;
         float played = width * Math.Clamp((float)Position / frames, 0, 1);
         if (played > 0)
         {
