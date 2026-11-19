@@ -14,6 +14,7 @@ try
     Console.WriteLine("OK: MP3 stream properties.");
     CachedTrack first = MakeTrack(directory, "first", left: 8192, right: 0);
     CachedTrack second = MakeTrack(directory, "second", left: 0, right: 8192);
+    await CheckPlaybackSessionFailureCleanup(first);
     await CheckPauseAndResume(first, second, duringMix: false);
     await CheckPauseAndResume(first, second, duringMix: true);
     CheckShortTrack();
@@ -371,6 +372,22 @@ static async Task CheckMasterEqualizer(string directory)
                 "No master spectrum snapshot was published.");
         }), 0, CancellationToken.None);
         return (rms, levels.Max());
+    }
+}
+
+/// <summary>An output error must not leave a published mixer after the worker exits.</summary>
+static async Task CheckPlaybackSessionFailureCleanup(CachedTrack track)
+{
+    var session = new PlaybackSession(new InMemoryOutput(_ =>
+        throw new IOException("Synthetic output failure")), new DeckVolumes(), track, 0, null, 0);
+    try
+    {
+        await session.RunAsync(CancellationToken.None);
+        throw new InvalidOperationException("Expected output failure was swallowed.");
+    }
+    catch (IOException ex) when (ex.Message == "Synthetic output failure")
+    {
+        Require(session.Spectrum is null, "A failed playback run retained a stale mixer.");
     }
 }
 

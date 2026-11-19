@@ -1,4 +1,5 @@
 using Laveyana.Audio.Playback;
+using System.Collections.Concurrent;
 
 namespace Laveyana.Audio.Maui.Tracks;
 
@@ -11,7 +12,8 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
     private readonly Dictionary<string, TrackFile> _paths = new(OperatingSystem.IsWindows()
         ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     private readonly HashSet<TrackFile> _files = [];
-    private readonly Dictionary<CachedTrack, TrackFile> _decodedFiles = new(ReferenceEqualityComparer.Instance);
+    // Populated by decoder continuations and read/evicted by the UI thread.
+    private readonly ConcurrentDictionary<CachedTrack, TrackFile> _decodedFiles = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<TrackFile, long> _pcmAccess = new();
     private readonly Dictionary<TrackFile, long> _tagAccess = new();
     private readonly Dictionary<TrackFile, long> _thumbnailAccess = new();
@@ -164,7 +166,7 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
             }
 
             var track = await preparation.ImportAsync(file, tags, lifetime);
-            _decodedFiles.Add(track, file);
+            _decodedFiles[track] = file;
             return track;
         }
         finally
@@ -195,7 +197,7 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
 
                 _prepared.Remove(file);
                 _pcmAccess.Remove(file);
-                _decodedFiles.Remove(track);
+                _decodedFiles.TryRemove(track, out _);
                 totalBytes -= track.PcmSizeBytes;
                 coverBytes -= track.Artwork.Length;
                 evicted.Add(track);

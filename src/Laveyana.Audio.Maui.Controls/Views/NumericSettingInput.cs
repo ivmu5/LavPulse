@@ -159,6 +159,9 @@ internal sealed class NumericSettingInput : Grid
 
     private void SetValue(double value, bool moveSlider)
     {
+        // A corrupted preference or a non-finite external update must never reach the native slider.
+        if (!double.IsFinite(value))
+            value = _range.DefaultValue;
         _value = Math.Round(Math.Clamp(value, _range.Minimum, _range.Maximum), _range.DecimalPlaces, MidpointRounding.AwayFromZero);
         if (moveSlider && _slider is { } slider)
         {
