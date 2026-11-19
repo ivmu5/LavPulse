@@ -112,7 +112,6 @@ internal sealed class AndroidTrackAnalysisService : Service
     {
         _active = null;
         ReleaseWakeLock();
-        StopForeground(StopForegroundFlags.Remove);
         StopSelf();
     }
 
