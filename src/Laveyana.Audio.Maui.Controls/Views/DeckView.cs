@@ -9,7 +9,7 @@ public sealed class DeckView : Border
     private const double MaxScrubSpeed = 30;
     private readonly NumericSettingInput _trackSpeed = new("Скорость трека", "×", new(.75, 1.25, 1, .125, 3), 1, showSlider: false);
     private readonly Label _name = MixerStyle.Label("", MixerStyle.PhoneFont(13, 12), bold: true);
-    private readonly Label _time = MixerStyle.Label("", MixerStyle.PhoneFont(11, 10), MixerStyle.Muted);
+    private readonly Label _time = MixerStyle.Label("", MixerStyle.PhoneFont(11, 10), MixerColor.Muted);
     private readonly Label _previewLabel = MixerStyle.Label("", MixerStyle.PhoneFont(12, 11));
     private readonly WaveformDrawable _detailDrawable = new() { Detailed = true };
     private readonly WaveformDrawable _overviewDrawable = new() { UseProgressBar = true };
@@ -48,7 +48,7 @@ public sealed class DeckView : Border
         _previewLabel.HorizontalOptions = LayoutOptions.Center;
         _previewLabel.VerticalOptions = LayoutOptions.Center;
         _previewLabel.Padding = new Thickness(7, 3);
-        _previewLabel.BackgroundColor = MixerStyle.Background;
+        MixerStyle.UseColor(_previewLabel, BackgroundColorProperty, MixerColor.Background);
         _previewLabel.InputTransparent = true;
         _previewLabel.IsVisible = false;
 
@@ -175,12 +175,13 @@ public sealed class DeckView : Border
     }
 
     /// <summary>Restyles both timelines while retaining position and seek gestures.</summary>
-    internal void SetAppearance(PlayerSettings settings, PlayerColors colors)
+    internal void SetAppearance(PlayerSettings settings, MixerTheme theme)
     {
         _overviewDrawable.UseProgressBar = !settings.WaveformOverview;
         _detailDrawable.DetailWindowSeconds = _overviewDrawable.DetailWindowSeconds = Math.Clamp(settings.WaveformDetailSeconds,
             PlayerSettings.MinimumWaveformDetailSeconds, PlayerSettings.MaximumWaveformDetailSeconds);
-        _detailDrawable.Colors = _overviewDrawable.Colors = colors;
+        _detailDrawable.Colors = _overviewDrawable.Colors = theme.Visualization;
+        _detailDrawable.Theme = _overviewDrawable.Theme = theme;
         SemanticProperties.SetDescription(_overview, settings.WaveformOverview
             ? "Обзорная волна. Перетащи к нужной позиции. Жест вверх отменяет перемотку."
             : "Полоса прогресса. Перетащи к нужной позиции. Жест вверх отменяет перемотку.");
@@ -189,8 +190,11 @@ public sealed class DeckView : Border
         Redraw();
     }
 
-    private void UpdateTitleColor() => _name.TextColor = _deck == Deck.A
-        ? _detailDrawable.Colors.Accent : _detailDrawable.Colors.Alternate;
+    private void UpdateTitleColor()
+    {
+        _name.RemoveDynamicResource(Label.TextColorProperty);
+        _name.TextColor = _deck == Deck.A ? _detailDrawable.Theme[MixerColor.Accent] : _detailDrawable.Theme.AlternateForeground;
+    }
 
     /// <summary>Begins a preview with the underlying playback position intact.</summary>
     private bool Begin(GraphicsView view, PointF point)

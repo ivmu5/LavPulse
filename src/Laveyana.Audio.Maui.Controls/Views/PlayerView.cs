@@ -1,4 +1,5 @@
 using Laveyana.Audio.Playback;
+using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls.Shapes;
 
 namespace Laveyana.Audio.Maui.Controls;
@@ -16,11 +17,11 @@ public sealed class PlayerView : Grid
     private readonly ImageButton _equalizer = MixerStyle.IconButton("player_equalizer.png", 44);
     private readonly Switch _equalizerToggle = new()
     {
-        OnColor = MixerStyle.Accent, WidthRequest = 48, VerticalOptions = LayoutOptions.Center
+        WidthRequest = 48, VerticalOptions = LayoutOptions.Center
     };
     private readonly Border _equalizerGroup = new()
     {
-        BackgroundColor = MixerStyle.ButtonBackground, StrokeThickness = 0,
+        StrokeThickness = 0,
         HeightRequest = 44, VerticalOptions = LayoutOptions.Center,
         StrokeShape = new RoundRectangle { CornerRadius = 9 }
     };
@@ -35,10 +36,17 @@ public sealed class PlayerView : Grid
     private bool _latestCanSeek;
     private bool _latestOverview;
     private bool _syncingEqualizerToggle;
+    private bool? _playIconPlaying;
+    private bool? _autoMixAppearance;
+    private bool? _repeatAppearance;
+    private bool? _equalizerAppearance;
 
     public PlayerView()
     {
-        BackgroundColor = MixerStyle.Background;
+        MixerStyle.ApplyTheme(Resources, Theme, refreshIcons: true);
+        BackgroundColor = Theme[MixerColor.Background];
+        MixerStyle.UseColor(_equalizerToggle, Switch.OnColorProperty, MixerColor.Accent);
+        MixerStyle.UseColor(_equalizerGroup, BackgroundColorProperty, MixerColor.Button);
         IsClippedToBounds = true;
         this.Add(Spectrum);
         Spectrum.FrameRateHost = this;
@@ -56,6 +64,8 @@ public sealed class PlayerView : Grid
             if (Panel is null) _queue.InvalidateMasterSpectrum();
         };
         var removeLabel = MixerStyle.Label("Убрать", 11);
+        removeLabel.RemoveDynamicResource(Label.TextColorProperty);
+        removeLabel.TextColor = Colors.White;
         removeLabel.HorizontalTextAlignment = TextAlignment.Center;
         var removeTarget = new Border
         {
@@ -136,7 +146,10 @@ public sealed class PlayerView : Grid
     public MasterSpectrumView Spectrum { get; } = new();
     public DeckView CurrentDeck { get; private set; } = new();
     public DeckView IncomingDeck { get; private set; } = new();
-    public Label Status { get; } = MixerStyle.Label("", 12, MixerStyle.Muted);
+    public Label Status { get; } = MixerStyle.Label("", 12, MixerColor.Muted);
+    internal MixerTheme Theme { get; private set; } = MixerTheme.Default;
+    internal event Action<MixerTheme>? ThemeChanged;
+    public bool IsLightAppearance => Theme.IsLight;
     public View? Panel => _panelHost.Content;
 
     public event Action? PlayRequested;
@@ -198,6 +211,7 @@ public sealed class PlayerView : Grid
         SemanticProperties.SetDescription(_previous, "Предыдущий трек");
         SemanticProperties.SetDescription(_equalizer, "Открыть эквалайзер");
         SemanticProperties.SetDescription(_equalizerToggle, "Эквалайзер");
+        _equalizer.RemoveDynamicResource(BackgroundColorProperty);
         _equalizer.BackgroundColor = Colors.Transparent;
         _equalizer.BorderWidth = 0;
         _equalizer.CornerRadius = 8;
@@ -232,13 +246,19 @@ public sealed class PlayerView : Grid
 
     public void SetRepeatOne(bool enabled)
     {
-        _repeatOne.BackgroundColor = enabled ? MixerStyle.SelectedBackground : MixerStyle.Card;
+        if (_repeatAppearance == enabled) return;
+        _repeatAppearance = enabled;
+        MixerStyle.UseColor(_repeatOne, BackgroundColorProperty, enabled ? MixerColor.Selected : MixerColor.Card);
         SemanticProperties.SetDescription(_repeatOne, enabled ? "Повтор одного трека включён" : "Повтор одного трека выключен");
     }
 
     public void SetEqualizerEnabled(bool enabled)
     {
-        _equalizerGroup.BackgroundColor = enabled ? MixerStyle.SelectedBackground : MixerStyle.ButtonBackground;
+        if (_equalizerAppearance != enabled)
+        {
+            _equalizerAppearance = enabled;
+            MixerStyle.UseColor(_equalizerGroup, BackgroundColorProperty, enabled ? MixerColor.Selected : MixerColor.Button);
+        }
         if (_equalizerToggle.IsToggled == enabled) return;
         _syncingEqualizerToggle = true;
         try { _equalizerToggle.IsToggled = enabled; }
@@ -254,14 +274,21 @@ public sealed class PlayerView : Grid
     }
 
     /// <summary>Applies the saved palette and timeline settings to the player.</summary>
-    public void ApplyAppearance(PlayerSettings settings)
+    public void ApplyAppearance(PlayerSettings settings) =>
+        ApplyAppearance(settings, MixerTheme.SystemTheme);
+
+    public void ApplyAppearance(PlayerSettings settings, AppTheme systemTheme)
     {
-        var colors = PlayerColors.For(settings);
-        _play.BackgroundColor = colors.Accent;
-        _queue.Accent = colors.Accent;
-        CurrentDeck.SetAppearance(settings, colors);
-        IncomingDeck.SetAppearance(settings, colors);
-        Spectrum.SetAppearance(colors, settings);
+        var theme = MixerTheme.Create(settings, systemTheme);
+        bool refreshIcons = theme.IsLight != Theme.IsLight;
+        Theme = theme;
+        MixerStyle.ApplyTheme(Resources, theme, refreshIcons);
+        BackgroundColor = theme[MixerColor.Background];
+        _queue.SetTheme(theme);
+        CurrentDeck.SetAppearance(settings, theme);
+        IncomingDeck.SetAppearance(settings, theme);
+        Spectrum.SetAppearance(theme, settings);
+        ThemeChanged?.Invoke(theme);
     }
 
     public void ShowQueue(IReadOnlyList<TrackFile> tracks, TrackFile? current, TrackFile? next, int playedCount, Func<TrackFile, QueueTrackItem> read)
@@ -409,16 +436,20 @@ public sealed class PlayerView : Grid
     /// <summary>Reflects playback state and the availability of a prepared incoming track.</summary>
     public void SetTransport(bool canPlay, bool playing, bool canMix, bool canGoBack, bool automix)
     {
-        string image = playing ? PauseIcon : PlayIcon;
-        if (_play.Source is not FileImageSource source || source.File != image)
+        if (_playIconPlaying != playing)
         {
-            _play.Source = image;
+            _playIconPlaying = playing;
+            MixerStyle.UseIcon(_play, ImageButton.SourceProperty, playing ? PauseIcon : PlayIcon);
         }
         SemanticProperties.SetDescription(_play, playing ? "Пауза" : "Воспроизвести");
         _play.IsEnabled = canPlay;
         _next.IsEnabled = canMix;
         _previous.IsEnabled = canGoBack;
-        _automix.BackgroundColor = automix ? MixerStyle.SelectedBackground : MixerStyle.Card;
+        if (_autoMixAppearance != automix)
+        {
+            _autoMixAppearance = automix;
+            MixerStyle.UseColor(_automix, BackgroundColorProperty, automix ? MixerColor.Selected : MixerColor.Card);
+        }
         SemanticProperties.SetDescription(_automix, automix ? "Автомикс включён" : "Автомикс выключен");
     }
 

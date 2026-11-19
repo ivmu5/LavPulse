@@ -22,17 +22,17 @@ internal sealed class SpectrumDrawable : IDrawable
     {
     }
 
-    internal SpectrumDrawable(int bandCount, PlayerColors colors, PlayerSettings settings)
+    internal SpectrumDrawable(int bandCount, PlayerColors colors, PlayerSettings settings, bool light = false)
     {
         _paint = new BandPaint[bandCount][];
         _bars = new float[bandCount];
         _peaks = new float[bandCount];
         _peakTimers = new float[bandCount];
-        SetAppearance(colors, settings);
+        SetAppearance(colors, settings, light);
     }
 
     /// <summary>Updates the edge margins and caches brightness steps for allocation-free drawing.</summary>
-    public void SetAppearance(PlayerColors colors, PlayerSettings settings)
+    public void SetAppearance(PlayerColors colors, PlayerSettings settings, bool light = false)
     {
         _showPeaks = settings.ShowPeaks;
         _showSpectrum = settings.ShowSpectrum;
@@ -45,7 +45,7 @@ internal sealed class SpectrumDrawable : IDrawable
         if (mode != SpectrumColorMode.FrequencyGradient)
         {
             var right = mode == SpectrumColorMode.Split ? colors.Alternate : colors.Accent;
-            Array.Fill(_paint, CreatePaint(colors.Accent, right, minimum));
+            Array.Fill(_paint, CreatePaint(colors.Accent, right, minimum, light));
             return;
         }
 
@@ -56,7 +56,7 @@ internal sealed class SpectrumDrawable : IDrawable
             var color = position <= .5f
                 ? Interpolate(colors.WaveLow, colors.WaveMid, position * 2)
                 : Interpolate(colors.WaveMid, colors.Alternate, position * 2 - 1);
-            _paint[band] = CreatePaint(color, color, minimum);
+            _paint[band] = CreatePaint(color, color, minimum, light);
         }
     }
 
@@ -85,34 +85,37 @@ internal sealed class SpectrumDrawable : IDrawable
         from.Green + (to.Green - from.Green) * progress,
         from.Blue + (to.Blue - from.Blue) * progress);
 
-    private static BandPaint[] CreatePaint(Color left, Color right, float minimum)
+    private static BandPaint[] CreatePaint(Color left, Color right, float minimum, bool light)
     {
         if (minimum >= 1)
         {
-            return [BandPaint.AtBrightness(left, right, 1)];
+            return [BandPaint.AtBrightness(left, right, 1, light)];
         }
 
         var steps = new BandPaint[BrightnessIntervals + 1];
         for (int i = 0; i < steps.Length; i++)
         {
             float brightness = minimum + (1 - minimum) * i / BrightnessIntervals;
-            steps[i] = BandPaint.AtBrightness(left, right, brightness);
+            steps[i] = BandPaint.AtBrightness(left, right, brightness, light);
         }
         return steps;
     }
 
     private readonly record struct BandPaint(Color LeftBar, Color RightBar, Color LeftPeak, Color RightPeak)
     {
-        public static BandPaint AtBrightness(Color left, Color right, float brightness)
+        public static BandPaint AtBrightness(Color left, Color right, float brightness, bool light)
         {
-            var leftBar = new Color(left.Red * brightness, left.Green * brightness, left.Blue * brightness, .6f);
-            var leftPeak = leftBar.WithAlpha(.9f);
+            // Dimming by darkening only works on a dark canvas. Fade towards a light surface instead.
+            float intensity = light ? 1 : brightness;
+            float opacity = light ? brightness : 1;
+            var leftBar = new Color(left.Red * intensity, left.Green * intensity, left.Blue * intensity, .6f * opacity);
+            var leftPeak = leftBar.WithAlpha(.9f * opacity);
             if (ReferenceEquals(left, right))
             {
                 return new(leftBar, leftBar, leftPeak, leftPeak);
             }
-            var rightBar = new Color(right.Red * brightness, right.Green * brightness, right.Blue * brightness, .6f);
-            return new(leftBar, rightBar, leftPeak, rightBar.WithAlpha(.9f));
+            var rightBar = new Color(right.Red * intensity, right.Green * intensity, right.Blue * intensity, .6f * opacity);
+            return new(leftBar, rightBar, leftPeak, rightBar.WithAlpha(.9f * opacity));
         }
     }
 

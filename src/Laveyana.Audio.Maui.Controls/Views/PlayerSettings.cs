@@ -15,6 +15,10 @@ public enum SpectrumColorMode
     Monochrome
 }
 
+public enum PlayerTheme { System, Dark, Light }
+
+public enum DarkBackground { Classic, Amoled }
+
 /// <summary>Contains the user-facing preferences for playback and the player visuals.</summary>
 public sealed record PlayerSettings
 {
@@ -33,6 +37,8 @@ public sealed record PlayerSettings
     public int WaveformDetailSeconds { get; init; } = DefaultWaveformDetailSeconds;
     public PlayerPalette Palette { get; init; }
     public PlayerColors CustomColors { get; init; } = PlayerColors.For(PlayerPalette.LavPulse);
+    public PlayerTheme Theme { get; init; } = PlayerTheme.Dark;
+    public DarkBackground DarkBackground { get; init; }
     public SpectrumColorMode SpectrumColors { get; init; } = SpectrumColorMode.FrequencyGradient;
     public bool SpectrumLevelBrightness { get; init; } = true;
     public int SpectrumMinimumBrightnessPercent { get; init; } = 5;
@@ -55,6 +61,7 @@ public readonly record struct PlayerColors(Color Accent, Color Alternate, Color 
             Color.FromArgb("#589BEC"), Color.FromArgb("#8F84EA")),
         PlayerPalette.Warm => new(Color.FromArgb("#FFD39A"), Color.FromArgb("#FF9EAE"),
             Color.FromArgb("#E48275"), Color.FromArgb("#E88EBE")),
-        _ => new(MixerStyle.Accent, MixerStyle.Alternate, MixerStyle.Blue, MixerStyle.Violet)
+        _ => new(Color.FromArgb("#58E5FC"), Color.FromArgb("#FF9B65"),
+            Color.FromArgb("#419DFB"), Color.FromArgb("#BF89E7"))
     };
 }

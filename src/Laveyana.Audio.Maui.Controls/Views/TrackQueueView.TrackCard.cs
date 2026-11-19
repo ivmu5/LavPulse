@@ -11,7 +11,7 @@ internal sealed partial class TrackQueueView
     {
         private readonly Image _art = new() { Aspect = Aspect.AspectFill };
         private readonly Label _title = MixerStyle.Label("", MixerStyle.PhoneFont(22, 18), bold: true);
-        private readonly Label _artist = MixerStyle.Label("", MixerStyle.PhoneFont(13, 11), MixerStyle.Muted);
+        private readonly Label _artist = MixerStyle.Label("", MixerStyle.PhoneFont(13, 11), MixerColor.Muted);
         private readonly Label? _audioInfo;
         private readonly Label _state = MixerStyle.Label("", MixerStyle.PhoneFont(11, 10));
         private readonly Border _cover;
@@ -29,11 +29,9 @@ internal sealed partial class TrackQueueView
                 HorizontalOptions = right ? LayoutOptions.End : LayoutOptions.Start,
                 StrokeThickness = 0,
                 StrokeShape = new RoundRectangle { CornerRadius = 10 },
-                Background = new LinearGradientBrush(
-                    [new(MixerStyle.Blue.WithAlpha(.65f), 0), new(MixerStyle.Violet.WithAlpha(.5f), .5f), new(MixerStyle.Alternate.WithAlpha(.7f), 1)],
-                    new Point(0, 0), new Point(1, 1)),
                 Content = new Grid { Children = { _art, _state } }
             };
+            ApplyPalette(MixerTheme.Default.Artwork);
             _title.HorizontalTextAlignment = _artist.HorizontalTextAlignment = align;
             _title.MaxLines = 2;
             _title.LineBreakMode = LineBreakMode.TailTruncation;
@@ -41,7 +39,7 @@ internal sealed partial class TrackQueueView
             _artist.LineBreakMode = LineBreakMode.TailTruncation;
             _state.HorizontalOptions = LayoutOptions.End;
             _state.VerticalOptions = LayoutOptions.End;
-            _state.BackgroundColor = MixerStyle.Background;
+            MixerStyle.UseColor(_state, BackgroundColorProperty, MixerColor.Background);
             _state.Margin = 6;
             _state.Padding = new Thickness(5, 2);
             _coverRow = new Grid
@@ -52,7 +50,7 @@ internal sealed partial class TrackQueueView
             _coverRow.Add(_cover);
             if (showAudioInfo)
             {
-                _audioInfo = MixerStyle.Label("", MixerStyle.PhoneFont(11, 9.5), MixerStyle.Muted);
+                _audioInfo = MixerStyle.Label("", MixerStyle.PhoneFont(11, 9.5), MixerColor.Muted);
                 _audioInfo.HorizontalTextAlignment = TextAlignment.Start;
                 _audioInfo.VerticalOptions = LayoutOptions.Center;
                 _audioInfo.IsVisible = false;
@@ -66,6 +64,10 @@ internal sealed partial class TrackQueueView
             Children.Add(_coverRow);
             Children.Add(_details);
         }
+
+        public void ApplyPalette(PlayerColors colors) => _cover.Background = new LinearGradientBrush(
+            [new(colors.WaveLow.WithAlpha(.65f), 0), new(colors.WaveMid.WithAlpha(.5f), .5f), new(colors.Alternate.WithAlpha(.7f), 1)],
+            new Point(0, 0), new Point(1, 1));
 
         /// <summary>Shows imported tags and audio properties, with a gradient as the artwork fallback.</summary>
         public void Show(CachedTrack? track, string state = "")

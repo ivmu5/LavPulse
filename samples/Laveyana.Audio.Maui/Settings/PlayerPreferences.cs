@@ -41,6 +41,9 @@ internal static class PlayerPreferences
             WaveformOverview = Preferences.Default.Get("waveform-overview", defaults.WaveformOverview),
             WaveformDetailSeconds = Math.Clamp(Preferences.Default.Get("waveform-detail-seconds", defaults.WaveformDetailSeconds),
                 PlayerSettings.MinimumWaveformDetailSeconds, PlayerSettings.MaximumWaveformDetailSeconds),
+            Theme = (PlayerTheme)Math.Clamp(Preferences.Default.Get("interface-theme", (int)defaults.Theme), 0, (int)PlayerTheme.Light),
+            DarkBackground = (DarkBackground)Math.Clamp(Preferences.Default.Get("dark-background", (int)defaults.DarkBackground),
+                0, (int)DarkBackground.Amoled),
             Palette = (PlayerPalette)Math.Clamp(Preferences.Default.Get("palette", (int)defaults.Palette), 0, (int)PlayerPalette.Custom),
             CustomColors = new PlayerColors(
                 LoadPaletteColor("custom-palette-accent", defaults.CustomColors.Accent),
@@ -74,6 +77,8 @@ internal static class PlayerPreferences
         Preferences.Default.Set("show-player-on-lock-screen", settings.ShowOnLockScreen);
         Preferences.Default.Set("waveform-overview", settings.WaveformOverview);
         Preferences.Default.Set("waveform-detail-seconds", settings.WaveformDetailSeconds);
+        Preferences.Default.Set("interface-theme", (int)settings.Theme);
+        Preferences.Default.Set("dark-background", (int)settings.DarkBackground);
         Preferences.Default.Set("palette", (int)settings.Palette);
         Preferences.Default.Set("custom-palette-accent", settings.CustomColors.Accent.ToInt());
         Preferences.Default.Set("custom-palette-alternate", settings.CustomColors.Alternate.ToInt());

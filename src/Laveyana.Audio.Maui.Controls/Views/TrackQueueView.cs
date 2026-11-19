@@ -21,7 +21,7 @@ internal sealed partial class TrackQueueView : Grid
     private readonly Button _queueTab = MixerStyle.Button("Очередь", icon: "player_queue.png", stacked: true);
     private readonly Button _recommendationsTab = MixerStyle.Button("Рекомендации", icon: "player_recommendations.png", stacked: true);
     private readonly ScrollView _queueScroll;
-    private readonly Label _recommendations = MixerStyle.Label("В разработке", MixerStyle.PhoneFont(13, 11), MixerStyle.Muted);
+    private readonly Label _recommendations = MixerStyle.Label("В разработке", MixerStyle.PhoneFont(13, 11), MixerColor.Muted);
     private readonly Dictionary<TrackFile, QueueTrackRow> _trackRows = new();
     private readonly Stack<QueueTrackRow> _availableRows = new();
     private readonly List<TrackFile> _leavingRows = new();
@@ -30,11 +30,11 @@ internal sealed partial class TrackQueueView : Grid
     private TrackFile? _nextTrack;
     private int _playedCount;
     private int _visibleStart;
-    private bool _showPlayedTracks = true;
+    private bool _showPlayedTracks;
     private int VisibleTrackCount => Math.Max(0, _tracks.Count - _visibleStart);
     private int _firstRow = -1;
     private int _endRow = -1;
-    private readonly Label _empty = MixerStyle.Label("Очередь пуста", MixerStyle.PhoneFont(12, 11), MixerStyle.Muted);
+    private readonly Label _empty = MixerStyle.Label("Очередь пуста", MixerStyle.PhoneFont(12, 11), MixerColor.Muted);
     private readonly IDispatcherTimer _rowClock;
     private readonly long _start = Stopwatch.GetTimestamp();
     private TrackFile? _currentTrack;
@@ -110,7 +110,15 @@ internal sealed partial class TrackQueueView : Grid
     public event Action<TrackFile, TrackFile, bool>? MoveRequested;
     public event Action<TrackFile>? RemoveRequested;
     public event Action<bool>? RecommendationsSelected;
-    public Color Accent { get; set; } = MixerStyle.Accent;
+    private MixerTheme _theme = MixerTheme.Default;
+
+    internal void SetTheme(MixerTheme theme)
+    {
+        _theme = theme;
+        _current.ApplyPalette(theme.Artwork);
+        _incoming.ApplyPalette(theme.Artwork);
+        RefreshRows(force: true);
+    }
 
     /// <summary>Groups the two playback sources in a single segmented control.</summary>
     private Border CreateFeedSelector()
@@ -142,15 +150,16 @@ internal sealed partial class TrackQueueView : Grid
         var segments = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)] };
         segments.Add(_queueTab);
         segments.Add(_recommendationsTab, 1);
-        return new Border
+        var selector = new Border
         {
-            BackgroundColor = MixerStyle.Surface,
-            Stroke = MixerStyle.BorderColor,
             StrokeThickness = 1,
             StrokeShape = new RoundRectangle { CornerRadius = 10 },
             Padding = 2,
             Content = segments
         };
+        MixerStyle.UseColor(selector, BackgroundColorProperty, MixerColor.Surface);
+        MixerStyle.UseBrush(selector, Border.StrokeProperty, MixerColor.Border);
+        return selector;
     }
 
     /// <summary>Switches the visible feed and tells playback which source to use.</summary>
@@ -170,14 +179,18 @@ internal sealed partial class TrackQueueView : Grid
 
     private void SetTabColors()
     {
-        _queueTab.BackgroundColor = _showRecommendations ? Colors.Transparent : MixerStyle.SelectedBackground;
-        _recommendationsTab.BackgroundColor = _showRecommendations ? MixerStyle.SelectedBackground : Colors.Transparent;
-        _queueTab.TextColor = _showRecommendations ? MixerStyle.Muted : MixerStyle.TextColor;
-        _recommendationsTab.TextColor = _showRecommendations ? MixerStyle.TextColor : MixerStyle.Muted;
+        StyleTab(_queueTab, !_showRecommendations);
+        StyleTab(_recommendationsTab, _showRecommendations);
         SemanticProperties.SetDescription(_queueTab, _showRecommendations ? "Очередь" :
             _showPlayedTracks ? "Очередь. Нажми ещё раз, чтобы скрыть прослушанные треки." :
             "Очередь. Нажми ещё раз, чтобы показать прослушанные треки.");
         SemanticProperties.SetDescription(_recommendationsTab, _showRecommendations ? "Рекомендации, выбраны" : "Рекомендации");
+    }
+
+    private static void StyleTab(Button button, bool selected)
+    {
+        MixerStyle.UseColor(button, BackgroundColorProperty, selected ? MixerColor.Selected : MixerColor.Surface);
+        MixerStyle.UseColor(button, Button.TextColorProperty, selected ? MixerColor.Text : MixerColor.Muted);
     }
 
     /// <summary>Updates the queue model and rebinds only the visible window of rows.</summary>
@@ -261,7 +274,7 @@ internal sealed partial class TrackQueueView : Grid
             // Existing visible rows also move when history is hidden or shown.
             AbsoluteLayout.SetLayoutBounds(row,
                 new Rect(0, (double)(i - _visibleStart) * RowStride, 1, QueueTrackRow.RowHeight));
-            row.Show(read(file), ReferenceEquals(file, _currentTrack), i < _playedCount, ReferenceEquals(file, _nextTrack), Accent);
+            row.Show(read(file), ReferenceEquals(file, _currentTrack), i < _playedCount, ReferenceEquals(file, _nextTrack), _theme);
         }
     }
 

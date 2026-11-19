@@ -25,10 +25,10 @@ internal sealed class NumericSettingInput : Grid
         {
             Keyboard = Keyboard.Numeric, ReturnType = ReturnType.Done, HorizontalTextAlignment = TextAlignment.End,
             FontFamily = "Inter", FontSize = vertical ? 12 : showSlider ? 14 : MixerStyle.PhoneFont(12, 11),
-            WidthRequest = vertical ? 48 : showSlider ? 76 : 66, TextColor = MixerStyle.TextColor,
-            BackgroundColor = MixerStyle.Overlay
+            WidthRequest = vertical ? 48 : showSlider ? 76 : 66
         };
-        var unitLabel = MixerStyle.Label(unit, 12, MixerStyle.Muted);
+        MixerStyle.StyleEntry(_entry);
+        var unitLabel = MixerStyle.Label(unit, 12, MixerColor.Muted);
         unitLabel.VerticalOptions = LayoutOptions.Center;
         SemanticProperties.SetDescription(_entry, $"{name}, {unit}, от {range.Minimum} до {range.Maximum}");
         int fieldColumn = showSlider ? 1 : 0;
@@ -50,9 +50,9 @@ internal sealed class NumericSettingInput : Grid
         {
             _slider = new Slider
             {
-                Maximum = range.Maximum, Minimum = range.Minimum, MinimumTrackColor = MixerStyle.Accent,
-                MaximumTrackColor = MixerStyle.BorderColor, ThumbColor = MixerStyle.Accent, VerticalOptions = LayoutOptions.Center
+                Maximum = range.Maximum, Minimum = range.Minimum, VerticalOptions = LayoutOptions.Center
             };
+            MixerStyle.StyleSlider(_slider);
             SemanticProperties.SetDescription(_slider, $"{name}, {unit}. Двойное нажатие сбрасывает значение.");
             var reset = MixerStyle.IconButton("player_reset.png", 32);
             SemanticProperties.SetDescription(reset, $"Сбросить. {name}");

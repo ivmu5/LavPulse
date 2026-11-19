@@ -5,6 +5,7 @@ namespace Laveyana.Audio.Maui.Controls;
 internal sealed class WaveformDrawable : IDrawable
 {
     public PlayerColors Colors { get; set; } = PlayerColors.For(PlayerPalette.LavPulse);
+    internal MixerTheme Theme { get; set; } = MixerTheme.Default;
     public bool UseProgressBar { get; set; }
 
     public TrackWaveform? Waveform
@@ -48,20 +49,20 @@ internal sealed class WaveformDrawable : IDrawable
         {
             if (bounds.Width > 12 && bounds.Height >= 12)
             {
-                canvas.FillColor = MixerStyle.BorderColor;
+                canvas.FillColor = Theme[MixerColor.Border];
                 canvas.FillRoundedRectangle(bounds.Left + 6, bounds.Center.Y - 3, bounds.Width - 12, 6, 3);
             }
             return;
         }
 
-        canvas.FillColor = MixerStyle.Surface;
+        canvas.FillColor = Theme[MixerColor.Surface];
         canvas.FillRoundedRectangle(bounds.X, bounds.Y, bounds.Width, bounds.Height, 6);
         if (bounds.Width < 8 || bounds.Height < 8) return;
 
         float x = bounds.X + 4;
         float width = bounds.Width - 8;
         float middle = bounds.Center.Y;
-        canvas.StrokeColor = MixerStyle.BorderColor;
+        canvas.StrokeColor = Theme[MixerColor.Border];
         canvas.StrokeSize = 1;
         canvas.DrawLine(x, middle, x + width, middle);
 
@@ -170,7 +171,7 @@ internal sealed class WaveformDrawable : IDrawable
         if (Preview is long preview)
         {
             float marker = x + width * (preview - start) / length;
-            canvas.FillColor = MixerStyle.Preview;
+            canvas.FillColor = Theme[MixerColor.Preview];
             for (float y = bounds.Y + 3; y < bounds.Bottom - 5; y += 7)
             {
                 canvas.FillRectangle(marker - 1, y, 2, 4);
@@ -180,10 +181,10 @@ internal sealed class WaveformDrawable : IDrawable
         if (Position >= start && Position <= start + length)
         {
             float marker = x + width * (Position - start) / length;
-            canvas.StrokeColor = MixerStyle.TextColor;
+            canvas.StrokeColor = Theme[MixerColor.Text];
             canvas.StrokeSize = 2;
             canvas.DrawLine(marker, bounds.Y + 3, marker, bounds.Bottom - 3);
-            canvas.FillColor = MixerStyle.TextColor;
+            canvas.FillColor = Theme[MixerColor.Text];
             canvas.SaveState();
             canvas.Translate(marker, bounds.Y + 3);
             canvas.FillPath(_cursorTip);
@@ -212,11 +213,11 @@ internal sealed class WaveformDrawable : IDrawable
             canvas.FillRoundedRectangle(start, bounds.Center.Y - 3, played, 6, Math.Min(3, played / 2));
         }
 
-        canvas.FillColor = MixerStyle.TextColor;
+        canvas.FillColor = Theme[MixerColor.Text];
         canvas.FillCircle(start + played, bounds.Center.Y, 4);
         if (Preview is long frame)
         {
-            canvas.FillColor = MixerStyle.Preview;
+            canvas.FillColor = Theme[MixerColor.Preview];
             canvas.FillCircle(start + width * Math.Clamp((float)frame / frames, 0, 1), bounds.Center.Y, 5);
         }
     }

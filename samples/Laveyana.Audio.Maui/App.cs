@@ -1,6 +1,5 @@
-#if !WINDOWS
 using Microsoft.Maui.ApplicationModel;
-#else
+#if WINDOWS
 using Laveyana.Audio.Maui.Controls;
 #endif
 
@@ -8,18 +7,17 @@ namespace Laveyana.Audio.Maui;
 
 public sealed class App : Application
 {
-#if !WINDOWS
-    /// <summary>Applies the LavPulse theme on platforms where the native host does not set it.</summary>
-    public App() => UserAppTheme = AppTheme.Dark;
-#endif
-
     /// <summary>Creates a mixer window and binds its playback and import lifetime to the window.</summary>
     protected override Window CreateWindow(IActivationState? activationState)
     {
         var page = new MainPage();
         var window = new Window(page) { Title = "LavPulse" };
+        void OnThemeChanged(object? sender, AppThemeChangedEventArgs args) => page.RefreshAppearance();
+        RequestedThemeChanged += OnThemeChanged;
+        window.Destroying += (_, _) => RequestedThemeChanged -= OnThemeChanged;
+        window.Created += (_, _) => page.RefreshAppearance();
 #if WINDOWS
-        WindowsWindowChrome.Configure(window);
+        WindowsWindowChrome.Configure(window, page.RefreshAppearance);
         window.Created += (_, _) =>
         {
             if (window.Handler?.PlatformView is Microsoft.UI.Xaml.Window native)

@@ -5,6 +5,7 @@ using Android.OS;
 using Android.Views;
 using AndroidX.Activity.Result;
 using AndroidX.Activity.Result.Contract;
+using AndroidX.Core.View;
 using AndroidUri = Android.Net.Uri;
 
 namespace Laveyana.Audio.Maui;
@@ -53,6 +54,14 @@ public class MainActivity : MauiAppCompatActivity
 
         UpdatePlayerVisibility(false);
         base.OnStop();
+    }
+
+    internal void ApplySystemBarAppearance(bool light)
+    {
+        if (Window is not { } window) return;
+        if (WindowCompat.GetInsetsController(window, window.DecorView) is not { } controller) return;
+        controller.AppearanceLightStatusBars = light;
+        controller.AppearanceLightNavigationBars = light;
     }
 
     /// <summary>Allows the already open player to remain visible above the keyguard.</summary>

@@ -16,10 +16,11 @@ public sealed class EqualizerPanel : ContentView
         _apply = apply;
         var title = MixerStyle.Label("Эквалайзер", 23, bold: true);
         SemanticProperties.SetHeadingLevel(title, SemanticHeadingLevel.Level1);
-        var toggle = new Switch { IsToggled = settings.Enabled, OnColor = MixerStyle.Accent };
+        var toggle = new Switch { IsToggled = settings.Enabled };
+        MixerStyle.UseColor(toggle, Switch.OnColorProperty, MixerColor.Accent);
         SemanticProperties.SetDescription(toggle, "Включить эквалайзер");
         var header = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)] };
-        header.Add(new VerticalStackLayout { Children = { title, MixerStyle.Label("Усиление, дБ", 12, MixerStyle.Muted) } });
+        header.Add(new VerticalStackLayout { Children = { title, MixerStyle.Label("Усиление, дБ", 12, MixerColor.Muted) } });
         header.Add(toggle, 1);
 
         var bands = new Grid { RowSpacing = 12, ColumnSpacing = 4 };
@@ -43,7 +44,7 @@ public sealed class EqualizerPanel : ContentView
                 _apply(Settings);
             };
             _bands[i] = input;
-            var label = MixerStyle.Label(frequency, 12, output ? MixerStyle.Accent : MixerStyle.TextColor);
+            var label = MixerStyle.Label(frequency, 12, output ? MixerColor.Accent : MixerColor.Text);
             label.HorizontalTextAlignment = TextAlignment.Center;
             rows[i] = new VerticalStackLayout { Children = { label, input } };
             bands.Children.Add(rows[i]);
