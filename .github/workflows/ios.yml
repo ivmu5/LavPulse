@@ -15,7 +15,8 @@ permissions:
 
 jobs:
   iphone:
-    runs-on: macos-26
+    # The hosted ARM64 simulator rejected the app's verified signature during dyld startup.
+    runs-on: macos-26-intel
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
@@ -36,7 +37,7 @@ jobs:
           dotnet build samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.csproj
           -c Debug
           -p:LavPulsePlatform=ios
-          -p:RuntimeIdentifier=iossimulator-arm64
+          -p:RuntimeIdentifier=iossimulator-x64
           -p:EnableCodeSigning=false
       - name: Launch LavPulse on an iPhone simulator
         shell: bash
@@ -52,8 +53,9 @@ jobs:
           trap 'xcrun simctl shutdown "$device" || true' EXIT
           xcrun simctl boot "$device"
           xcrun simctl bootstatus "$device" -b
-          app="$(find samples/Laveyana.Audio.Maui/bin -type d -path '*/iossimulator-arm64/Laveyana.Audio.Maui.app' -print -quit)"
+          app="$(find samples/Laveyana.Audio.Maui/bin -type d -path '*/iossimulator-x64/Laveyana.Audio.Maui.app' -print -quit)"
           test -n "$app"
+          find "$app" -type f -name '*.dylib' -exec codesign --force --sign - {} \;
           codesign --force --deep --sign - "$app"
           codesign --verify --deep --strict "$app"
           xcrun simctl install "$device" "$app"
