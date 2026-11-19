@@ -35,7 +35,7 @@
 
   <!-- Keep platform implementations separate in compiler and IDE builds. -->
   <ItemGroup>
-    <Compile Remove="Platforms/**/*.cs" />
+    <Compile Remove="Platforms/**/*.cs;Apple/**/*.cs" />
     <Compile Include="Platforms/Android/**/*.cs"
              Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'" />
     <Compile Include="Platforms/Windows/**/*.cs"
@@ -44,7 +44,8 @@
              Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'" />
     <Compile Include="Platforms/MacCatalyst/**/*.cs"
              Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'" />
-    <Compile Include="Platforms/Apple/**/*.cs"
+    <!-- MAUI SingleProject filters out platform folders other than the selected target. -->
+    <Compile Include="Apple/**/*.cs"
              Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' Or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'" />
   </ItemGroup>
 </Project>
