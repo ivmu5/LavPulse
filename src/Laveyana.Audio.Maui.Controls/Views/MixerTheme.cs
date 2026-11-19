@@ -4,7 +4,7 @@ namespace Laveyana.Audio.Maui.Controls;
 
 internal enum MixerColor
 {
-    Background, Surface, Card, Overlay, Button, Selected, Border, Text, Muted, Accent, Primary, OnPrimary, Preview, Scrim
+    Background, Surface, Card, Overlay, Button, Selected, Border, Text, Muted, Accent, Primary, OnPrimary, Preview, Scrim, SwitchTrack
 }
 
 /// <summary>Derives UI surfaces and readable foregrounds from the selected player palette.</summary>
@@ -45,6 +45,7 @@ internal sealed class MixerTheme
         Color toward = light ? Colors.Black : Colors.White;
         Color primaryInk = light ? LightInk : DarkInk;
         Color primary = EnsureContrast(EnsureContrast(palette.Accent, primaryInk, 4.5, toward), reference, 3, toward);
+        Color accent = EnsureContrast(palette.Accent, reference, 4.5, toward);
         Color text = EnsureContrast(Blend(light ? DarkInk : LightInk, tint, .06f), reference, 7, toward);
 
         Color Graphic(Color color) => EnsureContrast(color, surface, 3, toward);
@@ -61,11 +62,13 @@ internal sealed class MixerTheme
             [MixerColor.Border] = EnsureContrast(Blend(background, tint, .45f), reference, 3, toward),
             [MixerColor.Text] = text,
             [MixerColor.Muted] = EnsureContrast(Blend(text, reference, .32f), reference, 4.5, toward),
-            [MixerColor.Accent] = EnsureContrast(palette.Accent, reference, 4.5, toward),
+            [MixerColor.Accent] = accent,
             [MixerColor.Primary] = primary,
             [MixerColor.OnPrimary] = primaryInk,
             [MixerColor.Preview] = AlternateForeground,
-            [MixerColor.Scrim] = Colors.Black.WithAlpha(light ? .42f : .76f)
+            [MixerColor.Scrim] = Colors.Black.WithAlpha(light ? .42f : .76f),
+            // Keep the checked track between the surrounding surfaces and the accent thumb.
+            [MixerColor.SwitchTrack] = EnsureContrast(reference, reference, 2, accent)
         };
     }
 
