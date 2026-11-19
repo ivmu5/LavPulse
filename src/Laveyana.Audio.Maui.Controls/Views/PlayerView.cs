@@ -1,4 +1,5 @@
 using Laveyana.Audio.Playback;
+using Microsoft.Maui.Controls.Shapes;
 
 namespace Laveyana.Audio.Maui.Controls;
 
@@ -13,15 +14,26 @@ public sealed class PlayerView : Grid
     private readonly Button _automix = MixerStyle.Button("Автомикс", icon: "player_automix.png", stacked: true);
     private readonly ImageButton _repeatOne = MixerStyle.IconButton("player_repeat_one.png", 44);
     private readonly ImageButton _equalizer = MixerStyle.IconButton("player_equalizer.png", 44);
+    private readonly Switch _equalizerToggle = new()
+    {
+        OnColor = MixerStyle.Accent, WidthRequest = 54, VerticalOptions = LayoutOptions.Center
+    };
+    private readonly Border _equalizerGroup = new()
+    {
+        BackgroundColor = MixerStyle.ButtonBackground, StrokeThickness = 0,
+        StrokeShape = new RoundRectangle { CornerRadius = 9 }
+    };
     private readonly Button _settings = MixerStyle.Button("Настройки", icon: "player_settings.png", stacked: true);
     private readonly TrackQueueView _queue = new();
     private readonly Grid _body = new() { IsClippedToBounds = true };
+    private readonly ContentView _panelHost = new() { IsClippedToBounds = true, IsVisible = false };
     private readonly VerticalStackLayout _decks = new() { Spacing = 8 };
     private DeckView? _leavingDeck;
     private int _deckExit;
     private PlayingTrack? _latestCurrent;
     private bool _latestCanSeek;
     private bool _latestOverview;
+    private bool _syncingEqualizerToggle;
 
     public PlayerView()
     {
@@ -38,7 +50,10 @@ public sealed class PlayerView : Grid
         this.Add(_body);
 
         _queue.SetMasterSpectrum(Spectrum.QueueDrawable);
-        Spectrum.VisualizationChanged += _queue.InvalidateMasterSpectrum;
+        Spectrum.VisualizationChanged += () =>
+        {
+            if (Panel is null) _queue.InvalidateMasterSpectrum();
+        };
         var removeLabel = MixerStyle.Label("Убрать", 11);
         removeLabel.HorizontalTextAlignment = TextAlignment.Center;
         var removeTarget = new Border
@@ -65,7 +80,8 @@ public sealed class PlayerView : Grid
         };
         SemanticProperties.SetDescription(removeTarget, "Отпусти правее, чтобы убрать трек из очереди.");
         _queue.AttachRemovalTarget(removeTarget);
-        this.Add(removeTarget);
+        _body.Add(removeTarget);
+        this.Add(_panelHost);
 
         _queue.ShowCurrent(null);
         CurrentDeck.Show(null, false);
@@ -120,6 +136,7 @@ public sealed class PlayerView : Grid
     public DeckView CurrentDeck { get; private set; } = new();
     public DeckView IncomingDeck { get; private set; } = new();
     public Label Status { get; } = MixerStyle.Label("", 12, MixerStyle.Muted);
+    public View? Panel => _panelHost.Content;
 
     public event Action? PlayRequested;
     public event Action? PreviousRequested;
@@ -127,6 +144,7 @@ public sealed class PlayerView : Grid
     public event Action? AutoMixChanged;
     public event Action? RepeatOneChanged;
     public event Action? EqualizerRequested;
+    public event Action<bool>? EqualizerToggled;
     public event Action<TrackFile>? QueueRequested
     {
         add => _queue.TrackRequested += value;
@@ -167,16 +185,28 @@ public sealed class PlayerView : Grid
         _automix.Clicked += (_, _) => AutoMixChanged?.Invoke();
         _repeatOne.Clicked += (_, _) => RepeatOneChanged?.Invoke();
         _equalizer.Clicked += (_, _) => EqualizerRequested?.Invoke();
+        _equalizerToggle.Toggled += (_, args) =>
+        {
+            if (!_syncingEqualizerToggle) EqualizerToggled?.Invoke(args.Value);
+        };
         _settings.Clicked += (_, _) => SettingsRequested?.Invoke();
         _play.Clicked += (_, _) => PlayRequested?.Invoke();
         _previous.Clicked += (_, _) => PreviousRequested?.Invoke();
         _next.Clicked += (_, _) => NextRequested?.Invoke();
         SemanticProperties.SetDescription(_next, "Свести со следующим треком");
         SemanticProperties.SetDescription(_previous, "Предыдущий трек");
+        SemanticProperties.SetDescription(_equalizer, "Открыть эквалайзер");
+        SemanticProperties.SetDescription(_equalizerToggle, "Эквалайзер");
+        _equalizer.BackgroundColor = Colors.Transparent;
+        _equalizerGroup.Content = new HorizontalStackLayout
+        {
+            Padding = new Thickness(0, 0, 6, 0),
+            Children = { _equalizer, _equalizerToggle }
+        };
         var left = new HorizontalStackLayout { HorizontalOptions = LayoutOptions.Start, VerticalOptions = LayoutOptions.Center,
             Spacing = 4, Children = { _automix, _repeatOne } };
         var right = new HorizontalStackLayout { HorizontalOptions = LayoutOptions.End, VerticalOptions = LayoutOptions.Center,
-            Spacing = 4, Children = { _equalizer, _settings } };
+            Spacing = 4, Children = { _equalizerGroup, _settings } };
         var primary = new HorizontalStackLayout { HorizontalOptions = LayoutOptions.Center,
             Spacing = 4, Children = { _previous, _play, _next } };
         controls.Add(left);
@@ -186,7 +216,7 @@ public sealed class PlayerView : Grid
         bool wide = false;
         controls.SizeChanged += (_, _) =>
         {
-            bool next = controls.Width >= 440;
+            bool next = controls.Width >= 520;
             if (next == wide) return;
             wide = next;
             controls.ColumnDefinitions[1].Width = wide ? GridLength.Auto : new GridLength(0);
@@ -206,8 +236,19 @@ public sealed class PlayerView : Grid
 
     public void SetEqualizerEnabled(bool enabled)
     {
-        _equalizer.BackgroundColor = enabled ? MixerStyle.SelectedBackground : MixerStyle.Card;
-        SemanticProperties.SetDescription(_equalizer, enabled ? "Эквалайзер включён. Открыть" : "Эквалайзер выключен. Открыть");
+        _equalizerGroup.BackgroundColor = enabled ? MixerStyle.SelectedBackground : MixerStyle.ButtonBackground;
+        if (_equalizerToggle.IsToggled == enabled) return;
+        _syncingEqualizerToggle = true;
+        try { _equalizerToggle.IsToggled = enabled; }
+        finally { _syncingEqualizerToggle = false; }
+    }
+
+    /// <summary>Replaces the player controls above the shared spectrum.</summary>
+    public void ShowPanel(View? panel)
+    {
+        _panelHost.Content = panel;
+        _panelHost.IsVisible = panel is not null;
+        _body.IsVisible = panel is null;
     }
 
     /// <summary>Applies the saved palette and timeline settings to the player.</summary>
@@ -227,16 +268,20 @@ public sealed class PlayerView : Grid
     /// <summary>Starts both playhead animation and spectrum rendering on the same display clock.</summary>
     public void StartPlaybackVisuals(Func<ISpectrumSource?> getSpectrum)
     {
-        CurrentDeck.SetPlayheadAnimation(true);
-        IncomingDeck.SetPlayheadAnimation(true);
+        SetPlayheadAnimation(Panel is null);
         Spectrum.Start(getSpectrum);
     }
 
     public void StopPlaybackVisuals()
     {
         Spectrum.Stop();
-        CurrentDeck.SetPlayheadAnimation(false);
-        IncomingDeck.SetPlayheadAnimation(false);
+        SetPlayheadAnimation(false);
+    }
+
+    private void SetPlayheadAnimation(bool enabled)
+    {
+        CurrentDeck.SetPlayheadAnimation(enabled);
+        IncomingDeck.SetPlayheadAnimation(enabled);
     }
 
     public void SnapPlayheadsOnNextPosition()
@@ -247,6 +292,7 @@ public sealed class PlayerView : Grid
 
     private void DrawPlayheads()
     {
+        if (Panel is not null) return;
         double time = DeckPlayhead.Now;
         CurrentDeck.DrawPlayhead(time);
         if (!ReferenceEquals(IncomingDeck, _leavingDeck)) IncomingDeck.DrawPlayhead(time);
@@ -327,7 +373,14 @@ public sealed class PlayerView : Grid
 
     public void ResetAnimations()
     {
-        StopPlaybackVisuals();
+        Spectrum.Stop();
+        SuspendPlayerAnimations();
+    }
+
+    /// <summary>Stops animations belonging to the player controls while a panel is open.</summary>
+    public void SuspendPlayerAnimations()
+    {
+        SetPlayheadAnimation(false);
         if (_leavingDeck is { } leaving)
         {
             CompleteDeckExit(leaving);
@@ -341,13 +394,14 @@ public sealed class PlayerView : Grid
     }
 
     /// <summary>Restores the visible player straight to the mixer's latest position.</summary>
-    public void ResumeAnimations(QueueSnapshot snapshot, bool canSeek, bool showOverview)
+    public void ResumeAnimations(QueueSnapshot snapshot, bool canSeek, bool showOverview, bool animatePlayheads = false)
     {
         CurrentDeck.Show(snapshot.Current, canSeek, showOverview);
         IncomingDeck.Show(snapshot.Incoming, false, showOverview: false);
         _queue.ShowCurrent(snapshot.Current?.Track);
         if (snapshot.Incoming is { } incoming) _queue.ShowIncoming(incoming.Track);
         _queue.ResumeAnimations();
+        SetPlayheadAnimation(animatePlayheads);
     }
 
     /// <summary>Reflects playback state and the availability of a prepared incoming track.</summary>

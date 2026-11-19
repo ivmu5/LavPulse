@@ -32,8 +32,16 @@ public sealed class App : Application
         void OnVisibilityChanged(object sender, Microsoft.UI.Xaml.WindowVisibilityChangedEventArgs args) =>
             page.SetWindowVisible(args.Visible);
 #elif ANDROID
-        window.Stopped += (_, _) => page.SetWindowVisible(false);
-        window.Resumed += (_, _) => page.SetWindowVisible(true);
+        window.Created += (_, _) =>
+        {
+            if (window.Handler?.PlatformView is MainActivity activity)
+            {
+                activity.PlayerVisibilityChanged += page.SetWindowVisible;
+                activity.SetPlayerOnLockScreen(page.ShowOnLockScreen);
+                page.SetWindowVisible(activity.IsPlayerVisible);
+                window.Destroying += (_, _) => activity.PlayerVisibilityChanged -= page.SetWindowVisible;
+            }
+        };
 #endif
         window.Destroying += async (_, _) => await page.CloseAsync();
         return window;
