@@ -22,6 +22,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions/setup-dotnet@v5
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet-ios
         with:
           dotnet-version: '10.0.203'
       - name: Select Xcode and install the iOS workload
