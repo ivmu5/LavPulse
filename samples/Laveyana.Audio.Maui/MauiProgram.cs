@@ -1,4 +1,8 @@
 using System.Diagnostics;
+#if WINDOWS
+using Laveyana.Audio.Maui.Controls;
+using Microsoft.Maui.LifecycleEvents;
+#endif
 
 namespace Laveyana.Audio.Maui;
 
@@ -12,6 +16,10 @@ public static class MauiProgram
             return MauiApp.CreateBuilder()
                 .UseMauiApp<App>()
                 .ConfigureFonts(fonts => fonts.AddFont("InterVariable.ttf", "Inter"))
+#if WINDOWS
+                .ConfigureLifecycleEvents(events => events.AddWindows(windows =>
+                    windows.OnPlatformWindowSubclassed((window, _) => WindowsWindowChrome.PrepareNativeCaption(window))))
+#endif
                 .Build();
         }
         catch (Exception exception)

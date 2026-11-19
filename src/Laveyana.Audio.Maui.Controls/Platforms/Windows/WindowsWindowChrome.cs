@@ -24,7 +24,7 @@ using NativeSolidBrush = Microsoft.UI.Xaml.Media.SolidColorBrush;
 namespace Laveyana.Audio.Maui.Controls;
 
 /// <summary>Owns the Windows caption overlay, resize limits and fullscreen state.</summary>
-public sealed class WindowsWindowChrome
+public sealed partial class WindowsWindowChrome
 {
     public const int ContentInset = 44;
     private const int MinimumWidth = 720;
@@ -42,15 +42,27 @@ public sealed class WindowsWindowChrome
     private readonly NativePanel _root;
     private readonly AppWindow _appWindow;
     private readonly OverlappedPresenter _windowed;
+    private readonly nint _hwnd;
     private readonly NativeGrid _caption;
+    private readonly NativeGrid _dragRegion;
     private readonly NativeButton _maximize;
     private readonly NativeButton _fullscreen;
     private readonly NativeKeyboardAccelerator _fullscreenKey;
     private readonly NativeKeyboardAccelerator _escapeKey;
-    private readonly WindowsClientFrame _frame;
+    private readonly WindowsClientFrame? _legacyFrame;
     private RectInt32? _restoreBounds;
     private bool _restoreMaximized;
     private bool IsFullscreen => _appWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
+
+    /// <summary>Configures the native caption before MAUI measures its navigation root.</summary>
+    public static void PrepareNativeCaption(NativeWindow native)
+    {
+        if (!AppWindowTitleBar.IsCustomizationSupported()) return;
+
+        native.ExtendsContentIntoTitleBar = true;
+        // WinUI uses our explicit title region and leaves the buttons to the LavPulse overlay.
+        native.AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Collapsed;
+    }
 
     /// <summary>Sets logical window sizes before activation and installs native controls when the root is ready.</summary>
     public static void Configure(MauiWindow window)
@@ -78,7 +90,11 @@ public sealed class WindowsWindowChrome
         _root = root;
         _appWindow = native.AppWindow;
         _windowed = windowed;
-        _frame = new WindowsClientFrame(WinRT.Interop.WindowNative.GetWindowHandle(native), ContentInset, ToolbarWidth);
+        _hwnd = WinRT.Interop.WindowNative.GetWindowHandle(native);
+        if (!AppWindowTitleBar.IsCustomizationSupported())
+        {
+            _legacyFrame = new WindowsClientFrame(_hwnd, ContentInset, ToolbarWidth);
+        }
 
         var buttons = new NativeStack { Orientation = Microsoft.UI.Xaml.Controls.Orientation.Horizontal, Spacing = ButtonSpacing };
         buttons.Children.Add(CreateButton("\uE921", "Свернуть", Minimize));
@@ -96,7 +112,7 @@ public sealed class WindowsWindowChrome
             VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
             Margin = new NativeThickness(0, 0, ToolbarRight, 0),
             Padding = new NativeThickness(ToolbarPadding),
-            Background = Brush(232, 17, 24, 49),
+            Background = Brush(180, 17, 24, 49),
             CornerRadius = new Microsoft.UI.Xaml.CornerRadius(8),
             RequestedTheme = ElementTheme.Dark
         };
@@ -104,14 +120,23 @@ public sealed class WindowsWindowChrome
         {
             Height = ContentInset,
             VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Top,
-            Background = Brush(255, 11, 16, 32)
+            Background = Brush(140, 11, 16, 32),
+            RenderTransform = _captionTranslation
         };
-        _caption.Children.Add(CreateBrand(window.Title));
+        // The system consumes pointer input in the registered title area. Keep the toolbar outside it.
+        _dragRegion = new NativeGrid
+        {
+            Background = Brush(0, 0, 0, 0),
+            Margin = new NativeThickness(0, 0, ToolbarWidth, 0)
+        };
+        _dragRegion.Children.Add(CreateBrand(window.Title));
+        _caption.Children.Add(_dragRegion);
         _caption.Children.Add(toolbar);
         Microsoft.UI.Xaml.Controls.Canvas.SetZIndex(_caption, 1000);
         // MAUI's root panel keeps overlays above the page and any modal pages.
         _root.Children.Add(_caption);
-        _root.Loaded += OnRootLoaded;
+        _dragRegion.Loaded += OnDragRegionLoaded;
+        AttachFullscreenCaption();
 
         _fullscreenKey = new NativeKeyboardAccelerator { Key = VirtualKey.F11 };
         _fullscreenKey.Invoked += (_, args) => { ToggleFullscreen(); args.Handled = true; };
@@ -129,8 +154,7 @@ public sealed class WindowsWindowChrome
         _root.KeyboardAccelerators.Add(_fullscreenKey);
         _root.KeyboardAccelerators.Add(_escapeKey);
 
-        HideStandardTitleBar();
-        _frame.Refresh();
+        ConfigureWindowedCaption();
         ApplyMinimumSize();
         FitInitialWindow();
         _appWindow.Changed += OnWindowChanged;
@@ -164,23 +188,26 @@ public sealed class WindowsWindowChrome
         return brand;
     }
 
-    private void OnRootLoaded(object sender, RoutedEventArgs args)
+    private void OnDragRegionLoaded(object sender, RoutedEventArgs args)
     {
-        HideStandardTitleBar();
-        _frame.Refresh();
+        if (!IsFullscreen) ConfigureWindowedCaption();
     }
 
-    private void HideStandardTitleBar()
+    private void ConfigureWindowedCaption()
     {
-        if (IsFullscreen) return;
-        if (AppWindowTitleBar.IsCustomizationSupported() && _appWindow.TitleBar.ExtendsContentIntoTitleBar)
+        if (_legacyFrame is not null)
         {
-            _appWindow.TitleBar.ExtendsContentIntoTitleBar = false;
+            if (!_windowed.HasBorder || _windowed.HasTitleBar)
+            {
+                _windowed.SetBorderAndTitleBar(hasBorder: true, hasTitleBar: false);
+            }
+            _legacyFrame.Refresh();
+            return;
         }
-        if (!_windowed.HasBorder || _windowed.HasTitleBar)
-        {
-            _windowed.SetBorderAndTitleBar(hasBorder: true, hasTitleBar: false);
-        }
+
+        PrepareNativeCaption(_native);
+        if (_dragRegion.IsLoaded) _native.SetTitleBar(_dragRegion);
+        WindowsClientFrame.ApplyBorderColor(_hwnd);
     }
 
     private void Minimize()
@@ -219,16 +246,17 @@ public sealed class WindowsWindowChrome
         var position = _appWindow.Position;
         var size = _appWindow.Size;
         _restoreBounds = _restoreMaximized ? null : new RectInt32(position.X, position.Y, size.Width, size.Height);
-        _frame.IsFullscreen = true;
+        if (_legacyFrame is null) _native.SetTitleBar(null);
+        else _legacyFrame.IsFullscreen = true;
         _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+        SetCaptionVisible(false, animate: true);
         UpdateButtons();
     }
 
     private void ExitFullscreen()
     {
-        _frame.IsFullscreen = false;
+        if (_legacyFrame is not null) _legacyFrame.IsFullscreen = false;
         _appWindow.SetPresenter(_windowed);
-        HideStandardTitleBar();
         if (_restoreMaximized)
         {
             _windowed.Maximize();
@@ -238,7 +266,8 @@ public sealed class WindowsWindowChrome
             _windowed.Restore();
             if (_restoreBounds is { } bounds) _appWindow.MoveAndResize(bounds);
         }
-        _frame.Refresh();
+        SetCaptionVisible(true, animate: false);
+        ConfigureWindowedCaption();
         UpdateButtons();
     }
 
@@ -287,11 +316,12 @@ public sealed class WindowsWindowChrome
 
     private void OnClosed(object sender, WindowEventArgs args)
     {
-        _frame.Dispose();
+        DetachFullscreenCaption();
+        _legacyFrame?.Dispose();
         _appWindow.Changed -= OnWindowChanged;
         _window.DisplayDensityChanged -= OnDensityChanged;
         _native.Closed -= OnClosed;
-        _root.Loaded -= OnRootLoaded;
+        _dragRegion.Loaded -= OnDragRegionLoaded;
         _root.KeyboardAccelerators.Remove(_fullscreenKey);
         _root.KeyboardAccelerators.Remove(_escapeKey);
         _root.Children.Remove(_caption);

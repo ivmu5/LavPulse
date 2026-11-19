@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace Laveyana.Audio.Maui.Controls;
 
-/// <summary>Keeps the native resize frame with a thin top edge above the custom caption.</summary>
+/// <summary>Provides the custom caption frame on systems that lack AppWindow title bar customization.</summary>
 internal sealed class WindowsClientFrame : IDisposable
 {
     private const uint WindowNonClientCalculateSize = 0x0083;
@@ -42,9 +42,14 @@ internal sealed class WindowsClientFrame : IDisposable
         if (!_installed || IsFullscreen) return;
         var margins = new FrameMargins();
         DwmExtendFrameIntoClientArea(_hwnd, in margins);
-        uint border = FrameColor;
-        DwmSetWindowAttribute(_hwnd, DwmBorderColor, in border, sizeof(uint));
+        ApplyBorderColor(_hwnd);
         SetWindowPos(_hwnd, 0, 0, 0, 0, 0, NoSize | NoMove | NoZOrder | NoActivate | FrameChanged);
+    }
+
+    internal static void ApplyBorderColor(nint hwnd)
+    {
+        uint border = FrameColor;
+        DwmSetWindowAttribute(hwnd, DwmBorderColor, in border, sizeof(uint));
     }
 
     private nint HandleMessage(nint hwnd, uint message, nuint wParam, nint lParam, nuint id, nuint data)
