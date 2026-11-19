@@ -4,7 +4,8 @@ public enum PlayerPalette
 {
     LavPulse,
     Ocean,
-    Warm
+    Warm,
+    Custom
 }
 
 public enum SpectrumColorMode
@@ -31,6 +32,7 @@ public sealed record PlayerSettings
     public bool WaveformOverview { get; init; }
     public int WaveformDetailSeconds { get; init; } = DefaultWaveformDetailSeconds;
     public PlayerPalette Palette { get; init; }
+    public PlayerColors CustomColors { get; init; } = PlayerColors.For(PlayerPalette.LavPulse);
     public SpectrumColorMode SpectrumColors { get; init; } = SpectrumColorMode.FrequencyGradient;
     public bool SpectrumLevelBrightness { get; init; } = true;
     public int SpectrumMinimumBrightnessPercent { get; init; } = 5;
@@ -42,9 +44,12 @@ public sealed record PlayerSettings
     public bool ShowPeaks { get; init; } = true;
 }
 
-internal readonly record struct PlayerColors(Color Accent, Color Alternate, Color WaveLow, Color WaveMid)
+public readonly record struct PlayerColors(Color Accent, Color Alternate, Color WaveLow, Color WaveMid)
 {
-    public static PlayerColors For(PlayerPalette palette) => palette switch
+    internal static PlayerColors For(PlayerSettings settings) =>
+        settings.Palette == PlayerPalette.Custom ? settings.CustomColors : For(settings.Palette);
+
+    internal static PlayerColors For(PlayerPalette palette) => palette switch
     {
         PlayerPalette.Ocean => new(Color.FromArgb("#8CEBFE"), Color.FromArgb("#A5B0FF"),
             Color.FromArgb("#589BEC"), Color.FromArgb("#8F84EA")),
