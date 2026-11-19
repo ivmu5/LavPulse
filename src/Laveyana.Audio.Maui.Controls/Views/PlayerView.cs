@@ -292,7 +292,10 @@ public sealed class PlayerView : Grid
     }
 
     public void ShowQueue(IReadOnlyList<TrackFile> tracks, TrackFile? current, TrackFile? next, int playedCount, Func<TrackFile, QueueTrackItem> read)
-        => _queue.ShowQueue(tracks, current, next, playedCount, read);
+        => ShowQueue(tracks, current, playedCount, read);
+
+    public void ShowQueue(IReadOnlyList<TrackFile> tracks, TrackFile? current, int playedCount, Func<TrackFile, QueueTrackItem> read)
+        => _queue.ShowQueue(tracks, current, playedCount, read);
 
     /// <summary>Starts both playhead animation and spectrum rendering on the same display clock.</summary>
     public void StartPlaybackVisuals(Func<ISpectrumSource?> getSpectrum)

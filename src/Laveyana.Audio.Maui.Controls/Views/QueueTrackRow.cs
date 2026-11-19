@@ -7,22 +7,26 @@ using Font = Microsoft.Maui.Graphics.Font;
 namespace Laveyana.Audio.Maui.Controls;
 
 /// <summary>Provides the tags and preparation state displayed in one queue row.</summary>
-public readonly record struct QueueTrackItem(string Title, string? Artist, ReadOnlyMemory<byte> Artwork, bool IsAnalyzing);
+public readonly record struct QueueTrackItem(string Title, string? Artist, ReadOnlyMemory<byte> Artwork, bool IsAnalyzing)
+{
+    /// <summary>Whether the track is ready for playback.</summary>
+    public bool IsLoaded { get; init; } = true;
+}
 
 internal sealed class QueueTrackRow : Border
 {
     public const int RowHeight = 54;
 
-    private readonly Image _cover = new() { Aspect = Aspect.AspectFill, WidthRequest = 38, HeightRequest = 38, VerticalOptions = LayoutOptions.Center };
+    private readonly Image _art = new() { Aspect = Aspect.AspectFill };
+    private readonly Border _cover;
     private readonly QueueText _text = new();
     private readonly GraphicsView _graphics;
     private readonly GraphicsView _spectrum = new() { InputTransparent = true, IsVisible = false };
-    private readonly Grid _content;
     private QueueTrackItem? _shown;
     private bool _played;
     private bool _current;
     private long _marqueeStart;
-    private bool _selected;
+    private bool _loading;
     private MixerTheme? _theme;
 
     public QueueTrackRow()
@@ -36,12 +40,16 @@ internal sealed class QueueTrackRow : Border
             VerticalOptions = LayoutOptions.Center, Aspect = Aspect.AspectFit };
         MixerStyle.UseIcon(DragHandle, Image.SourceProperty, "player_reorder.png");
         SemanticProperties.SetDescription(DragHandle, "Перетащить трек");
-        _content = new Grid { ColumnSpacing = 5, ColumnDefinitions = [new(0), new(GridLength.Star), new(24)] };
-        _content.Add(_cover);
-        _content.Add(_graphics, 1);
-        _content.Add(DragHandle, 2);
-        _cover.IsVisible = false;
-        Content = new Grid { IsClippedToBounds = true, Children = { _spectrum, _content } };
+        _cover = new Border
+        {
+            WidthRequest = 38, HeightRequest = 38, VerticalOptions = LayoutOptions.Center,
+            StrokeThickness = 0, StrokeShape = new RoundRectangle { CornerRadius = 5 }, Content = _art
+        };
+        var content = new Grid { ColumnSpacing = 6, ColumnDefinitions = [new(38), new(GridLength.Star), new(24)] };
+        content.Add(_cover);
+        content.Add(_graphics, 1);
+        content.Add(DragHandle, 2);
+        Content = new Grid { IsClippedToBounds = true, Children = { _spectrum, content } };
     }
 
     public View DragHandle { get; }
@@ -59,7 +67,8 @@ internal sealed class QueueTrackRow : Border
     {
         File = null;
         _shown = null;
-        _cover.Source = null;
+        _art.Source = null;
+        _cover.Background = null;
         Scale = 1;
         Opacity = 1;
     }
@@ -67,21 +76,24 @@ internal sealed class QueueTrackRow : Border
     public void InvalidateSpectrum() => _spectrum.Invalidate();
 
     /// <summary>Updates only changed tags or colors so pending rows can stay under the pointer.</summary>
-    public void Show(QueueTrackItem item, bool current, bool played, bool selected, MixerTheme theme)
+    public void Show(QueueTrackItem item, bool current, bool played, MixerTheme theme)
     {
-        if (_shown == item && _current == current && _played == played && _selected == selected && ReferenceEquals(_theme, theme))
+        played &= !current;
+        if (_shown == item && _current == current && _played == played && ReferenceEquals(_theme, theme))
         {
             return;
         }
-        if (_shown?.Artwork.Equals(item.Artwork) != true)
+        bool artworkChanged = _shown?.Artwork.Equals(item.Artwork) != true;
+        if (artworkChanged)
         {
             var artwork = item.Artwork;
             var bytes = MemoryMarshal.TryGetArray(artwork, out var segment) ? segment : new ArraySegment<byte>(artwork.ToArray());
-            _cover.Source = artwork.IsEmpty ? null : ImageSource.FromStream(
+            _art.Source = artwork.IsEmpty ? null : ImageSource.FromStream(
                 () => new System.IO.MemoryStream(bytes.Array!, bytes.Offset, bytes.Count, writable: false));
-            _cover.IsVisible = !artwork.IsEmpty;
-            _content.ColumnDefinitions[0].Width = artwork.IsEmpty ? new GridLength(0) : GridLength.Auto;
-            _content.ColumnSpacing = artwork.IsEmpty ? 0 : 6;
+        }
+        if (artworkChanged || (item.Artwork.IsEmpty && _theme?.Artwork != theme.Artwork))
+        {
+            _cover.Background = item.Artwork.IsEmpty ? TrackCoverGradient.Create(theme.Artwork, File?.Name) : null;
         }
         if (_shown?.Title != item.Title || _shown?.Artist != item.Artist)
         {
@@ -96,40 +108,46 @@ internal sealed class QueueTrackRow : Border
         _spectrum.IsVisible = current;
         if (current) _spectrum.Invalidate();
         _played = played;
-        _selected = selected;
+        _loading = !current && !played && item.IsAnalyzing;
         _theme = theme;
         var accent = theme[MixerColor.Accent];
-        _text.Color = played ? theme[MixerColor.Muted] : theme[MixerColor.Text];
-        _text.ArtistColor = theme[MixerColor.Muted];
+        var muted = theme[MixerColor.Muted];
+        _text.Color = played ? Gray(muted) : theme[MixerColor.Text];
+        _text.ArtistColor = played ? Gray(muted) : muted;
         _text.Status = current ? "Играет" : null;
         _text.StatusColor = accent;
-        Stroke = current ? accent : selected ? accent.WithAlpha(.65f) : Colors.Transparent;
-        BackgroundColor = theme[current || selected ? MixerColor.Selected : played ? MixerColor.Surface : MixerColor.Button];
-        SemanticProperties.SetDescription(this, string.Join(". ", new[]
-        {
-            item.Title, item.Artist, current ? "Играет" :
-                _played ? "До текущего трека. Нажми, чтобы начать отсюда." :
-                selected ? "Следующий трек. Повторное нажатие запускает сведение." : null,
-            item.IsAnalyzing ? "Анализируется" : null
-        }.Where(text => !string.IsNullOrWhiteSpace(text))));
+        Stroke = current ? accent : Colors.Transparent;
+        BackgroundColor = current ? theme[MixerColor.Selected] :
+            played ? Gray(theme[MixerColor.Surface]) : theme[MixerColor.Button];
+        _cover.Opacity = played ? .55 : 1;
+        if (!_loading) Opacity = current || played || item.IsLoaded ? 1 : .56;
+
+        string status = current ? "Играет" :
+            played ? "Прослушан. Нажми, чтобы начать отсюда." :
+            _loading ? "Загружается" :
+            item.IsLoaded ? "Загружен" : "Не загружен";
+        SemanticProperties.SetDescription(this, string.Join(". ", new[] { item.Title, item.Artist, status }
+            .Where(text => !string.IsNullOrWhiteSpace(text))));
         _graphics.Invalidate();
-        if (!item.IsAnalyzing)
-        {
-            Opacity = 1;
-        }
     }
 
     public void Animate(double seconds)
     {
-        if (_shown is { IsAnalyzing: true })
+        if (_loading)
         {
-            Opacity = .78 + .22 * Math.Cos(seconds * 4.2);
+            Opacity = .76 + .24 * Math.Cos(seconds * 4.2);
         }
         if (_text.IsOverflowing)
         {
             _text.Seconds = Stopwatch.GetElapsedTime(_marqueeStart).TotalSeconds;
             _graphics.Invalidate();
         }
+    }
+
+    private static Color Gray(Color color)
+    {
+        float gray = .2126f * color.Red + .7152f * color.Green + .0722f * color.Blue;
+        return new Color(gray, gray, gray);
     }
 
     private static string SingleLine(string value) => value.Replace('\r', ' ').Replace('\n', ' ');

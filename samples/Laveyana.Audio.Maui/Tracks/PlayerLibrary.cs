@@ -132,9 +132,7 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
         return task.Result;
     }
 
-    public bool IsAnalyzing(TrackFile file) =>
-        (_queueMetadata.TryGetValue(file, out var tags) && !tags.IsCompleted) ||
-        (_prepared.TryGetValue(file, out var pcm) && !pcm.IsCompleted);
+    public bool IsPreparing(TrackFile file) => _prepared.TryGetValue(file, out var task) && !task.IsCompleted;
 
     private async Task<TrackMetadata> ReadTagsAsync(TrackFile file)
     {
