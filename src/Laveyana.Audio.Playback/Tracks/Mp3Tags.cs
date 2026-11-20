@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Text;
 
@@ -8,6 +9,9 @@ internal sealed record Mp3Tags(string? Title = null, string? Artist = null, byte
 {
     private const int MaxTagSize = 8 * 1024 * 1024;
     private const int MaxArtworkSize = 3 * 1024 * 1024;
+    private static ReadOnlySpan<byte> Utf16BigEndianBom => [0xfe, 0xff];
+    private static ReadOnlySpan<byte> JpegSignature => [0xff, 0xd8, 0xff];
+    private static ReadOnlySpan<byte> PngSignature => [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
     /// <summary>Reads ID3v2.3 or ID3v2.4 tag bytes, including on non-seekable streams.</summary>
     public static Mp3Tags Read(Stream file)
@@ -27,16 +31,28 @@ internal sealed record Mp3Tags(string? Title = null, string? Artist = null, byte
             return new();
         }
 
-        var bytes = new byte[size];
-        if (file.ReadAtLeast(bytes, bytes.Length, false) != bytes.Length)
+        // The tag buffer is temporary. Only the selected artwork needs to outlive the parse.
+        byte[] rented = ArrayPool<byte>.Shared.Rent(size);
+        try
         {
-            return new();
+            var bytes = rented.AsSpan(0, size);
+            return file.ReadAtLeast(bytes, bytes.Length, false) == bytes.Length
+                ? ReadFrames(bytes, version4, hasExtension: (header[5] & 0x40) != 0)
+                : new();
         }
-        int offset = 0;
-        if ((header[5] & 0x40) != 0)
+        finally
         {
-            int extension = version4 ? SyncSafe(bytes.AsSpan(0, 4)) : BinaryPrimitives.ReadInt32BigEndian(bytes);
-            if (extension < 0 || extension > size - (version4 ? 0 : 4))
+            ArrayPool<byte>.Shared.Return(rented);
+        }
+    }
+
+    private static Mp3Tags ReadFrames(ReadOnlySpan<byte> bytes, bool version4, bool hasExtension)
+    {
+        int offset = 0;
+        if (hasExtension)
+        {
+            int extension = version4 ? SyncSafe(bytes[..4]) : BinaryPrimitives.ReadInt32BigEndian(bytes);
+            if (extension < 0 || extension > bytes.Length - (version4 ? 0 : 4))
             {
                 return new();
             }
@@ -46,10 +62,10 @@ internal sealed record Mp3Tags(string? Title = null, string? Artist = null, byte
 
         string? title = null;
         string? artist = null;
-        byte[]? artwork = null;
+        ReadOnlySpan<byte> artwork = default;
         while (offset <= bytes.Length - 10)
         {
-            var frame = bytes.AsSpan(offset, 10);
+            var frame = bytes.Slice(offset, 10);
             int length = version4 ? SyncSafe(frame[4..8]) : BinaryPrimitives.ReadInt32BigEndian(frame[4..8]);
             offset += 10;
             if (length <= 0 || length > bytes.Length - offset)
@@ -57,7 +73,7 @@ internal sealed record Mp3Tags(string? Title = null, string? Artist = null, byte
                 break;
             }
 
-            var data = bytes.AsSpan(offset, length);
+            var data = bytes.Slice(offset, length);
             offset += length;
             if (frame[9] != 0)
             {
@@ -72,16 +88,17 @@ internal sealed record Mp3Tags(string? Title = null, string? Artist = null, byte
             {
                 artist = ReadText(data);
             }
-            else if (frame[..4].SequenceEqual("APIC"u8) && ReadArtwork(data) is { } image)
+            else if (frame[..4].SequenceEqual("APIC"u8))
             {
-                if (artwork is null || image.FrontCover)
+                var image = ReadArtwork(data, out bool frontCover);
+                if (!image.IsEmpty && (artwork.IsEmpty || frontCover))
                 {
-                    artwork = image.Bytes;
+                    artwork = image;
                 }
             }
         }
 
-        return new(title, artist, artwork);
+        return new(title, artist, artwork.IsEmpty ? null : artwork.ToArray());
     }
 
     /// <summary>Decodes a text frame with its declared encoding and drops padding.</summary>
@@ -91,7 +108,7 @@ internal sealed record Mp3Tags(string? Title = null, string? Artist = null, byte
         var encoding = data[0] switch
         {
             0 => Encoding.Latin1,
-            1 when text.StartsWith(new byte[] { 0xfe, 0xff }) => Encoding.BigEndianUnicode,
+            1 when text.StartsWith(Utf16BigEndianBom) => Encoding.BigEndianUnicode,
             1 => Encoding.Unicode,
             2 => Encoding.BigEndianUnicode,
             3 => Encoding.UTF8,
@@ -108,12 +125,13 @@ internal sealed record Mp3Tags(string? Title = null, string? Artist = null, byte
     }
 
     /// <summary>Identifies an embedded PNG or JPEG after the picture description.</summary>
-    private static (byte[] Bytes, bool FrontCover)? ReadArtwork(ReadOnlySpan<byte> frame)
+    private static ReadOnlySpan<byte> ReadArtwork(ReadOnlySpan<byte> frame, out bool frontCover)
     {
+        frontCover = false;
         int mimeEnd = frame[1..].IndexOf((byte)0) + 1;
         if (mimeEnd == 0 || mimeEnd + 2 >= frame.Length)
         {
-            return null;
+            return default;
         }
 
         int start = mimeEnd + 2;
@@ -124,19 +142,19 @@ internal sealed record Mp3Tags(string? Title = null, string? Artist = null, byte
             {
                 var image = frame[(start + terminator)..];
                 if (image.Length > MaxArtworkSize ||
-                    !(image.StartsWith(new byte[] { 0xff, 0xd8, 0xff }) ||
-                      image.StartsWith(new byte[] { 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a })))
+                    !(image.StartsWith(JpegSignature) || image.StartsWith(PngSignature)))
                 {
-                    return null;
+                    return default;
                 }
 
-                return (image.ToArray(), frame[mimeEnd + 1] == 3);
+                frontCover = frame[mimeEnd + 1] == 3;
+                return image;
             }
 
             start += terminator;
         }
 
-        return null;
+        return default;
     }
 
     /// <summary>Decodes a validated four-byte ID3 size.</summary>

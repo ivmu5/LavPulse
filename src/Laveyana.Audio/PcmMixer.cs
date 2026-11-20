@@ -4,9 +4,10 @@ namespace Laveyana.Audio;
 public sealed class PcmMixer
 {
     public const int ChannelCount = 2;
+    private const int BlockSamples = 1024 * ChannelCount;
 
     private readonly PcmInput[] _inputs;
-    private readonly float[] _sourceBuffer = new float[1024 * ChannelCount];
+    private readonly float[] _sourceBuffer;
 
     public PcmMixer(IEnumerable<PcmInput> inputs, int spectrumBarCount = 48)
         : this(inputs, spectrumBarCount, MasterSpectrum.WindowFrames)
@@ -39,6 +40,7 @@ public sealed class PcmMixer
             throw new ArgumentException("Sources must have the same positive sample rate.", nameof(inputs));
         }
 
+        _sourceBuffer = _inputs.Length > 1 ? new float[BlockSamples] : [];
         Spectrum = new MasterSpectrum(SampleRate, spectrumBarCount, spectrumWindowFrames);
     }
 
@@ -57,7 +59,7 @@ public sealed class PcmMixer
 
         while (!destination.IsEmpty)
         {
-            int samples = Math.Min(destination.Length, _sourceBuffer.Length);
+            int samples = Math.Min(destination.Length, BlockSamples);
             Span<float> block = destination[..samples];
             MixBlock(block);
             Spectrum.Capture(block);
@@ -68,29 +70,56 @@ public sealed class PcmMixer
     /// <summary>Applies gains, mixes stereo samples and clamps the finished master.</summary>
     private void MixBlock(Span<float> block)
     {
+        if (_inputs.Length == 1)
+        {
+            var input = _inputs[0];
+            float gain = input.Gain;
+            int samples = ReadSamples(input.Source, block);
+            var signal = block[..samples];
+            if (gain == 1)
+            {
+                Clamp(signal);
+            }
+            else
+            {
+                for (int i = 0; i < signal.Length; i++)
+                {
+                    signal[i] = Math.Clamp(signal[i] * gain, -1f, 1f);
+                }
+            }
+            block[samples..].Clear();
+            return;
+        }
+
         block.Clear();
         Span<float> sourceBuffer = _sourceBuffer.AsSpan(0, block.Length);
-        int frameCount = block.Length / ChannelCount;
-
         foreach (PcmInput input in _inputs)
         {
             float gain = input.Gain;
-            int framesRead = input.Source.Read(sourceBuffer);
-            if ((uint)framesRead > (uint)frameCount)
-            {
-                throw new InvalidOperationException("The PCM source returned an invalid frame count.");
-            }
-
-            int samplesRead = framesRead * ChannelCount;
+            int samplesRead = ReadSamples(input.Source, sourceBuffer);
             for (int sample = 0; sample < samplesRead; sample++)
             {
                 block[sample] += sourceBuffer[sample] * gain;
             }
         }
+        Clamp(block);
+    }
 
-        for (int sample = 0; sample < block.Length; sample++)
+    private static int ReadSamples(IPcmSource source, Span<float> buffer)
+    {
+        int frames = source.Read(buffer);
+        if ((uint)frames > (uint)(buffer.Length / ChannelCount))
         {
-            block[sample] = Math.Clamp(block[sample], -1f, 1f);
+            throw new InvalidOperationException("The PCM source returned an invalid frame count.");
+        }
+        return frames * ChannelCount;
+    }
+
+    private static void Clamp(Span<float> samples)
+    {
+        for (int i = 0; i < samples.Length; i++)
+        {
+            samples[i] = Math.Clamp(samples[i], -1f, 1f);
         }
     }
 }

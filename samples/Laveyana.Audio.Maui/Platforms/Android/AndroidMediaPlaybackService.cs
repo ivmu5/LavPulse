@@ -5,6 +5,7 @@ using Android.Graphics;
 using Android.Media;
 using Android.Media.Session;
 using Android.OS;
+using System.Runtime.InteropServices;
 
 namespace Laveyana.Audio.Maui;
 
@@ -84,12 +85,14 @@ internal sealed class AndroidMediaPlaybackService : Service
             {
                 try
                 {
-                    byte[] bytes = state.Track.Artwork.ToArray();
+                    var artwork = state.Track.Artwork;
+                    var bytes = MemoryMarshal.TryGetArray(artwork, out var segment)
+                        ? segment : new ArraySegment<byte>(artwork.ToArray());
                     using var info = new BitmapFactory.Options { InJustDecodeBounds = true };
-                    BitmapFactory.DecodeByteArray(bytes, 0, bytes.Length, info);
+                    BitmapFactory.DecodeByteArray(bytes.Array!, bytes.Offset, bytes.Count, info)?.Dispose();
                     int side = Math.Max(info.OutWidth, info.OutHeight);
                     using var options = new BitmapFactory.Options { InSampleSize = Math.Max(1, (side + 383) / 384) };
-                    _artwork = BitmapFactory.DecodeByteArray(bytes, 0, bytes.Length, options);
+                    _artwork = BitmapFactory.DecodeByteArray(bytes.Array!, bytes.Offset, bytes.Count, options);
                 }
                 catch (Exception)
                 {

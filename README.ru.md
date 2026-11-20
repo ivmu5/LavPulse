@@ -58,25 +58,13 @@ MP3 можно запустить из системного файлового �
 
 UI не декодирует MP3 в аудиопотоке. Подготовленный трек содержит PCM-кэш и данные волны. Одна аудиосессия сводит деки, применяет мастер-эквалайзер и передаёт позицию фактически воспроизводимого сигнала.
 
-```text
-TrackFile -> TrackPreparation -> CachedTrack (PCM / waveform / tags)
-                 |
-        PlayerLibrary + PlaybackQueue
-                 |
-          QueuePlaybackSession
-                 |
-            QueueSource
-                 v
-        MasterEqualizerSource
-                 |
-          MixedPlayback -> PcmMixer -> MasterSpectrum
-                 |
-            IAudioOutput
-          /             \
- Android AudioTrack   Windows WaveOutEvent
-
-MainPage -> PlayerView / DeckView / TrackQueueView
-         -> PlatformSystemPlaybackIntegration
+```mermaid
+flowchart TD
+    PCM["CachedTrack · PCM"] --> QueueSource
+    QueueSource --> MasterEqualizerSource
+    MasterEqualizerSource --> PcmMixer
+    PcmMixer --> IAudioOutput["Платформенный аудиовыход"]
+    PcmMixer --> MasterSpectrum
 ```
 
 | Слой | Ответственность | Точки входа |
@@ -109,18 +97,9 @@ tests/Laveyana.Audio.Playback.Checks/  Executable regression checks
 
 ## Основные потоки выполнения
 
-```text
-AddFilesAsync -> PlayerLibrary.Add -> LoadFirstAsync
-              -> TrackPreparation.ImportAsync -> CachedTrack
-              -> EnqueueBackgroundAnalysis -> AnalyzeQueueSequentiallyAsync
-
-ChooseAsync -> TrySetSelection -> ArmAsync -> StartMixAsync
-            -> QueuePlaybackSession.RequestMix -> QueueSource
-
-QueuePlaybackSession.RunAsync -> MixedPlayback.Render
-            -> QueueSource -> MasterEqualizerSource -> PcmMixer
-            -> IAudioOutput -> native device
-```
+- **Импорт.** `MainPage.AddFilesAsync` добавляет записи через `PlayerLibrary.Add`. `LoadFirstAsync` готовит первую деку, а `TrackPreparation.ImportAsync` создаёт PCM-кэш и волну. `UpdateQueueAnalysis` передаёт список ближайших файлов в `QueueTrackAnalysis`.
+- **Выбор трека.** `ChooseAsync` запрашивает переход через `StartMixAsync`. `ArmAsync` подготавливает выбранный трек для следующей деки. `QueuePlaybackSession.RequestMix` передаёт запрос в `QueueSource`.
+- **Воспроизведение.** `QueuePlaybackSession.RunAsync` запускает нативный аудиовыход. Тот запрашивает у `MixedPlayback.Render` блоки стерео PCM из цепочки на схеме выше.
 
 ## Публичный API
 
@@ -154,7 +133,7 @@ static async Task PlayFileAsync(
 <details>
 <summary>Контракт интеграции аудиовывода</summary>
 
-`IAudioOutput.PlayAsync(IAudioRenderSource, CancellationToken)` многократно запрашивает чередующиеся стереосэмплы через `IAudioRenderSource.Render`. Нельзя вызывать `Render` одновременно из нескольких потоков; при наличии счётчика воспроизведённых кадров следует передавать их через `ReportOutputPosition`. Текущий формат определён в [`PlaybackFormat`](src/Laveyana.Audio.Playback/Session/PlaybackFormat.cs): 48 000 Гц, два канала, PCM16 на выходе, блоки по 1 024 кадра. `CachedTrack` владеет декодированным PCM-файлом; удалять его можно только после завершения чтения всеми воспроизводящими сессиями.
+`IAudioOutput.PlayAsync(IAudioRenderSource, CancellationToken)` многократно запрашивает чередующиеся стереосэмплы через `IAudioRenderSource.Render`. Нельзя вызывать `Render` одновременно из нескольких потоков; при наличии счётчика воспроизведённых кадров следует передавать их через `ReportOutputPosition`. Текущий формат определён в [`PlaybackFormat`](src/Laveyana.Audio.Playback/Session/PlaybackFormat.cs): 48 000 Гц, два канала, блоки по 1 024 кадра. Внутри микшера и на входе платформенного адаптера сэмплы хранятся как `float`. Кэш и выходы Android/Windows используют PCM16. Адаптер Apple передаёт в AVAudioEngine `float` по отдельному буферу на канал. `CachedTrack` владеет декодированным PCM-файлом; удалять его можно только после завершения чтения всеми воспроизводящими сессиями.
 
 Для однократного воспроизведения двух независимо управляемых дек [`PlaybackSession`](src/Laveyana.Audio.Playback/Session/PlaybackSession.cs) принимает аудиоадаптер, `DeckVolumes`, подготовленные треки и начальные позиции. Для воспроизведения очереди `QueuePlaybackSession` сохраняет позиции дек между паузой и продолжением и предоставляет `SetNext`, `RequestMix`, `Seek`, `TrySetSpeed` и `RequestPause`.
 
@@ -171,9 +150,15 @@ static async Task PlayFileAsync(
 <details>
 <summary>Производительность и владение ресурсами</summary>
 
-Порог вытеснения 256 МиБ применяется к декодированному PCM. Занятые деки, выбранный трек и ближайшие записи остаются на диске, даже если их суммарный размер превышает порог. Ранее вытесненный трек может потребовать повторного декодирования. Строки очереди виртуализированы; полноразмерные обложки ID3 уменьшаются до миниатюр. Геометрия волны кэшируется отдельно от указателя; анализатор спектра отключается при скрытии мастер-спектра. Визуальные оптимизации не должны менять порядок или временные характеристики аудиоблоков.
+Порог вытеснения 256 МиБ применяется к декодированному PCM. Занятые деки, выбранный трек и ближайшие записи остаются на диске, даже если их суммарный размер превышает порог. Ранее вытесненный трек может потребовать повторного декодирования. Строки очереди виртуализированы; полноразмерные обложки ID3 уменьшаются до миниатюр. Геометрия волны кэшируется отдельно от указателя; анализатор спектра отключается при скрытии мастер-спектра.
 
-Платформенные адаптеры: [Android `PlatformAudioOutput`](samples/Laveyana.Audio.Maui/Platforms/Android/PlatformAudioOutput.cs) и [Windows `PlatformAudioOutput`](samples/Laveyana.Audio.Maui/Platforms/Windows/PlatformAudioOutput.cs). [`AndroidMediaPlaybackService`](samples/Laveyana.Audio.Maui/Platforms/Android/AndroidMediaPlaybackService.cs) предоставляет системные кнопки Android, а [`WindowsMediaIdentity`](samples/Laveyana.Audio.Maui/Platforms/Windows/WindowsMediaIdentity.cs) регистрирует идентификатор приложения Windows без MSIX.
+Основной микшер пишет сигнал от единственного источника сразу в выходной блок. При необходимости он применяет усиление, ограничивает амплитуду и заполняет хвост блока тишиной. На скорости 1× и целочисленной позиции чтение PCM16 использует SIMD при аппаратной поддержке. При другой скорости или дробной позиции сохраняется интерполяция.
+
+Разбор ID3 берёт временный буфер из пула и копирует только выбранную обложку. Очередь и деки читают обложки из уже выделенных массивов. В спектре оттенок заданной яркости создаётся при первом использовании и повторно используется до смены соответствующего цвета или режима.
+
+Платформенные адаптеры работают через AudioTrack, WaveOut и AVAudioEngine. [Android](samples/Laveyana.Audio.Maui/Platforms/Android/PlatformAudioOutput.cs) · [Windows](samples/Laveyana.Audio.Maui/Platforms/Windows/PlatformAudioOutput.cs) · [Apple](samples/Laveyana.Audio.Maui/Apple/PlatformAudioOutput.cs)
+
+[`AndroidMediaPlaybackService`](samples/Laveyana.Audio.Maui/Platforms/Android/AndroidMediaPlaybackService.cs) предоставляет системные кнопки Android, а [`WindowsMediaIdentity`](samples/Laveyana.Audio.Maui/Platforms/Windows/WindowsMediaIdentity.cs) регистрирует идентификатор приложения Windows без MSIX.
 
 </details>
 
@@ -185,7 +170,11 @@ static async Task PlayFileAsync(
 dotnet run --project tests/Laveyana.Audio.Playback.Checks -c Release
 ```
 
-Проверяются сведения о MP3-кадрах, захват спектра, плавные переходы транспорта, перемотка/скорость, переходы и история очереди, повтор трека, мастер-эквалайзер и очистка после ошибки аудиовывода. Детерминированные проверки аудиоинвариантов следует добавлять сюда; нативные жесты MAUI, фоновое воспроизведение и системные медиасессии проверяются на соответствующих устройствах. [`build.yml`](.github/workflows/build.yml) запускается вручную. [Проверка iOS](.github/workflows/ios.yml) собирает приложение и проверяет запуск на симуляторе iPhone. Для ручной проверки iOS импортируй два MP3 из «Файлов», проверь сведение, эквалайзер и перемотку, затем заблокируй экран и проверь кнопки Now Playing.
+Проверяются сведения о MP3-кадрах, выбор ID3-обложки, чтение PCM16, сведение и заполнение тишиной, захват спектра, плавные переходы транспорта, перемотка и скорость, история очереди, повтор трека, мастер-эквалайзер и очистка после ошибки аудиовывода. Детерминированные проверки аудиоинвариантов следует добавлять сюда; нативные жесты MAUI, фоновое воспроизведение и системные медиасессии проверяются на соответствующих устройствах. [`build.yml`](.github/workflows/build.yml) запускается вручную.
+
+Проверка iOS запускается вручную через **Actions → iPhone simulator → Run workflow**. После появления новой версии workflow в `master` в меню запуска можно выбрать нужную ветку. Проверка собирает приложение и запускает его на симуляторе iPhone. [Конфигурация iOS](.github/workflows/ios.yml)
+
+Для ручной проверки iOS импортируй два MP3 из «Файлов», проверь сведение, эквалайзер и перемотку, затем заблокируй экран и проверь кнопки Now Playing.
 
 ## Ограничения
 

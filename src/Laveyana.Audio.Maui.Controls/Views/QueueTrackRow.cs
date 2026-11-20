@@ -1,7 +1,6 @@
 using Laveyana.Audio.Playback;
 using Microsoft.Maui.Controls.Shapes;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using Font = Microsoft.Maui.Graphics.Font;
 
 namespace Laveyana.Audio.Maui.Controls;
@@ -90,14 +89,11 @@ internal sealed class QueueTrackRow : Border
         bool artworkChanged = _shown?.Artwork.Equals(item.Artwork) != true;
         if (artworkChanged)
         {
-            var artwork = item.Artwork;
-            var bytes = MemoryMarshal.TryGetArray(artwork, out var segment) ? segment : new ArraySegment<byte>(artwork.ToArray());
-            _art.Source = artwork.IsEmpty ? null : ImageSource.FromStream(
-                () => new System.IO.MemoryStream(bytes.Array!, bytes.Offset, bytes.Count, writable: false));
+            _art.Source = TrackCover.FromArtwork(item.Artwork);
         }
         if (artworkChanged || (item.Artwork.IsEmpty && _theme?.Artwork != theme.Artwork))
         {
-            _cover.Background = item.Artwork.IsEmpty ? TrackCoverGradient.Create(theme.Artwork, File?.Name) : null;
+            _cover.Background = item.Artwork.IsEmpty ? TrackCover.CreateGradient(theme.Artwork, File?.Name) : null;
         }
         if (_shown?.Title != item.Title || _shown?.Artist != item.Artist)
         {

@@ -18,6 +18,10 @@ try
     CachedTrack first = MakeTrack(directory, "first", left: 8192, right: 0);
     CachedTrack second = MakeTrack(directory, "second", left: 0, right: 8192);
     await CheckPlaybackSessionFailureCleanup(first);
+    CheckMp3ArtworkSelection();
+    CheckSingleInputMixer();
+    CheckPcm16Conversion();
+    Console.WriteLine("OK: ID3 artwork and PCM conversion and mixing.");
     await CheckPauseAndResume(first, second, duringMix: false);
     await CheckPauseAndResume(first, second, duringMix: true);
     CheckShortTrack();
@@ -215,6 +219,83 @@ static void CheckMp3AudioInfo()
         bytes[3] = channel;
         return bytes;
     }
+}
+
+static void CheckMp3ArtworkSelection()
+{
+    foreach (byte version in new byte[] { 3, 4 })
+    {
+        using var body = new MemoryStream();
+        WriteFrame("TIT2"u8, [1, 0xfe, 0xff, 0, (byte)'A']);
+        WriteFrame("APIC"u8, Picture(0, 11));
+        WriteFrame("APIC"u8, Picture(3, 22));
+        WriteFrame("APIC"u8, Picture(0, 33));
+        WriteFrame("APIC"u8, Picture(3, 44));
+
+        using var stream = new MemoryStream();
+        stream.Write("ID3"u8);
+        stream.Write([version, 0, 0, 0, 0, (byte)(body.Length >> 7), (byte)(body.Length & 127)]);
+        body.WriteTo(stream);
+        stream.Position = 0;
+        var tags = Mp3Tags.Read(stream);
+        Require(tags.Title == "A" && tags.Artwork is { Length: 4 } image && image[^1] == 44,
+            "ID3 must keep the final valid front cover and decode big-endian text.");
+        stream.SetLength(stream.Length - 1);
+        stream.Position = 0;
+        Require(Mp3Tags.Read(stream) == new Mp3Tags(), "A truncated tag published partial metadata.");
+
+        static byte[] Picture(byte type, byte marker) =>
+            [0, .. "image/jpeg"u8, 0, type, 0, 0xff, 0xd8, 0xff, marker];
+
+        void WriteFrame(ReadOnlySpan<byte> name, ReadOnlySpan<byte> data)
+        {
+            body.Write(name);
+            // These frame sizes fit in a single byte for both ID3 size encodings.
+            body.Write([0, 0, 0, (byte)data.Length, 0, 0]);
+            body.Write(data);
+        }
+    }
+}
+
+static void CheckSingleInputMixer()
+{
+    var input = new PcmInput(new ShortSource(2f));
+    var mixer = new PcmMixer([input]);
+    var output = new float[8 * PlaybackFormat.Channels];
+    Array.Fill(output, 2f);
+    mixer.Render(output);
+    Require(output.AsSpan(0, 8).IndexOfAnyExcept(1f) < 0 &&
+        output.AsSpan(8).IndexOfAnyExcept(0f) < 0, "A short read did not clamp the signal and clear the tail.");
+    mixer.Render(output);
+    Require(output.AsSpan().IndexOfAnyExcept(0f) < 0, "An exhausted source must fill the output with silence.");
+
+    var continuous = new PcmInput(new ContinuousPcm(), .5f);
+    var attenuated = new PcmMixer([continuous]);
+    attenuated.Render(output);
+    Require(output.AsSpan().IndexOfAnyExcept(.125f) < 0, "The direct mixer path ignored the input gain.");
+    continuous.Gain = 1f;
+    attenuated.Render(output);
+    Require(output.AsSpan().IndexOfAnyExcept(.25f) < 0, "The direct mixer path ignored a new gain.");
+
+    var summed = new PcmMixer([new PcmInput(new ShortSource()), new PcmInput(new ContinuousPcm())]);
+    summed.Render(output);
+    Require(output.AsSpan(0, 8).IndexOfAnyExcept(1f) < 0 &&
+        output.AsSpan(8).IndexOfAnyExcept(.25f) < 0, "Multi-input gain, clipping or tail handling changed.");
+}
+
+static void CheckPcm16Conversion()
+{
+    // Cover all signed values and a non-vector-sized tail.
+    var pcm = new short[ushort.MaxValue + 4];
+    for (int i = 0; i < pcm.Length; i++) pcm[i] = unchecked((short)(i + short.MinValue));
+    var samples = new float[pcm.Length + 1];
+    Array.Fill(samples, 2f);
+    Pcm16.Decode(pcm, samples);
+    for (int i = 0; i < pcm.Length; i++)
+    {
+        Require(samples[i] == pcm[i] / 32768f, "PCM16 conversion changed a sample.");
+    }
+    Require(samples[^1] == 2f, "PCM16 conversion wrote past the decoded samples.");
 }
 
 /// <summary>Checks the audible buffer and verifies that neither deck was reset or read past the fade.</summary>
@@ -515,7 +596,7 @@ sealed class InMemoryOutput(Action<IAudioRenderSource> render) : IAudioOutput
     }
 }
 
-sealed class ShortSource : Laveyana.Audio.IPcmSource
+sealed class ShortSource(float sample = 1f) : IPcmSource
 {
     private bool _read;
     public int SampleRate => PlaybackFormat.SampleRate;
@@ -527,7 +608,7 @@ sealed class ShortSource : Laveyana.Audio.IPcmSource
             return 0;
         }
         _read = true;
-        destination[..8].Fill(1);
+        destination[..8].Fill(sample);
         return 4;
     }
 }

@@ -48,10 +48,7 @@ internal sealed class CachedPcmSource(string path, DeckCursor cursor) : IPcmSour
         _file.ReadExactly(MemoryMarshal.AsBytes(samples));
         if (direct)
         {
-            for (int i = 0; i < samples.Length; i++)
-            {
-                destination[i] = samples[i] / 32768f;
-            }
+            Pcm16.Decode(samples, destination);
         }
         else
         {
