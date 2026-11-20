@@ -9,6 +9,8 @@ string directory = Directory.CreateTempSubdirectory("lavpulse-checks-").FullName
 try
 {
     CheckQueuePreservesOrderOnDirectSelection();
+    CheckQueueChangesDuringPreparation();
+    await CheckInterruptedQueueAnalysis();
     await CheckQueueAnalysisLookahead();
     CheckMp3AudioInfo();
     CheckSpectrumCaptureToggle();
@@ -29,6 +31,46 @@ try
 finally
 {
     Directory.Delete(directory, recursive: true);
+}
+
+static void CheckQueueChangesDuringPreparation()
+{
+    var files = Enumerable.Range(0, 4).Select(i => TrackFile.FromPath($"queue-{i}.mp3")).ToArray();
+    var queue = new PlaybackQueue();
+    queue.AddRange(files);
+
+    Require(queue.Move(files[2], files[0], after: false, _ => true), "Could not reorder before a track was ready.");
+    Require(queue.TryRemove(files[3], _ => true), "Could not remove a track before playback started.");
+    Require(queue.Tracks.SequenceEqual(new[] { files[2], files[0], files[1] }), "Queue edits changed the wrong rows.");
+
+    queue.SetCurrent(files[2]);
+    Require(!queue.TryRemove(files[1], _ => false, refreshSuccessor: true) && queue.Tracks.Contains(files[1]),
+        "A selected row was removed even though its replacement could not be set.");
+    TrackFile? replacement = null;
+    Require(queue.TryRemove(files[1], next =>
+    {
+        replacement = next;
+        return true;
+    }, refreshSuccessor: true) && replacement == files[0], "Removing a selected row did not restore the default successor.");
+    Console.WriteLine("OK: queue edits during preparation and replacing a removed selection.");
+}
+
+static async Task CheckInterruptedQueueAnalysis()
+{
+    var file = TrackFile.FromPath("interrupted.mp3");
+    using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+    int attempts = 0;
+    bool prepared = false;
+    var analysis = new QueueTrackAnalysis(_ => prepared, _ =>
+    {
+        if (++attempts == 1) return Task.FromCanceled(new CancellationToken(canceled: true));
+        prepared = true;
+        return Task.CompletedTask;
+    }, () => { }, stop.Token);
+
+    await analysis.Update([file], allowed: true)!.WaitAsync(stop.Token);
+    Require(prepared && attempts == 2, "A superseded foreground decode prevented the background retry.");
+    Console.WriteLine("OK: background analysis retries after a selection is superseded.");
 }
 
 static async Task CheckQueueAnalysisLookahead()

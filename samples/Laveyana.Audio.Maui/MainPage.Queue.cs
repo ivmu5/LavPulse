@@ -28,7 +28,7 @@ public sealed partial class MainPage
 
         if (_playback.Snapshot.Current is not { } current)
         {
-            if (!_loadingFirst) await LoadFirstAsync(preferred: file);
+            await LoadFirstAsync(preferred: file);
             return;
         }
 
@@ -36,29 +36,51 @@ public sealed partial class MainPage
             return;
 
         // An unprepared selection is armed after decoding. A newer selection wins the race.
-        if (!TrySetSelection(file))
+        if (!TrySetSelection(file, byUser: true))
             return;
         UpdateQueue();
         await StartMixAsync();
     }
 
-    private bool TrySetSelection(TrackFile? file)
+    private bool TrySetSelection(TrackFile? file, bool byUser = false)
     {
         var prepared = file is null ? null : _library.GetPrepared(file, forPlayback: true);
         if (_shownCurrent is not { } current || !_playback.SetNext(prepared, current))
         {
             return false;
         }
-        _armed = prepared is null ? null : file;
-        _selected = file;
+        SetSelection(file, prepared is null ? null : file, byUser);
         return true;
     }
+
+    private void SetSelection(TrackFile? file, TrackFile? armed, bool byUser = false)
+    {
+        var previous = _selectionLoad;
+        bool changed = !ReferenceEquals(_selected, file);
+        if (changed)
+        {
+            _selectionLoad = file is null ? null : CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        }
+        _selected = file;
+        _armed = armed;
+        _selectedByUser = byUser;
+        if (changed)
+        {
+            previous?.Cancel();
+            previous?.Dispose();
+        }
+    }
+
+    private bool UpdateQueueSuccessor(TrackFile? next) =>
+        _shownCurrent is null ||
+        (_selectedByUser && _selected is { } file && _queue.Tracks.Contains(file)) ||
+        TrySetSelection(next);
 
     /// <summary>Moves a row while keeping playback on the same track.</summary>
     private async Task MoveQueueAsync(TrackFile from, TrackFile to, bool after)
     {
-        if (_closed || _loadingFirst || _recommendations || IsTransitioning(_playback.Snapshot) ||
-            !_queue.Move(from, to, after, file => _shownCurrent is null || TrySetSelection(file)))
+        if (_closed || _recommendations || IsTransitioning(_playback.Snapshot) ||
+            !_queue.Move(from, to, after, UpdateQueueSuccessor))
         {
             return;
         }
@@ -71,8 +93,8 @@ public sealed partial class MainPage
 
     private async Task RemoveQueueTrackAsync(TrackFile file)
     {
-        if (_closed || _loadingFirst || _recommendations || IsTransitioning(_playback.Snapshot) ||
-            !_queue.TryRemove(file, next => _shownCurrent is null || TrySetSelection(next)))
+        if (_closed || _recommendations || IsTransitioning(_playback.Snapshot) ||
+            !_queue.TryRemove(file, UpdateQueueSuccessor, refreshSuccessor: ReferenceEquals(file, _selected)))
         {
             return;
         }
@@ -81,6 +103,11 @@ public sealed partial class MainPage
             ToggleRepeatOne();
         }
         UpdateQueue();
+        if (ReferenceEquals(file, _firstLoadFile))
+        {
+            await LoadFirstAsync();
+            return;
+        }
         if (_selected is { } nextTrack && !ReferenceEquals(_armed, nextTrack))
         {
             await ArmAsync(nextTrack);
@@ -91,7 +118,7 @@ public sealed partial class MainPage
     private async Task ReplayHistoryAsync(TrackFile file)
     {
         if (_closed || _recommendations || IsStopping || IsTransitioning(_playback.Snapshot) ||
-            !_queue.IsBeforeCurrent(file) || !TrySetSelection(file))
+            !_queue.IsBeforeCurrent(file) || !TrySetSelection(file, byUser: true))
         {
             return;
         }
@@ -106,7 +133,13 @@ public sealed partial class MainPage
         {
             return true;
         }
-        if (await PrepareAsync(file) is not { } track || _closed || !ReferenceEquals(_selected, file) || _shownCurrent is not { } current)
+        if (!ReferenceEquals(_selected, file) || _selectionLoad is not { } request)
+        {
+            return false;
+        }
+        var token = request.Token;
+        if (await PrepareAsync(file, token) is not { } track || _closed || token.IsCancellationRequested ||
+            !ReferenceEquals(_selected, file) || !_queue.Tracks.Contains(file) || _shownCurrent is not { } current)
         {
             return false;
         }

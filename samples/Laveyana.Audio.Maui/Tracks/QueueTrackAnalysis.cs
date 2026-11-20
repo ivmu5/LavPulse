@@ -61,6 +61,10 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
             {
                 return;
             }
+            catch (OperationCanceledException)
+            {
+                // A foreground selection can supersede a shared decode. The file can still be preloaded.
+            }
             catch (Exception ex)
             {
                 lock (_gate)

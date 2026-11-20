@@ -52,7 +52,7 @@ internal sealed class PlaybackQueue
     }
 
     /// <summary>Removes a row. Removing the active row keeps its successor anchored while the track plays out.</summary>
-    public bool TryRemove(TrackFile file, Func<TrackFile?, bool> changeNext)
+    public bool TryRemove(TrackFile file, Func<TrackFile?, bool> changeNext, bool refreshSuccessor = false)
     {
         int index = _tracks.IndexOf(file);
         if (index < 0) return false;
@@ -60,7 +60,7 @@ internal sealed class PlaybackQueue
         var previousBoundary = _detachedIndex;
         RemoveAt(index);
         if (Current == file) _detachedIndex = index;
-        if (ReferenceEquals(previousNext, Next) || changeNext(Next)) return true;
+        if ((!refreshSuccessor && ReferenceEquals(previousNext, Next)) || changeNext(Next)) return true;
 
         _tracks.Insert(index, file);
         _detachedIndex = previousBoundary;

@@ -19,16 +19,17 @@ public sealed partial class MainPage
         if (_closed) return;
 
         var upcoming = _queue.GetUpcoming(QueueLookahead);
-        if (!_loadingFirst)
+        if (!IsLoadingFirst)
         {
             var snapshot = _playback.Snapshot;
             _library.Trim(snapshot.Current?.Track, snapshot.Incoming?.Track, _selected, _armed, upcoming);
         }
 
-        bool allowed = true;
+        // Give the initial deck its selected track before starting the lookahead.
+        bool allowed = _queue.Current is not null;
 #if IOS
         if (_windowVisible) _analysisBackgroundExpired = false;
-        allowed = !_analysisBackgroundExpired || _worker is not null;
+        allowed &= !_analysisBackgroundExpired || _worker is not null;
 #endif
         var work = _queueAnalysis.Update(upcoming, allowed);
         if (!_queueAnalysis.IsRunning) return;
@@ -92,18 +93,18 @@ public sealed partial class MainPage
     }
 
     /// <summary>Prepares PCM, artwork and both waveforms without blocking the UI thread.</summary>
-    private async Task<CachedTrack?> PrepareAsync(TrackFile file)
+    private async Task<CachedTrack?> PrepareAsync(TrackFile file, CancellationToken selection)
     {
         try
         {
-            var task = _library.PrepareAsync(file);
+            var task = _library.PrepareAsync(file, selection);
             if (!task.IsCompleted)
             {
                 ScheduleQueueRefresh();
             }
             return await task;
         }
-        catch (OperationCanceledException) when (_closed)
+        catch (OperationCanceledException) when (_closed || selection.IsCancellationRequested)
         {
             return null;
         }
