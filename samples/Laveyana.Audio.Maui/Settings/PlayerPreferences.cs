@@ -31,6 +31,8 @@ internal static class PlayerPreferences
     public static PlayerSettings Load()
     {
         var defaults = new PlayerSettings();
+        var spectrumFrameRate = (SpectrumFrameRate)Preferences.Default.Get(
+            "spectrum-frame-rate", (int)defaults.SpectrumFrameRate);
         return new PlayerSettings
         {
             FadeInMilliseconds = Math.Clamp(Preferences.Default.Get("fade-in-ms", defaults.FadeInMilliseconds), 0, 3000),
@@ -53,6 +55,7 @@ internal static class PlayerPreferences
                 LoadPaletteColor("custom-palette-mid", defaults.CustomColors.WaveMid)),
             SpectrumColors = (SpectrumColorMode)Math.Clamp(Preferences.Default.Get("spectrum-colors", (int)defaults.SpectrumColors),
                 0, (int)SpectrumColorMode.Monochrome),
+            SpectrumFrameRate = Enum.IsDefined(spectrumFrameRate) ? spectrumFrameRate : defaults.SpectrumFrameRate,
             SpectrumLevelBrightness = Preferences.Default.Get("spectrum-level-brightness", defaults.SpectrumLevelBrightness),
             SpectrumMinimumBrightnessPercent = Math.Clamp(
                 Preferences.Default.Get("spectrum-minimum-brightness", defaults.SpectrumMinimumBrightnessPercent), 0, 100),
@@ -87,6 +90,7 @@ internal static class PlayerPreferences
         Preferences.Default.Set("custom-palette-low", settings.CustomColors.WaveLow.ToInt());
         Preferences.Default.Set("custom-palette-mid", settings.CustomColors.WaveMid.ToInt());
         Preferences.Default.Set("spectrum-colors", (int)settings.SpectrumColors);
+        Preferences.Default.Set("spectrum-frame-rate", (int)settings.SpectrumFrameRate);
         Preferences.Default.Set("spectrum-level-brightness", settings.SpectrumLevelBrightness);
         Preferences.Default.Set("spectrum-minimum-brightness", settings.SpectrumMinimumBrightnessPercent);
         Preferences.Default.Set("spectrum-full-brightness", settings.SpectrumFullBrightnessPercent);

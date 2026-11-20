@@ -227,6 +227,18 @@ public sealed partial class PlayerSettingsPanel : ContentView
             value => _settings = _settings with { ShowSpectrum = value });
         var peaks = Toggle("Показывать пиковые метки", _settings.ShowPeaks,
             value => _settings = _settings with { ShowPeaks = value });
+        var frameRate = Select("Частота отрисовки (FPS)",
+            [(SpectrumFrameRate.Automatic, "Авто"), (SpectrumFrameRate.Fps30, "30"), (SpectrumFrameRate.Fps60, "60"),
+             (SpectrumFrameRate.Fps90, "90"), (SpectrumFrameRate.Fps120, "120"),
+#if WINDOWS
+             (SpectrumFrameRate.Fps144, "144"), (SpectrumFrameRate.Fps165, "165"),
+             (SpectrumFrameRate.Fps240, "240"), (SpectrumFrameRate.Fps360, "360"),
+#endif
+            ], _settings.SpectrumFrameRate, preview: null, value =>
+            {
+                _settings = _settings with { SpectrumFrameRate = value };
+                _previewAppearance?.Invoke(_settings);
+            }, maxColumns: 5);
         var width = Number("Ширина с каждой стороны", "%",
             new(0, PlayerSettings.MaximumSpectrumWidthPercent, defaults.SpectrumWidthPercent, 1),
             _settings.SpectrumWidthPercent, value => _settings = _settings with { SpectrumWidthPercent = value });
@@ -236,7 +248,7 @@ public sealed partial class PlayerSettingsPanel : ContentView
         var bottom = Number("Отступ снизу", "полосы",
             new(0, PlayerSettings.MaximumSpectrumPaddingRows, defaults.SpectrumBottomPaddingRows, 1),
             _settings.SpectrumBottomPaddingRows, value => _settings = _settings with { SpectrumBottomPaddingRows = value });
-        return Section("Мастер-спектр", Pair(spectrum, peaks), width.Row, Pair(top.Row, bottom.Row));
+        return Section("Мастер-спектр", Pair(spectrum, peaks), frameRate, width.Row, Pair(top.Row, bottom.Row));
     }
 
     private View CreateBrightnessSection()
