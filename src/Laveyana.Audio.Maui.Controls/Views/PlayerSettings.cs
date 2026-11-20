@@ -15,6 +15,20 @@ public enum SpectrumColorMode
     Monochrome
 }
 
+/// <summary>Limits how often the master spectrum redraws, with no app limit in automatic mode.</summary>
+public enum SpectrumFrameRate
+{
+    Automatic = 0,
+    Fps30 = 30,
+    Fps60 = 60,
+    Fps90 = 90,
+    Fps120 = 120,
+    Fps144 = 144,
+    Fps165 = 165,
+    Fps240 = 240,
+    Fps360 = 360
+}
+
 public enum PlayerTheme { System, Dark, Light }
 
 public enum DarkBackground { Classic, Amoled }
@@ -41,6 +55,7 @@ public sealed record PlayerSettings
     public PlayerTheme Theme { get; init; } = PlayerTheme.Dark;
     public DarkBackground DarkBackground { get; init; }
     public SpectrumColorMode SpectrumColors { get; init; } = SpectrumColorMode.FrequencyGradient;
+    public SpectrumFrameRate SpectrumFrameRate { get; init; }
     public bool SpectrumLevelBrightness { get; init; } = true;
     public int SpectrumMinimumBrightnessPercent { get; init; } = 5;
     public int SpectrumFullBrightnessPercent { get; init; } = 70;
