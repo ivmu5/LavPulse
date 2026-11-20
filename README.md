@@ -58,25 +58,13 @@ Open an MP3 from the system file manager to play it in LavPulse. On Windows, lau
 
 The UI never decodes MP3 on the render thread. A prepared track owns a PCM cache file and waveform data. One output session combines the decks, applies the master EQ, and reports the audible timeline.
 
-```text
-TrackFile -> TrackPreparation -> CachedTrack (PCM / waveform / tags)
-                 |
-        PlayerLibrary + PlaybackQueue
-                 |
-          QueuePlaybackSession
-                 |
-            QueueSource
-                 v
-        MasterEqualizerSource
-                 |
-          MixedPlayback -> PcmMixer -> MasterSpectrum
-                 |
-            IAudioOutput
-          /             \
- Android AudioTrack   Windows WaveOutEvent
-
-MainPage -> PlayerView / DeckView / TrackQueueView
-         -> PlatformSystemPlaybackIntegration
+```mermaid
+flowchart TD
+    PCM["CachedTrack · PCM"] --> QueueSource
+    QueueSource --> MasterEqualizerSource
+    MasterEqualizerSource --> PcmMixer
+    PcmMixer --> IAudioOutput["Native audio output"]
+    PcmMixer --> MasterSpectrum
 ```
 
 | Layer | Responsibility | Entry points |
@@ -109,18 +97,9 @@ tests/Laveyana.Audio.Playback.Checks/  Executable regression checks
 
 ## Execution paths
 
-```text
-AddFilesAsync -> PlayerLibrary.Add -> LoadFirstAsync
-              -> TrackPreparation.ImportAsync -> CachedTrack
-              -> EnqueueBackgroundAnalysis -> AnalyzeQueueSequentiallyAsync
-
-ChooseAsync -> TrySetSelection -> ArmAsync -> StartMixAsync
-            -> QueuePlaybackSession.RequestMix -> QueueSource
-
-QueuePlaybackSession.RunAsync -> MixedPlayback.Render
-            -> QueueSource -> MasterEqualizerSource -> PcmMixer
-            -> IAudioOutput -> native device
-```
+- **Import.** `MainPage.AddFilesAsync` adds entries through `PlayerLibrary.Add`. `LoadFirstAsync` prepares the first deck, and `TrackPreparation.ImportAsync` creates the PCM cache and waveform. `UpdateQueueAnalysis` gives upcoming files to `QueueTrackAnalysis`.
+- **Track selection.** `ChooseAsync` requests a transition through `StartMixAsync`. `ArmAsync` prepares the selected track for the next deck. `QueuePlaybackSession.RequestMix` forwards the request to `QueueSource`.
+- **Playback.** `QueuePlaybackSession.RunAsync` starts the native output, which pulls stereo PCM blocks through `MixedPlayback.Render` from the chain shown above.
 
 ## Public API
 
@@ -154,7 +133,7 @@ static async Task PlayFileAsync(
 <details>
 <summary>Playback integration contract</summary>
 
-`IAudioOutput.PlayAsync(IAudioRenderSource, CancellationToken)` repeatedly requests interleaved stereo frames from `IAudioRenderSource.Render`. It must not call `Render` concurrently and should report device-consumed frames with `ReportOutputPosition` when supported. The current formats are centralized in [`PlaybackFormat`](src/Laveyana.Audio.Playback/Session/PlaybackFormat.cs): 48,000 Hz, two channels, PCM16 output, 1,024-frame render blocks. A `CachedTrack` owns its decoded PCM file; delete it only after all playback readers have finished.
+`IAudioOutput.PlayAsync(IAudioRenderSource, CancellationToken)` repeatedly requests interleaved stereo frames from `IAudioRenderSource.Render`. It must not call `Render` concurrently and should report device-consumed frames with `ReportOutputPosition` when supported. The current formats are centralized in [`PlaybackFormat`](src/Laveyana.Audio.Playback/Session/PlaybackFormat.cs): 48,000 Hz, two channels and 1,024-frame render blocks. The mixer and platform adapter contract use `float` samples. Cache files and Android/Windows output use PCM16. The Apple adapter supplies separate `float` buffers for each channel to AVAudioEngine. A `CachedTrack` owns its decoded PCM file; delete it only after all playback readers have finished.
 
 For one-shot, independently controlled decks, [`PlaybackSession`](src/Laveyana.Audio.Playback/Session/PlaybackSession.cs) takes an output adapter, `DeckVolumes`, prepared tracks and starting cues. For playlist playback, `QueuePlaybackSession` keeps deck cursors across pause/resume and supports `SetNext`, `RequestMix`, `Seek`, `TrySetSpeed` and `RequestPause`.
 
@@ -171,9 +150,15 @@ For one-shot, independently controlled decks, [`PlaybackSession`](src/Laveyana.A
 <details>
 <summary>Performance and ownership details</summary>
 
-The 256 MiB eviction threshold applies to decoded PCM. The cache can exceed it while keeping the active, selected, and upcoming tracks ready on disk. Preparation of a previously evicted track may take time. Queue rows are virtualized; full ID3 artwork is downscaled for thumbnails. Waveform geometry is cached separately from the playhead; the spectrum analyzer can be disabled when the master-spectrum UI is hidden. None of these visual optimizations may change the order or timing of the audio render blocks.
+The 256 MiB eviction threshold applies to decoded PCM. The cache can exceed it while keeping the active, selected, and upcoming tracks ready on disk. Preparation of a previously evicted track may take time. Queue rows are virtualized; full ID3 artwork is downscaled for thumbnails. Waveform geometry is cached separately from the playhead; the spectrum analyzer can be disabled when the master-spectrum UI is hidden.
 
-For platform adapters, see [Android `PlatformAudioOutput`](samples/Laveyana.Audio.Maui/Platforms/Android/PlatformAudioOutput.cs) and [Windows `PlatformAudioOutput`](samples/Laveyana.Audio.Maui/Platforms/Windows/PlatformAudioOutput.cs). Android's [`AndroidMediaPlaybackService`](samples/Laveyana.Audio.Maui/Platforms/Android/AndroidMediaPlaybackService.cs) provides system controls, and [`WindowsMediaIdentity`](samples/Laveyana.Audio.Maui/Platforms/Windows/WindowsMediaIdentity.cs) registers the unpackaged desktop identity.
+The master mixer renders a single source straight into the output block, applies gain when needed, clamps the samples, and clears any unwritten frames. PCM16 reads at 1× speed and a whole-frame position use SIMD when hardware supports it. Other speeds and fractional positions keep the interpolating path.
+
+The ID3 reader rents a temporary buffer and copies the selected cover once. Queue and deck image streams reuse array-backed cover bytes. Spectrum paint allocates a color for a brightness step on its first use and reuses it until the corresponding colors or mode change.
+
+The platform adapters use AudioTrack, WaveOut and AVAudioEngine. [Android](samples/Laveyana.Audio.Maui/Platforms/Android/PlatformAudioOutput.cs) · [Windows](samples/Laveyana.Audio.Maui/Platforms/Windows/PlatformAudioOutput.cs) · [Apple](samples/Laveyana.Audio.Maui/Apple/PlatformAudioOutput.cs)
+
+Android's [`AndroidMediaPlaybackService`](samples/Laveyana.Audio.Maui/Platforms/Android/AndroidMediaPlaybackService.cs) provides system controls, and [`WindowsMediaIdentity`](samples/Laveyana.Audio.Maui/Platforms/Windows/WindowsMediaIdentity.cs) registers the unpackaged desktop identity.
 
 </details>
 
@@ -185,7 +170,11 @@ For platform adapters, see [Android `PlatformAudioOutput`](samples/Laveyana.Audi
 dotnet run --project tests/Laveyana.Audio.Playback.Checks -c Release
 ```
 
-It covers MP3 frame information, spectrum capture, transport fades, seek/speed, queue transitions/history, repeat-one, the master EQ and output failure cleanup. Add deterministic audio invariants here; exercise native MAUI gestures, background playback and system media sessions on the corresponding devices. [`build.yml`](.github/workflows/build.yml) runs by manual dispatch. The [iOS workflow](.github/workflows/ios.yml) builds and launches the app in an iPhone simulator. For a manual iOS check, import two MP3s from Files, exercise mixing, EQ and seeking, then lock the screen and try the Now Playing controls.
+It covers MP3 frame information, ID3 artwork selection, PCM16 reads, mixing and silence padding, spectrum capture, transport fades, seeking and speed, queue history, repeat-one, the master EQ, and output failure cleanup. Add deterministic audio invariants here; exercise native MAUI gestures, background playback and system media sessions on the corresponding devices. [`build.yml`](.github/workflows/build.yml) runs by manual dispatch.
+
+Start the iOS check manually through **Actions → iPhone simulator → Run workflow**. Once the updated workflow is on `master`, the run menu lets you select a branch. The job builds and launches the app in an iPhone simulator. [iOS workflow configuration](.github/workflows/ios.yml)
+
+For a manual iOS check, import two MP3s from Files, exercise mixing, EQ and seeking, then lock the screen and try the Now Playing controls.
 
 ## Limitations
 

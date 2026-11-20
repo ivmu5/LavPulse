@@ -10,11 +10,11 @@ public sealed class TrackPreparation(string cacheDirectory)
     /// <summary>Reads the display tags independently of PCM decoding and waveform analysis.</summary>
     public Task<TrackMetadata> ReadMetadataAsync(TrackFile file, CancellationToken token) => Task.Run(async () =>
     {
-        Mp3Tags tags;
+        TrackMetadata metadata;
         if (file.OpenReadAsync is { } open)
         {
             await using var source = await open().ConfigureAwait(false);
-            tags = Mp3Tags.Read(source);
+            metadata = ReadTags(file, source);
         }
         else
         {
@@ -24,10 +24,10 @@ public sealed class TrackPreparation(string cacheDirectory)
                 64 * 1024, FileOptions.Asynchronous | FileOptions.DeleteOnClose);
             await file.CopyToAsync(source, token).ConfigureAwait(false);
             source.Position = 0;
-            tags = Mp3Tags.Read(source);
+            metadata = ReadTags(file, source);
         }
         token.ThrowIfCancellationRequested();
-        return new TrackMetadata(tags.Title ?? Path.GetFileNameWithoutExtension(file.Name), tags.Artist, tags.Artwork ?? []);
+        return metadata;
     }, token);
 
     /// <summary>Imports one track and removes temporary files if decoding fails or is cancelled.</summary>
@@ -99,16 +99,21 @@ public sealed class TrackPreparation(string cacheDirectory)
             waveform = TrackWaveform.Analyze(new RecordingSource(decoder, pcm), token);
         }
 
-        source.Position = 0;
         if (metadata is null)
         {
-            var tags = Mp3Tags.Read(source);
-            metadata = new TrackMetadata(tags.Title ?? Path.GetFileNameWithoutExtension(file.Name), tags.Artist, tags.Artwork ?? []);
+            source.Position = 0;
+            metadata = ReadTags(file, source);
         }
 
         var audioInfo = Mp3AudioInfoReader.Read(source, token);
         token.ThrowIfCancellationRequested();
         return new CachedTrack(file.Name, pcmPath, waveform, metadata, audioInfo);
+    }
+
+    private static TrackMetadata ReadTags(TrackFile file, Stream source)
+    {
+        var tags = Mp3Tags.Read(source);
+        return new TrackMetadata(tags.Title ?? Path.GetFileNameWithoutExtension(file.Name), tags.Artist, tags.Artwork ?? []);
     }
 
     /// <summary>Writes the same samples used by the waveform analysis to the PCM cache.</summary>

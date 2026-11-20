@@ -7,7 +7,8 @@ internal sealed class SpectrumDrawable : IDrawable
     private const float PeakHoldSeconds = .28f;
     private const float PeakFallPerSecond = 1.8f;
     private const int BrightnessIntervals = 100;
-    private readonly BandPaint[][] _paint;
+    private readonly BandPaint[]?[] _paint;
+    private readonly (Color Left, Color Right)[] _bandColors;
     private readonly float[] _bars;
     private readonly float[] _peaks;
     private readonly float[] _peakTimers;
@@ -17,7 +18,7 @@ internal sealed class SpectrumDrawable : IDrawable
     private int _bottomPaddingRows;
     private float _widthFraction;
     private bool _showSpectrum;
-    private (PlayerColors Colors, SpectrumColorMode Mode, float Minimum, bool Light)? _paintSettings;
+    private RampSettings _paintSettings;
 
     public SpectrumDrawable() : this(PlaybackFormat.SpectrumBars, PlayerColors.For(PlayerPalette.LavPulse), new PlayerSettings())
     {
@@ -26,13 +27,14 @@ internal sealed class SpectrumDrawable : IDrawable
     internal SpectrumDrawable(int bandCount, PlayerColors colors, PlayerSettings settings, bool light = false)
     {
         _paint = new BandPaint[bandCount][];
+        _bandColors = new (Color Left, Color Right)[bandCount];
         _bars = new float[bandCount];
         _peaks = new float[bandCount];
         _peakTimers = new float[bandCount];
         SetAppearance(colors, settings, light);
     }
 
-    /// <summary>Updates the edge margins and caches brightness steps for allocation-free drawing.</summary>
+    /// <summary>Updates the layout and invalidates paint only when the spectrum colors change.</summary>
     public bool SetAppearance(PlayerColors colors, PlayerSettings settings, bool light = false)
     {
         float fullBrightness = Math.Clamp(settings.SpectrumFullBrightnessPercent, 1, 100) / 100f;
@@ -50,14 +52,25 @@ internal sealed class SpectrumDrawable : IDrawable
         _widthFraction = width;
         float minimum = settings.SpectrumLevelBrightness ? Math.Clamp(settings.SpectrumMinimumBrightnessPercent, 0, 100) / 100f : 1;
         var mode = settings.SpectrumColors;
-        var paintSettings = (colors, mode, minimum, light);
+        var (start, middle, end) = mode switch
+        {
+            SpectrumColorMode.FrequencyGradient => (colors.WaveLow, colors.WaveMid, colors.Alternate),
+            SpectrumColorMode.Split => (colors.Accent, colors.Accent, colors.Alternate),
+            _ => (colors.Accent, colors.Accent, colors.Accent)
+        };
+        var paintSettings = new RampSettings(start, middle, end, mode, minimum, light);
         if (_paintSettings == paintSettings) return geometryChanged;
 
         _paintSettings = paintSettings;
+        foreach (var steps in _paint)
+        {
+            if (steps is not null) Array.Clear(steps);
+        }
+
         if (mode != SpectrumColorMode.FrequencyGradient)
         {
-            var right = mode == SpectrumColorMode.Split ? colors.Alternate : colors.Accent;
-            Array.Fill(_paint, CreatePaint(colors.Accent, right, minimum, light));
+            _bandColors[0] = (start, end);
+            Array.Clear(_paint, 1, _paint.Length - 1);
             return true;
         }
 
@@ -66,9 +79,9 @@ internal sealed class SpectrumDrawable : IDrawable
             // Band zero is the lowest frequency and is drawn at the bottom.
             float position = band / (float)Math.Max(1, _paint.Length - 1);
             var color = position <= .5f
-                ? Interpolate(colors.WaveLow, colors.WaveMid, position * 2)
-                : Interpolate(colors.WaveMid, colors.Alternate, position * 2 - 1);
-            _paint[band] = CreatePaint(color, color, minimum, light);
+                ? Interpolate(start, middle, position * 2)
+                : Interpolate(middle, end, position * 2 - 1);
+            _bandColors[band] = (color, color);
         }
         return true;
     }
@@ -87,7 +100,7 @@ internal sealed class SpectrumDrawable : IDrawable
             float level = _bars[band];
             if (level <= 0) continue;
             float height = bounds.Height * level;
-            canvas.FillColor = PaintAtLevel(_paint[band], level).LeftBar;
+            canvas.FillColor = PaintAtLevel(band, level).LeftBar;
             canvas.FillRoundedRectangle(bounds.Left + band * spacing, bounds.Bottom - height, width, height, Math.Min(width, height) / 2);
         }
         canvas.RestoreState();
@@ -98,21 +111,8 @@ internal sealed class SpectrumDrawable : IDrawable
         from.Green + (to.Green - from.Green) * progress,
         from.Blue + (to.Blue - from.Blue) * progress);
 
-    private static BandPaint[] CreatePaint(Color left, Color right, float minimum, bool light)
-    {
-        if (minimum >= 1)
-        {
-            return [BandPaint.AtBrightness(left, right, 1, light)];
-        }
-
-        var steps = new BandPaint[BrightnessIntervals + 1];
-        for (int i = 0; i < steps.Length; i++)
-        {
-            float brightness = minimum + (1 - minimum) * i / BrightnessIntervals;
-            steps[i] = BandPaint.AtBrightness(left, right, brightness, light);
-        }
-        return steps;
-    }
+    private readonly record struct RampSettings(
+        Color Start, Color Middle, Color End, SpectrumColorMode Mode, float Minimum, bool Light);
 
     private readonly record struct BandPaint(Color LeftBar, Color RightBar, Color LeftPeak, Color RightPeak)
     {
@@ -132,8 +132,26 @@ internal sealed class SpectrumDrawable : IDrawable
         }
     }
 
-    private BandPaint PaintAtLevel(BandPaint[] steps, float level) =>
-        steps[(int)MathF.Round(Math.Clamp(level / _fullBrightnessLevel, 0, 1) * (steps.Length - 1))];
+    private BandPaint PaintAtLevel(int band, float level)
+    {
+        int index = _paintSettings.Mode == SpectrumColorMode.FrequencyGradient ? band : 0;
+        float minimum = _paintSettings.Minimum;
+        int lastStep = minimum >= 1 ? 0 : BrightnessIntervals;
+        var steps = _paint[index];
+        if (steps?.Length != lastStep + 1)
+        {
+            _paint[index] = steps = new BandPaint[lastStep + 1];
+        }
+        int step = (int)MathF.Round(Math.Clamp(level / _fullBrightnessLevel, 0, 1) * lastStep);
+        ref var paint = ref steps[step];
+        if (paint.LeftBar is null)
+        {
+            var (left, right) = _bandColors[index];
+            float brightness = minimum + (1 - minimum) * step / BrightnessIntervals;
+            paint = BandPaint.AtBrightness(left, right, brightness, _paintSettings.Light);
+        }
+        return paint;
+    }
 
     /// <summary>Smooths each band and holds its peak briefly before it falls.</summary>
     public bool Advance(ReadOnlySpan<float> levels, float elapsedSeconds, out bool barsChanged)
@@ -199,17 +217,16 @@ internal sealed class SpectrumDrawable : IDrawable
             float y = bounds.Bottom - (_bottomPaddingRows + band + .5f) * spacing - thickness / 2;
             float level = _bars[band];
             float length = maximum * level;
-            var steps = _paint[band];
             if (length > 0)
             {
-                var paint = PaintAtLevel(steps, level);
+                var paint = PaintAtLevel(band, level);
                 DrawMirrored(canvas, bounds, 0, length, y, thickness, paint.LeftBar, paint.RightBar);
             }
 
             float peak = maximum * _peaks[band];
             if (_showPeaks && peak - length > markerWidth + 2)
             {
-                var paint = PaintAtLevel(steps, _peaks[band]);
+                var paint = PaintAtLevel(band, _peaks[band]);
                 DrawMirrored(canvas, bounds, peak - markerWidth, markerWidth, y, thickness, paint.LeftPeak, paint.RightPeak);
             }
         }

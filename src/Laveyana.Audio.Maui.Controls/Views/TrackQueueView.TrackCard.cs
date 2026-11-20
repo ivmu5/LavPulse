@@ -72,7 +72,7 @@ internal sealed partial class TrackQueueView
         }
 
         private void UpdateCoverBackground() => _cover.Background =
-            _displayed is { Artwork.IsEmpty: false } ? null : TrackCoverGradient.Create(_palette, _displayed?.Name);
+            _displayed is { Artwork.IsEmpty: false } ? null : TrackCover.CreateGradient(_palette, _displayed?.Name);
 
         /// <summary>Shows imported tags and audio properties, with a gradient as the artwork fallback.</summary>
         public void Show(CachedTrack? track, string state = "")
@@ -80,9 +80,8 @@ internal sealed partial class TrackQueueView
             if (!ReferenceEquals(_displayed, track))
             {
                 _displayed = track;
-                byte[]? art = track is not null && !track.Artwork.IsEmpty ? track.Artwork.ToArray() : null;
                 UpdateCoverBackground();
-                _art.Source = art is null ? null : ImageSource.FromStream(() => new System.IO.MemoryStream(art, writable: false));
+                _art.Source = TrackCover.FromArtwork(track?.Artwork ?? default);
                 if (_audioInfo is { } details)
                 {
                     details.Text = track?.AudioInfo is { } audio ? FormatAudioInfo(audio) : "";
