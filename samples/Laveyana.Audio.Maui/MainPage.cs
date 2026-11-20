@@ -82,7 +82,11 @@ public sealed partial class MainPage : ContentPage
 
         _positions = Dispatcher.CreateTimer();
         _positions.Interval = VisibleRefreshInterval;
-        _positions.Tick += (_, _) => UpdatePositions();
+        _positions.Tick += (_, _) =>
+        {
+            UpdatePositions();
+            ProcessSystemTrackRequests();
+        };
         ApplyEqualizer(_equalizer);
         ApplySettings(_settings, save: false);
     }

@@ -6,11 +6,14 @@ using Android.Views;
 using AndroidX.Activity.Result;
 using AndroidX.Activity.Result.Contract;
 using AndroidX.Core.View;
+using Laveyana.Audio.Maui.Tracks;
 using AndroidUri = Android.Net.Uri;
 
 namespace Laveyana.Audio.Maui;
 
-[Activity(Theme = "@style/Maui.SplashTheme", MainLauncher = true, LaunchMode = LaunchMode.SingleTop, ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation | ConfigChanges.UiMode | ConfigChanges.ScreenLayout | ConfigChanges.SmallestScreenSize | ConfigChanges.Density)]
+[Activity(Theme = "@style/Maui.SplashTheme", MainLauncher = true, Exported = true, LaunchMode = LaunchMode.SingleTask, ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation | ConfigChanges.UiMode | ConfigChanges.ScreenLayout | ConfigChanges.SmallestScreenSize | ConfigChanges.Density)]
+[IntentFilter([Intent.ActionView], Categories = [Intent.CategoryDefault], DataSchemes = ["content", "file"],
+    DataMimeTypes = ["audio/mpeg", "audio/mp3", "audio/x-mp3"])]
 public class MainActivity : MauiAppCompatActivity
 {
     private ActivityResultLauncher? _folderLauncher;
@@ -28,6 +31,13 @@ public class MainActivity : MauiAppCompatActivity
         VolumeControlStream = Android.Media.Stream.Music;
         _folderLauncher = RegisterForActivityResult(new ActivityResultContracts.OpenDocumentTree(),
             new FolderResult(result => _folderResult?.TrySetResult(result)));
+        if (savedInstanceState is null) AndroidTrackActivation.Receive(Intent);
+    }
+
+    protected override void OnNewIntent(Intent? intent)
+    {
+        base.OnNewIntent(intent);
+        AndroidTrackActivation.Receive(intent);
     }
 
     protected override void OnStart()

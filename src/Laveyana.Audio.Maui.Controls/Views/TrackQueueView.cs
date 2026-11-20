@@ -162,7 +162,7 @@ internal sealed partial class TrackQueueView : Grid
     }
 
     /// <summary>Switches the visible feed and tells playback which source to use.</summary>
-    private void SelectRecommendations(bool show)
+    internal void SelectRecommendations(bool show)
     {
         if (_showRecommendations == show)
         {

@@ -7,7 +7,11 @@ public sealed class DeckView : Border
 {
     private const double DragThreshold = 6;
     private const double MaxScrubSpeed = 30;
-    private readonly NumericSettingInput _trackSpeed = new("Скорость трека", "×", new(.75, 1.25, 1, .125, 3), 1, showSlider: false);
+    private const int SpeedDecimalPlaces = 3;
+    private static readonly double[] SpeedPresets = Enumerable.Range(15, 11).Select(step => step * 5 / 100d).ToArray();
+    private readonly NumericSettingInput _trackSpeed = new("Скорость трека", "×", new(.75, 1.25, 1, .01, SpeedDecimalPlaces), 1, showSlider: false);
+    private readonly HorizontalStackLayout _speedControls = new() { Spacing = 4, VerticalOptions = LayoutOptions.Center };
+    private bool _choosingSpeed;
     private readonly Label _name = MixerStyle.Label("", MixerStyle.PhoneFont(13, 12), bold: true);
     private readonly Label _time = MixerStyle.Label("", MixerStyle.PhoneFont(11, 10), MixerColor.Muted);
     private readonly Label _previewLabel = MixerStyle.Label("", MixerStyle.PhoneFont(12, 11));
@@ -66,7 +70,15 @@ public sealed class DeckView : Border
         };
         header.Add(_name);
         header.Add(_time, 1);
-        header.Add(_trackSpeed, 2);
+        var presets = MixerStyle.Button("▾");
+        presets.WidthRequest = 34;
+        presets.MinimumWidthRequest = 0;
+        presets.Padding = 0;
+        SemanticProperties.SetDescription(presets, "Выбрать скорость трека");
+        presets.Clicked += async (_, _) => await ChooseSpeedAsync();
+        _speedControls.Children.Add(_trackSpeed);
+        _speedControls.Children.Add(presets);
+        header.Add(_speedControls, 2);
         var detailLayer = new Grid { Children = { _detail, _detailCursor, _previewLabel } };
         MixerStyle.StyleCard(this, new VerticalStackLayout { Spacing = 5, Children = { header, detailLayer, _overviewLayer } });
         Padding = new Thickness(10, 7);
@@ -88,6 +100,26 @@ public sealed class DeckView : Border
     public event Action<CachedTrack, long>? SeekRequested;
     public event Action<CachedTrack, double>? SpeedRequested;
     internal CachedTrack? DisplayedTrack => _track;
+
+    private async Task ChooseSpeedAsync()
+    {
+        if (_choosingSpeed || !_canSeek || _track is not { } track ||
+            Window?.Page is not Page page) return;
+
+        _choosingSpeed = true;
+        try
+        {
+            string[] labels = SpeedPresets.Select(speed => $"{speed:0.00}×").ToArray();
+            var selected = await page.DisplayActionSheetAsync("Скорость трека", "Отмена", null, labels);
+            int index = Array.IndexOf(labels, selected);
+            if (index >= 0 && _canSeek && IsVisible && _speedControls.IsVisible && ReferenceEquals(_track, track))
+                _trackSpeed.SelectValue(SpeedPresets[index]);
+        }
+        finally
+        {
+            _choosingSpeed = false;
+        }
+    }
 
     internal void SetPlayheadAnimation(bool enabled)
     {
@@ -128,10 +160,10 @@ public sealed class DeckView : Border
     public void Show(PlayingTrack? playing, bool canSeek, bool showOverview)
     {
         _canSeek = canSeek;
-        _trackSpeed.IsEnabled = canSeek;
+        _speedControls.IsEnabled = canSeek;
         _detail.InputTransparent = _overview.InputTransparent = !canSeek;
         bool revealOverview = !_overviewLayer.IsVisible && showOverview;
-        _overviewLayer.IsVisible = _trackSpeed.IsVisible = showOverview;
+        _overviewLayer.IsVisible = _speedControls.IsVisible = showOverview;
         if (!_canSeek || !ReferenceEquals(_track, playing?.Track))
         {
             CancelScrub();
@@ -146,7 +178,7 @@ public sealed class DeckView : Border
         }
 
         bool trackChanged = !ReferenceEquals(_track, deck.Track);
-        if (trackChanged || deck.Speed != _trackSpeed.Value)
+        if (trackChanged || Math.Round(deck.Speed, SpeedDecimalPlaces, MidpointRounding.AwayFromZero) != _trackSpeed.Value)
         {
             _trackSpeed.Value = deck.Speed;
         }

@@ -10,7 +10,7 @@ namespace Laveyana.Audio.Maui;
 public sealed partial class MainPage
 {
     /// <summary>Requests the pending mix and starts the output if the player was paused.</summary>
-    private async Task StartMixAsync()
+    private async Task StartMixAsync(bool waitForPlayback = true)
     {
         if (_closed || _recommendations || IsTransitioning(_playback.Snapshot) || IsStopping ||
             _selected is not { } file || !await ArmAsync(file) || _closed || _recommendations || IsStopping ||
@@ -22,7 +22,8 @@ public sealed partial class MainPage
         UpdateTransport();
         if (_worker is null)
         {
-            await PlayAsync(restartAtEnd: false);
+            var playback = PlayAsync(restartAtEnd: false);
+            if (waitForPlayback) await playback;
         }
     }
 

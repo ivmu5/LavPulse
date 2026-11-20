@@ -60,16 +60,16 @@ internal static class PlatformTrackFolder
     }
 
     /// <summary>Holds the folder's security grant for the lifetime of the seekable file.</summary>
-    private static Stream OpenScopedFile(NSUrl folder, string path)
+    internal static Stream OpenScopedFile(NSUrl url, string path)
     {
-        bool scoped = folder.StartAccessingSecurityScopedResource();
+        bool scoped = url.StartAccessingSecurityScopedResource();
         try
         {
-            return new ScopedFileStream(path, scoped ? folder : null);
+            return new ScopedFileStream(path, scoped ? url : null);
         }
         catch
         {
-            if (scoped) folder.StopAccessingSecurityScopedResource();
+            if (scoped) url.StopAccessingSecurityScopedResource();
             throw;
         }
     }
