@@ -10,5 +10,6 @@
     <ProjectReference Include="../../src/Laveyana.Audio.Playback/Laveyana.Audio.Playback.csproj" />
     <Compile Include="../../samples/Laveyana.Audio.Maui/Tracks/PlaybackQueue.cs" Link="PlaybackQueue.cs" />
     <Compile Include="../../samples/Laveyana.Audio.Maui/Tracks/QueueTrackAnalysis.cs" Link="QueueTrackAnalysis.cs" />
+    <Compile Include="../../src/Laveyana.Audio.Maui.Controls/Views/SpectrumFrameClock.cs" Link="SpectrumFrameClock.cs" />
   </ItemGroup>
 </Project>

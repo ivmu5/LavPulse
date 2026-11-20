@@ -44,6 +44,8 @@ In the app, import MP3 files or a folder from **Settings → Media library**; Wi
 
 Use **▾** beside the deck speed for presets from **0.75× to 1.25×** in steps of **0.05×**. The field accepts manual input, and a Windows mouse wheel step changes speed by **0.01×**.
 
+**Settings → Master spectrum → Frame rate (FPS)** sets a drawing limit for the spectrum. **Auto** follows the platform's frame clock. The presets are 30, 60, 90 and 120 FPS, with 144, 165, 240 and 360 FPS also available on Windows. Changes preview immediately. **Save** keeps the selection and **Cancel** restores it. The device controls the available refresh rate. Deck playheads keep using every available display tick, and the FFT retains its analysis interval.
+
 Open an MP3 from the system file manager to play it in LavPulse. On Windows, launch LavPulse once from its installed location, then select it under **Settings → Apps → Default apps → .mp3**. On Android, choose LavPulse in the file chooser and tap **Always** when offered. On iPhone, select LavPulse in **Files → Open With**. On versions of Files that support a default per file type, set it in the MP3 file’s **Get Info** menu. On Mac, Finder’s **Get Info → Open with → Change All** sets the association for MP3.
 
 ## Capabilities
