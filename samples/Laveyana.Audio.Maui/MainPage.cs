@@ -53,7 +53,12 @@ public sealed partial class MainPage : ContentPage
 
     public MainPage()
     {
-        _library = new PlayerLibrary(new TrackPreparation(FileSystem.CacheDirectory), _lifetime.Token);
+#if ANDROID
+        var preparation = new TrackPreparation(FileSystem.CacheDirectory, AndroidMp3Decoder.Open);
+#else
+        var preparation = new TrackPreparation(FileSystem.CacheDirectory);
+#endif
+        _library = new PlayerLibrary(preparation, _lifetime.Token);
         _queueAnalysis = new QueueTrackAnalysis(file => _library.GetPrepared(file) is not null,
             _library.PrepareAsync, OnQueueAnalysisProgress, _lifetime.Token);
 #if IOS

@@ -103,6 +103,8 @@ tests/Laveyana.Audio.Playback.Checks/  Executable regression checks
 - **Выбор трека.** `ChooseAsync` запрашивает переход через `StartMixAsync`. `ArmAsync` подготавливает выбранный трек для следующей деки. `QueuePlaybackSession.RequestMix` передаёт запрос в `QueueSource`.
 - **Воспроизведение.** `QueuePlaybackSession.RunAsync` запускает нативный аудиовыход. Тот запрашивает у `MixedPlayback.Render` блоки стерео PCM из цепочки на схеме выше.
 
+На Android импорт сначала пробует системный декодер MP3 через `MediaExtractor` и `MediaCodec`. Поток без произвольного доступа сначала копируется во временный MP3. Если системный декодер не справился, импорт начинается заново через NLayer. Оба пути создают PCM16-кэш 48 кГц в стерео с произвольным доступом и волну в том же формате.
+
 ## Публичный API
 
 Библиотеки DSP и воспроизведения **не зависят от MAUI**. Внешний хост передаёт реализацию [`IAudioOutput`](src/Laveyana.Audio.Playback/Session/IAudioOutput.cs); Android- и Windows-реализации в приложении имеют внутреннюю область видимости.
