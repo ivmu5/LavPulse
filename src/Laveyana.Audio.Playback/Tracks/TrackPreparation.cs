@@ -7,6 +7,11 @@ public sealed record TrackMetadata(string Title, string? Artist, ReadOnlyMemory<
 /// <summary>Prepares seekable PCM and a display waveform from an MP3 stream.</summary>
 public sealed class TrackPreparation(string cacheDirectory)
 {
+    private readonly Func<Stream, CancellationToken, IMp3SampleDecoder?>? _openPlatformDecoder;
+
+    internal TrackPreparation(string cacheDirectory, Func<Stream, CancellationToken, IMp3SampleDecoder?> openPlatformDecoder)
+        : this(cacheDirectory) => _openPlatformDecoder = openPlatformDecoder;
+
     /// <summary>Reads the display tags independently of PCM decoding and waveform analysis.</summary>
     public Task<TrackMetadata> ReadMetadataAsync(TrackFile file, CancellationToken token) => Task.Run(async () =>
     {
@@ -89,15 +94,10 @@ public sealed class TrackPreparation(string cacheDirectory)
         }
     }
 
-    private static CachedTrack Decode(Stream source, TrackFile file, string pcmPath, TrackMetadata? metadata,
+    private CachedTrack Decode(Stream source, TrackFile file, string pcmPath, TrackMetadata? metadata,
         CancellationToken token)
     {
-        TrackWaveform waveform;
-        using (var decoder = new Mp3PcmSource(source))
-        using (var pcm = new FileStream(pcmPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024))
-        {
-            waveform = TrackWaveform.Analyze(new RecordingSource(decoder, pcm), token);
-        }
+        var waveform = DecodePcm(source, pcmPath, token);
 
         if (metadata is null)
         {
@@ -108,6 +108,38 @@ public sealed class TrackPreparation(string cacheDirectory)
         var audioInfo = Mp3AudioInfoReader.Read(source, token);
         token.ThrowIfCancellationRequested();
         return new CachedTrack(file.Name, pcmPath, waveform, metadata, audioInfo);
+    }
+
+    private TrackWaveform DecodePcm(Stream source, string pcmPath, CancellationToken token)
+    {
+        if (_openPlatformDecoder is not null)
+        {
+            try
+            {
+                if (_openPlatformDecoder(source, token) is { } platformDecoder)
+                {
+                    using var decoder = new Mp3PcmSource(platformDecoder);
+                    return WritePcm(decoder, pcmPath, token);
+                }
+            }
+            catch (InvalidDataException ex)
+            {
+                // Retry from the beginning with NLayer after a rejected stream or a stalled decoder.
+                token.ThrowIfCancellationRequested();
+                System.Diagnostics.Debug.WriteLine(ex);
+                File.Delete(pcmPath);
+            }
+            source.Position = 0;
+        }
+
+        using var managedDecoder = new Mp3PcmSource(source);
+        return WritePcm(managedDecoder, pcmPath, token);
+    }
+
+    private static TrackWaveform WritePcm(Mp3PcmSource decoder, string pcmPath, CancellationToken token)
+    {
+        using var pcm = new FileStream(pcmPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024);
+        return TrackWaveform.Analyze(new RecordingSource(decoder, pcm), token);
     }
 
     private static TrackMetadata ReadTags(TrackFile file, Stream source)

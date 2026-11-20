@@ -9,5 +9,6 @@
     <ProjectReference Include="../Laveyana.Audio/Laveyana.Audio.csproj" />
     <PackageReference Include="NLayer" Version="3.0.1" />
     <InternalsVisibleTo Include="Laveyana.Audio.Playback.Checks" />
+    <InternalsVisibleTo Include="Laveyana.Audio.Maui" />
   </ItemGroup>
 </Project>

@@ -2,10 +2,18 @@ using NLayer;
 
 namespace Laveyana.Audio.Playback;
 
+/// <summary>Reads interleaved mono or stereo samples at the MP3's native sample rate.</summary>
+internal interface IMp3SampleDecoder : IDisposable
+{
+    int Channels { get; }
+    int SampleRate { get; }
+    int ReadSamples(float[] destination);
+}
+
 // Used during import to prepare the waveform and PCM cache.
 internal sealed class Mp3PcmSource : IPcmSource, IDisposable
 {
-    private readonly MpegFile _mpeg;
+    private readonly IMp3SampleDecoder _decoder;
     private readonly float[] _samples;
     private readonly int _channels;
     private readonly int _sourceRate;
@@ -19,20 +27,20 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
     private StereoFrame _current;
     private StereoFrame _next;
 
-    public Mp3PcmSource(Stream source)
+    public Mp3PcmSource(Stream source) : this(new NLayerDecoder(new MpegFile(source))) { }
+
+    internal Mp3PcmSource(IMp3SampleDecoder decoder)
     {
-        var mpeg = new MpegFile(source);
-        if (mpeg.Channels is not (1 or 2) ||
-            mpeg.SampleRate <= 0 || mpeg.SampleRate > PlaybackFormat.SampleRate)
+        _channels = decoder.Channels;
+        _sourceRate = decoder.SampleRate;
+        if (_channels is not (1 or 2) || _sourceRate <= 0 || _sourceRate > PlaybackFormat.SampleRate)
         {
-            mpeg.Dispose();
+            decoder.Dispose();
             throw new InvalidDataException("Ожидался MP3 с одним или двумя каналами до 48 кГц.");
         }
 
-        _channels = mpeg.Channels;
-        _sourceRate = mpeg.SampleRate;
         _samples = new float[4096 * _channels];
-        _mpeg = mpeg;
+        _decoder = decoder;
     }
 
     public int SampleRate => PlaybackFormat.SampleRate;
@@ -75,7 +83,7 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
     {
         if (_offset == _available)
         {
-            _available = _mpeg.ReadSamples(_samples, 0, _samples.Length);
+            _available = _decoder.ReadSamples(_samples);
             _offset = 0;
             if (_available == 0)
             {
@@ -83,7 +91,7 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
                 return false;
             }
 
-            if (_available % _channels != 0)
+            if ((uint)_available > (uint)_samples.Length || _available % _channels != 0)
             {
                 throw new InvalidDataException("Декодер вернул неполный аудиокадр.");
             }
@@ -97,7 +105,15 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
     }
 
     /// <summary>Releases the decoder. The importer owns the input stream.</summary>
-    public void Dispose() => _mpeg.Dispose();
+    public void Dispose() => _decoder.Dispose();
 
     private readonly record struct StereoFrame(float Left, float Right);
+
+    private sealed class NLayerDecoder(MpegFile file) : IMp3SampleDecoder
+    {
+        public int Channels => file.Channels;
+        public int SampleRate => file.SampleRate;
+        public int ReadSamples(float[] destination) => file.ReadSamples(destination, 0, destination.Length);
+        public void Dispose() => file.Dispose();
+    }
 }

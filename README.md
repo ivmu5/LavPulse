@@ -103,6 +103,8 @@ tests/Laveyana.Audio.Playback.Checks/  Executable regression checks
 - **Track selection.** `ChooseAsync` requests a transition through `StartMixAsync`. `ArmAsync` prepares the selected track for the next deck. `QueuePlaybackSession.RequestMix` forwards the request to `QueueSource`.
 - **Playback.** `QueuePlaybackSession.RunAsync` starts the native output, which pulls stereo PCM blocks through `MixedPlayback.Render` from the chain shown above.
 
+Android tries the system MP3 decoder through `MediaExtractor` and `MediaCodec`. A non-seekable input is copied to a temporary MP3 first. If the system decoder cannot prepare the track, the importer retries from the beginning with NLayer. Both paths create the same seekable 48 kHz stereo PCM16 cache and waveform data format.
+
 ## Public API
 
 The DSP and playback libraries have **no MAUI dependency**. External hosts supply an [`IAudioOutput`](src/Laveyana.Audio.Playback/Session/IAudioOutput.cs) implementation; the Android and Windows implementations in the sample host are internal.
