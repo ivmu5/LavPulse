@@ -8,10 +8,12 @@ public sealed partial class MasterSpectrumView : ContentView
     private readonly float[] _levels = new float[PlaybackFormat.SpectrumBars];
     private readonly GraphicsView _graphics;
     private long _version;
-    private double _lastFrame = double.NaN;
+    private SpectrumFrameClock _frameClock;
+    private int _framesPerSecond;
     private Func<ISpectrumSource?>? _getSource;
     private Action? _drawPlayheads;
     private bool _frameLoopRunning;
+    private bool IsSpectrumActive => _getSource is not null && IsVisible;
 
     public MasterSpectrumView()
     {
@@ -19,6 +21,7 @@ public sealed partial class MasterSpectrumView : ContentView
         QueueDrawable = new QueueSpectrum(_drawable);
         _graphics = new GraphicsView { Drawable = _drawable, InputTransparent = true };
         Content = _graphics;
+        ObserveNativeGraphicsView();
     }
 
     internal IDrawable QueueDrawable { get; }
@@ -32,7 +35,18 @@ public sealed partial class MasterSpectrumView : ContentView
 
     internal void SetAppearance(MixerTheme theme, PlayerSettings settings)
     {
-        if (!_drawable.SetAppearance(theme.Visualization, settings, theme.IsLight)) return;
+        int requested = (int)settings.SpectrumFrameRate;
+        bool frameRateChanged = _framesPerSecond != requested;
+        if (frameRateChanged)
+        {
+            _framesPerSecond = requested;
+            _frameClock = default;
+        }
+        if (!_drawable.SetAppearance(theme.Visualization, settings, theme.IsLight))
+        {
+            if (frameRateChanged) SyncFrameLoop();
+            return;
+        }
         IsVisible = settings.ShowSpectrum && settings.SpectrumWidthPercent > 0;
         SyncFrameLoop();
         if (!IsVisible) ResetLevels();
@@ -69,17 +83,20 @@ public sealed partial class MasterSpectrumView : ContentView
 
     private void SyncFrameLoop()
     {
-        bool run = _getSource is not null && (IsVisible || _drawPlayheads is not null);
-        if (run == _frameLoopRunning) return;
-        _frameLoopRunning = run;
-        if (run) StartFrameLoop();
-        else StopFrameLoop();
+        bool run = IsSpectrumActive || (_getSource is not null && _drawPlayheads is not null);
+        if (run != _frameLoopRunning)
+        {
+            _frameLoopRunning = run;
+            if (run) StartFrameLoop();
+            else StopFrameLoop();
+        }
+        ApplyNativeFrameRateHint();
     }
 
     private void ResetLevels()
     {
         _version = 0;
-        _lastFrame = double.NaN;
+        _frameClock = default;
         Array.Clear(_levels);
         _drawable.Reset();
     }
@@ -88,18 +105,12 @@ public sealed partial class MasterSpectrumView : ContentView
     private void DrawFrame(double time)
     {
         _drawPlayheads?.Invoke();
-        if (!IsVisible || _getSource?.Invoke() is not { } mix)
+        if (!IsVisible || _getSource?.Invoke() is not { } mix ||
+            !_frameClock.TryAdvance(time, _framesPerSecond, out float elapsed))
         {
             return;
         }
 
-        float elapsed = double.IsNaN(_lastFrame) ? 1 / 60f : (float)Math.Clamp(time - _lastFrame, 0, 0.1);
-        if (elapsed <= 0)
-        {
-            return;
-        }
-
-        _lastFrame = time;
         mix.TryReadSpectrum(_levels, ref _version);
         if (_drawable.Advance(_levels, elapsed, out bool barsChanged))
         {
@@ -117,6 +128,12 @@ public sealed partial class MasterSpectrumView : ContentView
     partial void StartFrameLoop();
     /// <summary>Stops the display clock and releases its callback.</summary>
     partial void StopFrameLoop();
+    partial void ObserveNativeGraphicsView();
+    partial void ApplyNativeFrameRateHint();
+
+#if ANDROID || IOS || MACCATALYST
+    private int ActiveSpectrumFrameRate => IsSpectrumActive ? _framesPerSecond : 0;
+#endif
 
 #if !ANDROID && !WINDOWS && !IOS && !MACCATALYST
     private IDispatcherTimer? _displayTimer;

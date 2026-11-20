@@ -16,22 +16,42 @@ public sealed partial class PlayerSettingsPanel
     private static readonly ControlTemplate PreviewChoiceTemplate = new(CreateChoiceBorder);
 
     // Each row is one radio group. Star columns keep every preview visible together on phones and desktops.
-    private static View Select<T>(string name, (T Value, string Label)[] options, T selected, Func<T, View> preview, Action<T> update)
+    private static View Select<T>(string name, (T Value, string Label)[] options, T selected, Func<T, View>? preview,
+        Action<T> update, int maxColumns = int.MaxValue)
     {
-        var row = new Grid { ColumnSpacing = 6 };
-        foreach (var (value, label) in options)
+        var grid = new Grid { ColumnSpacing = 6, RowSpacing = 6 };
+        int columns = Math.Min(maxColumns, options.Length);
+        for (int column = 0; column < columns; column++)
         {
+            grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+        }
+        for (int index = 0; index < options.Length; index++)
+        {
+            var (value, label) = options[index];
+            int row = index / columns;
+            if (index % columns == 0)
+                grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+
             var caption = MixerStyle.Label(label, MixerStyle.PhoneFont(12, 11));
             caption.HorizontalTextAlignment = TextAlignment.Center;
             caption.VerticalTextAlignment = TextAlignment.Center;
             caption.LineBreakMode = LineBreakMode.WordWrap;
-            var content = new Grid
+            View content = caption;
+            if (preview is not null)
             {
-                RowDefinitions = [new(new GridLength(PreviewHeight)), new(GridLength.Star)],
-                RowSpacing = 5
-            };
-            content.Add(preview(value));
-            content.Add(caption, row: 1);
+                var sample = new Grid
+                {
+                    RowDefinitions = [new(new GridLength(PreviewHeight)), new(GridLength.Star)],
+                    RowSpacing = 5
+                };
+                sample.Add(preview(value));
+                sample.Add(caption, row: 1);
+                content = sample;
+            }
+            else
+            {
+                caption.MinimumHeightRequest = 30;
+            }
 
             var choice = new RadioButton
             {
@@ -39,16 +59,14 @@ public sealed partial class PlayerSettingsPanel
                 HorizontalOptions = LayoutOptions.Fill, VerticalOptions = LayoutOptions.Fill
             };
             SemanticProperties.SetDescription(choice, $"{name}. {label}");
-            int column = row.ColumnDefinitions.Count;
-            row.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
-            row.Add(choice, column);
+            grid.Add(choice, index % columns, row);
             choice.IsChecked = EqualityComparer<T>.Default.Equals(selected, value);
             choice.CheckedChanged += (_, args) =>
             {
                 if (args.Value) update(value);
             };
         }
-        return new VerticalStackLayout { Spacing = 6, Children = { MixerStyle.Label(name, 13), row } };
+        return new VerticalStackLayout { Spacing = 6, Children = { MixerStyle.Label(name, 13), grid } };
     }
 
     private static Border CreateChoiceBorder()
