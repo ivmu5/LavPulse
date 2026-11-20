@@ -20,7 +20,7 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
     private readonly Dictionary<TrackFile, long> _thumbnailAccess = new();
     private long _access;
     private Task _cacheCleanup = Task.CompletedTask;
-    private readonly Dictionary<TrackFile, Task<CachedTrack>> _prepared = new();
+    private readonly Dictionary<TrackFile, Preparation> _prepared = new();
     private readonly Dictionary<TrackFile, Task<TrackMetadata>> _metadata = new();
     private readonly Dictionary<TrackFile, Task<TrackMetadata>> _queueMetadata = new();
     private readonly SemaphoreSlim _thumbnailSlots = new(2);
@@ -54,27 +54,39 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
     }
 
     /// <summary>Prepares a track once. A failed import can be retried through the library.</summary>
-    public Task<CachedTrack> PrepareAsync(TrackFile file)
+    public Task<CachedTrack> PrepareAsync(TrackFile file) => PrepareAsync(file, default);
+
+    public Task<CachedTrack> PrepareAsync(TrackFile file, CancellationToken selection)
     {
         lock (_cacheGate)
         {
+            selection.ThrowIfCancellationRequested();
             _pcmAccess[file] = ++_access;
-            if (!_prepared.TryGetValue(file, out var task) || task.IsFaulted || task.IsCanceled)
+            if (!_prepared.TryGetValue(file, out var pending) ||
+                (!pending.Work.IsCompletedSuccessfully &&
+                 (pending.Token.IsCancellationRequested || pending.Work.IsFaulted || pending.Work.IsCanceled)))
             {
-                task = DecodeAsync(file, _metadata.GetValueOrDefault(file));
-                _prepared[file] = task;
+                var token = selection.CanBeCanceled ? selection : lifetime;
+                var metadata = _metadata.GetValueOrDefault(file);
+                // Interactive requests can decode tags themselves instead of waiting behind thumbnails.
+                if (selection.CanBeCanceled && metadata?.IsCompletedSuccessfully != true)
+                    metadata = null;
+                pending = new(DecodeAsync(file, metadata, token, pending?.Work), token);
+                _prepared[file] = pending;
             }
-            return task;
+            return selection.CanBeCanceled ? pending.Work.WaitAsync(selection) : pending.Work;
         }
     }
+
+    private sealed record Preparation(Task<CachedTrack> Work, CancellationToken Token);
 
     public CachedTrack? GetPrepared(TrackFile file, bool forPlayback = false)
     {
         lock (_cacheGate)
         {
-            if (!_prepared.TryGetValue(file, out var task) || !task.IsCompletedSuccessfully) return null;
+            if (!_prepared.TryGetValue(file, out var pending) || !pending.Work.IsCompletedSuccessfully) return null;
             if (forPlayback) _pcmAccess[file] = ++_access;
-            return task.Result;
+            return pending.Work.Result;
         }
     }
 
@@ -124,18 +136,25 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
             _tagAccess[file] = ++_access;
             if (!_metadata.TryGetValue(file, out var task) || task.IsFaulted || task.IsCanceled)
             {
-                _metadata[file] = task = _prepared.TryGetValue(file, out var pending) && !pending.IsFaulted && !pending.IsCanceled
-                    ? ReadPreparedMetadataAsync(pending)
+                _metadata[file] = task = _prepared.TryGetValue(file, out var pending) && !pending.Work.IsFaulted && !pending.Work.IsCanceled
+                    ? ReadPreparedMetadataAsync(file, pending.Work)
                     : ReadTagsAsync(file);
             }
             return task;
         }
     }
 
-    private static async Task<TrackMetadata> ReadPreparedMetadataAsync(Task<CachedTrack> pending)
+    private async Task<TrackMetadata> ReadPreparedMetadataAsync(TrackFile file, Task<CachedTrack> pending)
     {
-        var track = await pending.ConfigureAwait(false);
-        return new(track.Title, track.Artist, track.Artwork);
+        try
+        {
+            var track = await pending.ConfigureAwait(false);
+            return new(track.Title, track.Artist, track.Artwork);
+        }
+        catch (OperationCanceledException) when (!lifetime.IsCancellationRequested)
+        {
+            return await ReadTagsAsync(file).ConfigureAwait(false);
+        }
     }
 
     public TrackMetadata? GetMetadata(TrackFile file)
@@ -150,7 +169,8 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
 
     public bool IsPreparing(TrackFile file)
     {
-        lock (_cacheGate) return _prepared.TryGetValue(file, out var task) && !task.IsCompleted;
+        lock (_cacheGate)
+            return _prepared.TryGetValue(file, out var pending) && !pending.Token.IsCancellationRequested && !pending.Work.IsCompleted;
     }
 
     private async Task<TrackMetadata> ReadTagsAsync(TrackFile file)
@@ -167,22 +187,30 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
     }
 
     /// <summary>Limits simultaneous MP3 analysis on mobile while letting playback continue.</summary>
-    private async Task<CachedTrack> DecodeAsync(TrackFile file, Task<TrackMetadata>? metadata)
+    private async Task<CachedTrack> DecodeAsync(TrackFile file, Task<TrackMetadata>? metadata,
+        CancellationToken token, Task<CachedTrack>? previous)
     {
-        await _decodeSlots.WaitAsync(lifetime).ConfigureAwait(false);
+        if (previous is not null)
+        {
+            // Wait for the superseded writer to finish cleaning its file before replacing its result.
+            try { return await previous.ConfigureAwait(false); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex.Message); }
+        }
+
+        await _decodeSlots.WaitAsync(token).ConfigureAwait(false);
         try
         {
             TrackMetadata? tags = null;
             try
             {
-                if (metadata is not null) tags = await metadata.ConfigureAwait(false);
+                if (metadata is not null) tags = await metadata.WaitAsync(token).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!token.IsCancellationRequested)
             {
                 System.Diagnostics.Debug.WriteLine(ex);
             }
 
-            var track = await preparation.ImportAsync(file, tags, lifetime).ConfigureAwait(false);
+            var track = await preparation.ImportAsync(file, tags, token).ConfigureAwait(false);
             _decodedFiles[track] = file;
             return track;
         }
@@ -204,8 +232,9 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
     {
         long totalBytes = 0;
         long coverBytes = 0;
-        foreach (var task in _prepared.Values)
+        foreach (var entry in _prepared.Values)
         {
+            var task = entry.Work;
             if (!task.IsCompletedSuccessfully) continue;
             totalBytes += task.Result.PcmSizeBytes;
             coverBytes += task.Result.Artwork.Length;
@@ -260,7 +289,7 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
     /// <summary>Waits for all imports to stop before deleting their PCM caches.</summary>
     public async Task CloseAsync()
     {
-        var tasks = _prepared.Values.ToArray();
+        var tasks = _prepared.Values.Select(entry => entry.Work).ToArray();
         try
         {
             await Task.WhenAll(tasks.Cast<Task>().Concat(_metadata.Values).Concat(_queueMetadata.Values).Append(_cacheCleanup));

@@ -25,6 +25,7 @@ internal sealed partial class TrackQueueView : Grid
     private readonly Dictionary<TrackFile, QueueTrackRow> _trackRows = new();
     private readonly Stack<QueueTrackRow> _availableRows = new();
     private readonly List<TrackFile> _leavingRows = new();
+    private readonly HashSet<TrackFile> _visibleFiles = new();
     private IReadOnlyList<TrackFile> _tracks = [];
     private Func<TrackFile, QueueTrackItem>? _readRow;
     private int _playedCount;
@@ -33,6 +34,8 @@ internal sealed partial class TrackQueueView : Grid
     private int VisibleTrackCount => Math.Max(0, _tracks.Count - _visibleStart);
     private int _firstRow = -1;
     private int _endRow = -1;
+    private bool _refreshingRows;
+    private bool _refreshRowsAgain;
     private readonly Label _empty = MixerStyle.Label("Очередь пуста", MixerStyle.PhoneFont(12, 11), MixerColor.Muted);
     private readonly IDispatcherTimer _rowClock;
     private readonly long _start = Stopwatch.GetTimestamp();
@@ -43,6 +46,7 @@ internal sealed partial class TrackQueueView : Grid
     private bool _focusCurrent;
     private TrackFile? _dragging;
     private QueueTrackRow? _dropTarget;
+    private Action? _pendingDrop;
     private int _dragScrollDirection;
     private long _lastDragScroll;
     private long _lastDrag;
@@ -229,17 +233,41 @@ internal sealed partial class TrackQueueView : Grid
 
     private void RefreshRows(bool force = false)
     {
+        if (_refreshingRows)
+        {
+            _refreshRowsAgain = true;
+            return;
+        }
+
+        _refreshingRows = true;
+        try
+        {
+            RefreshRowsCore(force);
+        }
+        finally
+        {
+            _refreshingRows = false;
+            if (_refreshRowsAgain)
+            {
+                _refreshRowsAgain = false;
+                Dispatcher.Dispatch(() => RefreshRows(force: true));
+            }
+        }
+    }
+
+    private void RefreshRowsCore(bool force)
+    {
         if (_showRecommendations || _readRow is not { } read)
         {
             SyncRowClock();
             return;
         }
 
-        double height = _queueScroll.Height > 0 ? _queueScroll.Height : _queueScroll.HeightRequest;
+        double height = _queueScroll.Height > 0 ? _queueScroll.Height : Math.Max(0, _queueScroll.HeightRequest);
         double scroll = Math.Clamp(_queueScroll.ScrollY, 0, Math.Max(0, _rows.HeightRequest - height));
-        int first = _visibleStart + Math.Max(0, (int)(scroll / RowStride) - OverscanRows);
-        int end = Math.Min(_tracks.Count, _visibleStart +
-            (int)Math.Ceiling((scroll + height) / RowStride) + OverscanRows);
+        int first = Math.Min(_tracks.Count, _visibleStart + Math.Max(0, (int)(scroll / RowStride) - OverscanRows));
+        int end = Math.Clamp(_visibleStart + (int)Math.Ceiling((scroll + height) / RowStride) + OverscanRows,
+            first, _tracks.Count);
         if (!force && first == _firstRow && end == _endRow)
         {
             SyncRowClock();
@@ -248,13 +276,16 @@ internal sealed partial class TrackQueueView : Grid
 
         _firstRow = first;
         _endRow = end;
+        _visibleFiles.Clear();
+        for (int i = first; i < end; i++)
+        {
+            _visibleFiles.Add(_tracks[i]);
+        }
         foreach (var (file, row) in _trackRows)
         {
-            // The native drag still owns its source view when it scrolls out of sight.
-            if (ReferenceEquals(file, _dragging)) continue;
-            if (row.Index < first || row.Index >= end || !ReferenceEquals(_tracks[row.Index], file))
+            // Keep native views in use by the drag attached until the platform finishes.
+            if (!_visibleFiles.Contains(file) && !ReferenceEquals(file, _dragging) && !ReferenceEquals(row, _dropTarget))
             {
-                if (ReferenceEquals(_dropTarget, row)) ClearDropTarget();
                 _leavingRows.Add(file);
             }
         }
@@ -275,8 +306,12 @@ internal sealed partial class TrackQueueView : Grid
             {
                 row = _availableRows.TryPop(out var recycled) ? recycled : CreateRow();
                 row.Bind(file, i);
-                _rows.Children.Add(row);
                 _trackRows.Add(file, row);
+                _rows.Children.Add(row);
+            }
+            else if (row.Index != i)
+            {
+                row.Bind(file, i);
             }
             // Existing visible rows also move when history is hidden or shown.
             var bounds = new Rect(0, (double)(i - _visibleStart) * RowStride, 1, QueueTrackRow.RowHeight);
@@ -315,8 +350,7 @@ internal sealed partial class TrackQueueView : Grid
         {
             if (!CanRemove(args.GetPosition(this)) || _dragging is not { } file) return;
             args.Handled = true;
-            EndDrag();
-            Dispatcher.Dispatch(() => RemoveRequested?.Invoke(file));
+            DeferDrop(() => RemoveRequested?.Invoke(file));
         };
         target.GestureRecognizers.Add(drop);
 
@@ -384,7 +418,7 @@ internal sealed partial class TrackQueueView : Grid
             }
             args.Data.Text = "LavPulse.QueueTrack";
         };
-        drag.DropCompleted += (_, _) => EndDrag();
+        drag.DropCompleted += (_, _) => EndDrag(commit: true);
         row.DragHandle.GestureRecognizers.Add(drag);
 
         var drop = new DropGestureRecognizer { AllowDrop = true };
@@ -427,8 +461,7 @@ internal sealed partial class TrackQueueView : Grid
             bool after = args.GetPosition(row) is { } point ? point.Y >= row.Height / 2
                 : _trackRows[source].Index < row.Index;
             args.Handled = true;
-            EndDrag();
-            Dispatcher.Dispatch(() => MoveRequested?.Invoke(source, file, after));
+            DeferDrop(() => MoveRequested?.Invoke(source, file, after));
         };
         row.GestureRecognizers.Add(drop);
         return row;
@@ -437,9 +470,18 @@ internal sealed partial class TrackQueueView : Grid
             row.File is { } file && !ReferenceEquals(source, file) && _trackRows.ContainsKey(source);
     }
 
-    private void EndDrag()
+    private void DeferDrop(Action action)
+    {
+        _pendingDrop ??= action;
+        _dragScrollDirection = 0;
+        SyncRowClock();
+    }
+
+    private void EndDrag(bool commit = false)
     {
         bool wasDragging = _dragging is not null;
+        var drop = commit ? _pendingDrop : null;
+        _pendingDrop = null;
         _dragging = null;
         _dragStartX = null;
         if (_removeTarget is { } target)
@@ -447,14 +489,15 @@ internal sealed partial class TrackQueueView : Grid
             target.Opacity = 0;
             target.InputTransparent = true;
         }
-        _lastDrag = Stopwatch.GetTimestamp();
         _dragScrollDirection = 0;
         ClearDropTarget();
         SyncRowClock();
-        if (wasDragging && _rowAnimationsEnabled)
+        if (wasDragging)
         {
+            _lastDrag = Stopwatch.GetTimestamp();
             Dispatcher.Dispatch(() =>
             {
+                drop?.Invoke();
                 if (_rowAnimationsEnabled) RefreshRows(force: true);
             });
         }

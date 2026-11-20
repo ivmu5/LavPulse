@@ -29,6 +29,8 @@ public sealed partial class MainPage : ContentPage
     private Task? _coverAnimation;
     private TrackFile? _selected;
     private TrackFile? _armed;
+    private CancellationTokenSource? _selectionLoad;
+    private bool _selectedByUser;
     private CachedTrack? _shownCurrent;
     private CachedTrack? _shownIncoming;
     private PlayerSettings _settings = PlayerPreferences.Load();
@@ -37,10 +39,12 @@ public sealed partial class MainPage : ContentPage
     private bool _recommendations;
     private bool _pausing;
     private bool _pickerOpen;
-    private bool _loadingFirst;
+    private CancellationTokenSource? _firstLoad;
+    private TrackFile? _firstLoadFile;
     private bool _queueRefreshPending;
     private bool _closed;
 
+    private bool IsLoadingFirst => _firstLoad is not null;
     private bool IsStopping => _pausing || _stop?.IsCancellationRequested == true;
     private bool IsPlayerVisible => _windowVisible && _view.Panel is null;
 #if ANDROID

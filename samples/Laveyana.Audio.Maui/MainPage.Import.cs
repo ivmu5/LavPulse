@@ -25,7 +25,7 @@ public sealed partial class MainPage
     }
 
     private bool CanOpenSystemTracks => _canOpenSystemTracks && !_closed && _windowVisible &&
-        !_loadingFirst && !IsStopping && !IsTransitioning(_playback.Snapshot);
+        !IsLoadingFirst && !IsStopping && !IsTransitioning(_playback.Snapshot);
 
     private async Task OpenSystemTracksAsync()
     {
@@ -49,7 +49,7 @@ public sealed partial class MainPage
                         await LoadFirstAsync(first, autoPlay: true);
                     else if (ReferenceEquals(_library.Find(current.Track), first))
                         _ = PlayAsync();
-                    else if (TrySetSelection(first))
+                    else if (TrySetSelection(first, byUser: true))
                         await StartMixAsync(waitForPlayback: false);
                     else
                     {
@@ -131,7 +131,7 @@ public sealed partial class MainPage
         var added = _library.Add(files, _queue.Tracks);
         _queue.AddRange(added);
         UpdateQueue();
-        if (_playback.Snapshot.Current is null && !_loadingFirst)
+        if (_playback.Snapshot.Current is null && !IsLoadingFirst)
         {
             await LoadFirstAsync();
         }
@@ -144,40 +144,51 @@ public sealed partial class MainPage
     /// <summary>Attempts the first playable file and keeps later candidates available.</summary>
     private async Task LoadFirstAsync(TrackFile? preferred = null, bool autoPlay = false)
     {
-        _loadingFirst = true;
+        var file = preferred ?? _queue.Tracks.FirstOrDefault();
+        if (IsLoadingFirst && file is not null && ReferenceEquals(file, _firstLoadFile))
+        {
+            return;
+        }
+
+        using var request = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        var previous = _firstLoad;
+        _firstLoad = request;
+        _firstLoadFile = file;
+        previous?.Cancel();
         try
         {
-            IEnumerable<TrackFile> candidates = _queue.Tracks.ToArray();
-            if (preferred is not null)
-                candidates = candidates.OrderByDescending(file => ReferenceEquals(file, preferred));
-            foreach (var file in candidates)
+            while (file is not null && !request.IsCancellationRequested)
             {
-                if (_closed)
+                _firstLoadFile = file;
+                var track = await PrepareAsync(file, request.Token);
+                if (_closed || request.IsCancellationRequested)
                 {
                     return;
                 }
-                if (await PrepareAsync(file) is not { } track)
+                if (_queue.Tracks.Contains(file))
                 {
+                    if (track is not null)
+                    {
+                        _playback.SetFirst(track);
+                        _queue.SetCurrent(file);
+                        ShowCurrent(_playback.Snapshot.Current!.Value);
+                        break;
+                    }
                     _queue.Remove(file);
-                    continue;
                 }
-
-                if (_closed)
-                {
-                    return;
-                }
-                _playback.SetFirst(track);
-                _queue.SetCurrent(file);
-                ShowCurrent(_playback.Snapshot.Current!.Value);
-                break;
+                file = _queue.Tracks.FirstOrDefault();
             }
         }
         finally
         {
-            _loadingFirst = false;
+            if (ReferenceEquals(_firstLoad, request))
+            {
+                _firstLoad = null;
+                _firstLoadFile = null;
+            }
         }
 
-        if (!_closed)
+        if (!_closed && !request.IsCancellationRequested)
         {
             if (autoPlay) _ = PlayAsync();
             await SelectDefaultAsync();

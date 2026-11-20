@@ -21,7 +21,7 @@ public sealed partial class MainPage
             StopPlayback();
             return;
         }
-        if (_loadingFirst || IsStopping) return;
+        if (IsLoadingFirst || IsStopping) return;
         try
         {
             switch (command)

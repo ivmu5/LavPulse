@@ -57,6 +57,7 @@ public sealed partial class MainPage
         try { SaveOpenEqualizer(); }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }
         _lifetime.Cancel();
+        SetSelection(null, null);
         _positions.Stop();
         _view.ResetAnimations();
         StopPlayback();

@@ -127,7 +127,7 @@ public sealed partial class MainPage
             bool animate = IsPlayerVisible && ReferenceEquals(_shownIncoming, current.Track);
             _shownIncoming = null;
             _shownCurrent = current.Track;
-            _selected = _armed = null;
+            SetSelection(null, null);
             if (_library.Find(current.Track) is { } file)
             {
                 _queue.SetCurrent(file);
