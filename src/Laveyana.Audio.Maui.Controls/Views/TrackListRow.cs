@@ -6,6 +6,8 @@ namespace Laveyana.Audio.Maui.Controls;
 internal class TrackListRow : Border
 {
     private const int CoverSize = 38;
+    private const int DeleteWidth = 42;
+    private const int DeleteSlot = DeleteWidth + 5;
     private static readonly BindableProperty ArtworkColorsProperty = BindableProperty.Create("ArtworkColors",
         typeof(PlayerColors), typeof(TrackListRow), MixerTheme.Default.Artwork,
         propertyChanged: (bindable, _, _) => ((TrackListRow)bindable).UpdateCoverBackground());
@@ -14,6 +16,9 @@ internal class TrackListRow : Border
     private readonly Border _cover;
     private readonly Grid _leading;
     private readonly Grid _content;
+    private ImageButton? _delete;
+    private bool _inlineDelete;
+    private double _deleteReveal;
     private string? _artworkFile;
     private ReadOnlyMemory<byte> _artwork;
 
@@ -36,7 +41,7 @@ internal class TrackListRow : Border
             ColumnSpacing = 6, ColumnDefinitions = [new(CoverSize), new(GridLength.Star)]
         };
         Body.Add(_leading);
-        _content = new Grid { ColumnDefinitions = [new(GridLength.Star), new(0)] };
+        _content = new Grid { ColumnDefinitions = [new(GridLength.Star), new(0), new(0)] };
         _content.Add(Body);
         Foreground = new Grid { Children = { _content } };
         Layers = new Grid { IsClippedToBounds = true, Children = { Foreground } };
@@ -45,8 +50,11 @@ internal class TrackListRow : Border
     }
 
     protected Grid Body { get; }
+    internal View TouchBody => Body;
+    internal event Action? DeleteRequested;
+    internal event Action? DeleteUnfocused;
     protected Grid Foreground { get; }
-    protected Grid Layers { get; }
+    private Grid Layers { get; }
     protected double CoverOpacity { set => _cover.Opacity = value; }
 
     protected void SetDetails(View details) => Body.Add(details, 1);
@@ -54,7 +62,55 @@ internal class TrackListRow : Border
     protected void SetActionWidth(GridLength width)
     {
         _content.ColumnDefinitions[1].Width = width;
-        _content.ColumnSpacing = width.IsAbsolute && width.Value == 0 ? 0 : 6;
+    }
+
+    protected void EnableDelete()
+    {
+        var button = MixerStyle.IconButton("player_delete.png", DeleteWidth);
+        button.HorizontalOptions = LayoutOptions.End;
+        MixerStyle.UseColor(button, BackgroundColorProperty, MixerColor.Selected);
+        button.Clicked += (_, _) => DeleteRequested?.Invoke();
+        button.Unfocused += (_, _) => DeleteUnfocused?.Invoke();
+        _delete = button;
+        Layers.Add(button);
+        UpdateDelete();
+    }
+
+    protected void DescribeDelete(string description)
+    {
+        if (_delete is not { } button) return;
+        SemanticProperties.SetDescription(button, description);
+        ToolTipProperties.SetText(button, description);
+    }
+
+    protected void SetDeleteEnabled(bool enabled)
+    {
+        if (_delete is { } button) button.IsEnabled = enabled;
+    }
+
+    internal void SetInlineDelete(bool visible)
+    {
+        if (_inlineDelete == visible) return;
+        _inlineDelete = visible;
+        _content.ColumnDefinitions[2].Width = new GridLength(visible ? DeleteSlot : 0);
+        UpdateDelete();
+    }
+
+    internal void SetDeleteReveal(double progress)
+    {
+        if (_deleteReveal == progress) return;
+        _deleteReveal = progress;
+        UpdateDelete();
+    }
+
+    private void UpdateDelete()
+    {
+        if (_delete is not { } button) return;
+        double offset = _deleteReveal * DeleteSlot;
+        Foreground.TranslationX = _inlineDelete ? 0 : -offset;
+        button.TranslationX = _inlineDelete ? 0 : DeleteSlot - offset;
+        button.IsVisible = _inlineDelete || _deleteReveal > 0;
+        button.InputTransparent = !_inlineDelete && _deleteReveal < 1;
     }
 
     protected void AddLeading(View view)

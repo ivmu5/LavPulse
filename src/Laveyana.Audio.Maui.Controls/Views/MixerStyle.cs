@@ -8,7 +8,7 @@ internal static partial class MixerStyle
     private static readonly MixerColor[] ColorRoles = Enum.GetValues<MixerColor>();
     private static readonly string[] Icons =
     [
-        "automix", "cancel", "confirm", "delete", "equalizer", "file", "folder", "import", "next", "pause",
+        "automix", "cancel", "confirm", "delete", "edit", "equalizer", "file", "folder", "import", "next", "pause",
         "play", "previous", "queue", "queue_add", "recommendations", "reorder", "repeat_one", "reset", "settings"
     ];
     private const double ButtonFontSize = 12;
@@ -114,6 +114,14 @@ internal static partial class MixerStyle
         }
         ApplyDisabledOpacity(button);
         return button;
+    }
+
+    public static void SetListEditButton(Button button, bool editing)
+    {
+        button.Text = editing ? "Готово" : "Редактирование";
+        UseIcon(button, Microsoft.Maui.Controls.Button.ImageSourceProperty,
+            editing ? "player_confirm.png" : "player_edit.png");
+        SemanticProperties.SetDescription(button, editing ? "Закончить редактирование" : "Редактировать список");
     }
 
     /// <summary>Creates a focusable transport button from a local vector asset.</summary>

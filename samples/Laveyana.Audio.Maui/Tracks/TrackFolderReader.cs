@@ -30,8 +30,8 @@ internal static class TrackFolderReader
         }
     }
 
-    public static async Task<IReadOnlyList<FolderTrack>> ReadTracksAsync(TrackFolderSource root, bool includeChildren,
-        CancellationToken token, IReadOnlyList<TrackFolderSource>? parents = null)
+    public static async Task<IReadOnlyList<FolderTrack>> ReadTracksAsync(TrackFolderSource root, CancellationToken token,
+        IReadOnlyList<TrackFolderSource>? parents = null)
     {
         var tracks = new List<FolderTrack>();
         var visited = new HashSet<string>(StringComparer.Ordinal);
@@ -45,7 +45,6 @@ internal static class TrackFolderReader
             var contents = await item.Folder.ReadAsync(token).ConfigureAwait(false);
             foreach (var file in contents.Files)
                 tracks.Add(new FolderTrack(file, item.Path));
-            if (!includeChildren) continue;
             for (int i = contents.Children.Count - 1; i >= 0; i--)
             {
                 var child = contents.Children[i];

@@ -89,9 +89,9 @@ public sealed partial class MainPage
     protected override bool OnBackButtonPressed()
     {
         if (_view.Panel is null) return _view.TryCloseQueueEditor() || base.OnBackButtonPressed();
-        if (_view.Panel is TrackLibraryPanel)
+        if (_view.Panel is TrackLibraryPanel library)
         {
-            CloseTrackLibrary();
+            if (!library.TryCloseEditing()) CloseTrackLibrary();
             return true;
         }
         if (_view.Panel is PlayerSettingsPanel settings && settings.TryClosePaletteEditor()) return true;

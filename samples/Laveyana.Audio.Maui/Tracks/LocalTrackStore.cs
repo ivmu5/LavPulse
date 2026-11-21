@@ -110,6 +110,17 @@ internal sealed class LocalTrackStore(string root)
         return _library.TryAdd((track.Id, track.Name, FolderKey(folders)), new(track, folders));
     }
 
+    public int ForgetLibraryItem(string folderId, TrackFile? file)
+    {
+        if (file is not null)
+            return _library.Remove((Id(file), file.Name, folderId)) ? 1 : 0;
+        if (folderId.Length == 0) return 0;
+
+        var entries = _library.Keys.Where(key => key.Folder.StartsWith(folderId, StringComparison.Ordinal)).ToArray();
+        foreach (var entry in entries) _library.Remove(entry);
+        return entries.Length;
+    }
+
     public StoredLibraryTrack[] LibrarySnapshot() => _library.Values.ToArray();
 
     public TrackFolderSource OpenLibrary(IReadOnlyList<StoredLibraryTrack> entries)

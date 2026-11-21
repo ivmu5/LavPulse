@@ -14,6 +14,7 @@ try
     CheckQueueChangesDuringPreparation();
     CheckQueueViewport();
     CheckTrackListLayout();
+    await CheckManualScanControlsAsync();
     await CheckInterruptedQueueAnalysis();
     await CheckQueueAnalysisLookahead();
     CheckMp3AudioInfo();
@@ -85,6 +86,36 @@ static void CheckTrackListLayout()
         TrackListLayout.PaddingToKeepOffset(50, offset, viewport) == 0,
         "Collapsing a folder changed its scroll offset or retained unnecessary space.");
     Console.WriteLine("OK: shared track list virtualization and folder collapse offset.");
+}
+
+static async Task CheckManualScanControlsAsync()
+{
+    TrackFile[] files = [TrackFile.FromPath("first.mp3"), TrackFile.FromPath("second.mp3"), TrackFile.FromPath("third.mp3")];
+    using var skip = new TrackScanBatch(default);
+    var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var displayed = new List<int>();
+    var completed = new List<TrackFile>();
+    var pass = skip.RunAsync(files, async (file, token) =>
+    {
+        if (file != files[1]) return;
+        started.SetResult();
+        await Task.Delay(Timeout.Infinite, token);
+    }, (_, position, _) => displayed.Add(position), completed.Add);
+    await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    skip.Skip();
+    Require(await pass == (2, 1, 0) && displayed.SequenceEqual([1, 2, 3]) &&
+        completed.SequenceEqual([files[0], files[2]]), "Skipping did not resume with the following track.");
+
+    using var stop = new TrackScanBatch(default);
+    int work = 0;
+    var stopped = stop.RunAsync(files, (_, token) =>
+    {
+        work++;
+        return Task.Delay(Timeout.Infinite, token);
+    }, (_, _, _) => { }, _ => throw new InvalidOperationException("Cancelled scan was counted."));
+    stop.Stop();
+    Require(await stopped == (0, 0, 0) && work == 1, "Stopping started more tracks or counted a skip.");
+    Console.WriteLine("OK: skipping and stopping a manual track scan.");
 }
 
 static void CheckQueueChangesDuringPreparation()

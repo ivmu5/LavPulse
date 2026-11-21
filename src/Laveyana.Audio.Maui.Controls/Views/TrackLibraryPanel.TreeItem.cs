@@ -10,6 +10,7 @@ public sealed partial class TrackLibraryPanel
     private sealed class LibraryTreeItem : TrackListRow
     {
         private readonly TrackLibraryPanel _panel;
+        private readonly bool _previewOnly;
         private readonly Label _chevron = MixerStyle.Label("", 14, MixerColor.Accent);
         private readonly Label _title = TrackLabel(MixerStyle.PhoneFont(13, 12), MixerColor.Text, bold: true);
         private readonly Label _details = TrackLabel(MixerStyle.PhoneFont(11, 10), MixerColor.Muted);
@@ -20,9 +21,11 @@ public sealed partial class TrackLibraryPanel
         private TreeRow? _row;
         private CancellationTokenSource? _preview;
 
-        public LibraryTreeItem(TrackLibraryPanel panel)
+        public LibraryTreeItem(TrackLibraryPanel panel, bool previewOnly = false)
         {
             _panel = panel;
+            _previewOnly = previewOnly;
+            InputTransparent = previewOnly;
 
             var icon = new Image { WidthRequest = 20, HeightRequest = 20, VerticalOptions = LayoutOptions.Center };
             MixerStyle.UseIcon(icon, Image.SourceProperty, "player_folder.png");
@@ -47,9 +50,22 @@ public sealed partial class TrackLibraryPanel
                 Spacing = 3, VerticalOptions = LayoutOptions.Center, Children = { _add, _import }
             };
             SetActions(_actions);
+            if (previewOnly) return;
+            EnableDelete();
+            DeleteRequested += async () =>
+            {
+                if (_row is { } row) await panel.RemoveItemAsync(this, row);
+            };
+            DeleteUnfocused += () =>
+            {
+                if (ReferenceEquals(panel._revealed, this)) panel.DismissDeleteAction();
+            };
+            TrackListSwipe.Attach(this, () => _row,
+                () => !panel._editing && !panel._busy && panel.CanRemove(_row), () => panel.RevealDelete(this));
             var tap = new TapGestureRecognizer();
             tap.Tapped += async (_, _) =>
             {
+                if (panel.DismissDeleteAction()) return;
                 if (_row is { } row) await _panel.RunAsync(() => _panel.SelectAsync(row), "Не удалось открыть папку");
             };
             Body.GestureRecognizers.Add(tap);
@@ -65,6 +81,7 @@ public sealed partial class TrackLibraryPanel
                 old.MetadataChanged -= LoadMetadata;
             }
             _row = row;
+            SetDeleteReveal(0);
             SetArtwork(row?.File?.Name);
             if (row is null) return;
             row.Changed += UpdateRow;
@@ -80,16 +97,20 @@ public sealed partial class TrackLibraryPanel
             LoadMetadata();
         }
 
-        private void UpdateRow()
+        public void UpdateRow()
         {
             if (_row is not { } row) return;
             _chevron.Text = row.Expanded ? "▾" : "▸";
-            _actions.IsVisible = row.Selected;
-            SetActionWidth(row.Selected ? GridLength.Auto : new GridLength(0));
+            bool showActions = !_previewOnly && (row.Selected || _panel._editing);
+            _actions.IsVisible = showActions;
+            SetActionWidth(showActions ? GridLength.Auto : new GridLength(0));
+            SetInlineDelete(!_previewOnly && _panel._editing && _panel.CanRemove(row));
+            SetDeleteEnabled(!_panel._busy);
             _import.IsVisible = !_panel._local;
             _add.IsEnabled = _import.IsEnabled = !_panel._busy;
             bool folder = row.File is null;
             string add = folder ? "Добавить папку в очередь" : "Добавить трек в очередь";
+            DescribeDelete(folder ? "Убрать папку и её треки из медиатеки" : "Убрать трек из медиатеки");
             string import = folder ? "Импортировать папку в медиатеку" : "Импортировать трек в медиатеку";
             SemanticProperties.SetDescription(_add, add);
             SemanticProperties.SetDescription(_import, import);
