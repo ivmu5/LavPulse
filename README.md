@@ -29,6 +29,8 @@ Open [`LavPulse.slnx`](LavPulse.slnx) in Visual Studio with the **.NET 10 SDK** 
 | Windows | `LavPulse.csproj` | `dotnet build samples/LavPulse/LavPulse.csproj -c Debug` |
 | Android | `LavPulse.Android.csproj` | `dotnet build samples/LavPulse/LavPulse.Android.csproj -c Debug -p:AndroidPackageFormats=apk` |
 
+In Visual Studio, set **LavPulse.Android** as the startup project and select a device or emulator. If a previously opened solution reports that the Android project must be deployed, reopen `LavPulse.slnx` and check **Build** and **Deploy** for **LavPulse.Android** in **Build → Configuration Manager**. For Windows, build **LavPulse.Controls** and **LavPulse** in the same configuration so WinUI can resolve the controls assembly.
+
 On a Mac, build the iPhone simulator target as follows. The [iOS workflow](.github/workflows/ios.yml) pins a compatible SDK and Xcode. To build for an iPhone, select `ios-arm64` and configure Apple development signing.
 
 ```bash
