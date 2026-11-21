@@ -61,6 +61,7 @@ public sealed partial class MainPage
         }
 
         _closed = true;
+        _trackStore.TrackStorageChanged -= OnTrackStorageChanged;
         try { SaveOpenEqualizer(); }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }
         if (_view.Panel is TrackLibraryPanel library) library.Cancel();

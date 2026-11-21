@@ -40,12 +40,14 @@ public sealed partial class TrackLibraryPanel : ContentView
         Func<TrackFile, CancellationToken, Task<TrackMetadata>> readMetadata,
         Func<TrackLibrarySelection, CancellationToken, Task<IReadOnlyList<TrackFile>>> listScanTracks,
         Func<TrackFile, CancellationToken, Task> scanTrack, Func<TrackLibrarySelection, Task<int>> remove,
-        Action close, CancellationToken lifetime)
+        Action close, CancellationToken lifetime,
+        Func<TrackFile, CancellationToken, ValueTask<long?>>? readLocalStorageSize = null)
     {
         _pickFolder = pickFolder;
         _openLibrary = openLibrary;
         _import = import;
         _readMetadata = readMetadata;
+        _readLocalStorageSize = readLocalStorageSize;
         _listScanTracks = listScanTracks;
         _scanTrack = scanTrack;
         _remove = remove;

@@ -6,9 +6,9 @@ namespace Laveyana.Audio.Maui.Controls;
 
 internal static class TrackFolderSizes
 {
-    /// <summary>Totals the compressed tracks in each folder without opening audio streams.</summary>
+    /// <summary>Totals the tracks in each folder without decoding audio streams.</summary>
     public static async Task<IReadOnlyDictionary<string, long?>> ReadAsync(TrackFolderSource root, TrackFolder contents,
-        CancellationToken token)
+        CancellationToken token, Func<TrackFile, CancellationToken, ValueTask<long?>>? readSize = null)
     {
         var sizes = new Dictionary<string, long?>(StringComparer.Ordinal);
         await VisitAsync(root, contents).ConfigureAwait(false);
@@ -35,7 +35,7 @@ internal static class TrackFolderSizes
             foreach (var file in listing.Files)
             {
                 token.ThrowIfCancellationRequested();
-                Add(file.SizeBytes);
+                Add(readSize is null ? file.SizeBytes : await readSize(file, token).ConfigureAwait(false));
             }
             foreach (var child in listing.Children)
                 Add(await VisitAsync(child).ConfigureAwait(false));

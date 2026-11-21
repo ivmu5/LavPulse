@@ -85,7 +85,8 @@ public sealed partial class MainPage
             () => Window is { } window ? WithPickerAsync(() => PlatformTrackFolder.PickAsync(window, _lifetime.Token))
                 : Task.FromResult<TrackFolderSource?>(null),
             OpenSavedLibraryAsync, ImportLibrarySelectionAsync, _library.ReadLibraryMetadataAsync,
-            ListLibraryScanTracksAsync, RescanLibraryTrackAsync, RemoveLibrarySelectionAsync, ClosePanel, _lifetime.Token));
+            ListLibraryScanTracksAsync, RescanLibraryTrackAsync, RemoveLibrarySelectionAsync, ClosePanel, _lifetime.Token,
+            _trackStore.ReadTrackStorageSizeAsync));
         if (library is null) return false;
         library.ImportFolderOpened += RecordOpeningScreen;
         library.ImportFolderClosed += root =>
@@ -93,6 +94,11 @@ public sealed partial class MainPage
         _ = library.InitializeAsync();
         return true;
     }
+
+    private void OnTrackStorageChanged(string path) => Dispatcher.Dispatch(() =>
+    {
+        if (!_closed && _view.Panel is TrackLibraryPanel library) library.RefreshTrackStorageSize(path);
+    });
 
     private async Task<TrackFolderSource> OpenSavedLibraryAsync()
     {
