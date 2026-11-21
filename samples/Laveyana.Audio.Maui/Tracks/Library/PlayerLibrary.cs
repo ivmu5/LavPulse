@@ -175,39 +175,39 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
 
         // A prior eviction may still be deleting the PCM named by this track's saved analysis.
         await cacheCleanup.WaitAsync(token).ConfigureAwait(false);
+        TrackMetadata? tags = null;
+        try
+        {
+            if (metadata is not null) tags = await metadata.WaitAsync(token).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!token.IsCancellationRequested)
+        {
+            System.Diagnostics.Debug.WriteLine(ex);
+        }
+
+        var analysis = await store.ReadAnalysisAsync(file, token).ConfigureAwait(false);
+        if (analysis is not null && store.FindPcm(analysis) is { } pcm)
+        {
+            tags ??= await preparation.ReadMetadataAsync(file, token).ConfigureAwait(false);
+            var cached = new CachedTrack(file.Name, pcm, analysis.Waveform, tags, analysis.AudioInfo);
+            _decodedFiles[cached] = file;
+            return cached;
+        }
+
+        // Only a cache miss competes with background work for a decoder.
         await _decodeSlots.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            TrackMetadata? tags = null;
+            var track = await preparation.ImportAsync(file, tags,
+                analysis is null ? null : (analysis.Waveform, analysis.AudioInfo), token).ConfigureAwait(false);
             try
             {
-                if (metadata is not null) tags = await metadata.WaitAsync(token).ConfigureAwait(false);
+                await store.SaveAnalysisAsync(file, track.Waveform, track.AudioInfo, track.Path, token).ConfigureAwait(false);
             }
-            catch (Exception ex) when (!token.IsCancellationRequested)
+            catch
             {
-                System.Diagnostics.Debug.WriteLine(ex);
-            }
-
-            var analysis = await store.ReadAnalysisAsync(file, token).ConfigureAwait(false);
-            CachedTrack track;
-            if (analysis is not null && store.FindPcm(analysis) is { } pcm)
-            {
-                tags ??= await preparation.ReadMetadataAsync(file, token).ConfigureAwait(false);
-                track = new(file.Name, pcm, analysis.Waveform, tags, analysis.AudioInfo);
-            }
-            else
-            {
-                track = await preparation.ImportAsync(file, tags,
-                    analysis is null ? null : (analysis.Waveform, analysis.AudioInfo), token).ConfigureAwait(false);
-                try
-                {
-                    await store.SaveAnalysisAsync(file, track.Waveform, track.AudioInfo, track.Path, token).ConfigureAwait(false);
-                }
-                catch
-                {
-                    track.Delete();
-                    throw;
-                }
+                track.Delete();
+                throw;
             }
             _decodedFiles[track] = file;
             return track;
