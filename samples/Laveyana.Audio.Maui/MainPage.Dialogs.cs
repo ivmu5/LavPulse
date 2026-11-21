@@ -41,7 +41,7 @@ public sealed partial class MainPage
     }
 
     private void OpenSettings() =>
-        OpenPanel(() => new PlayerSettingsPanel(_settings, value => ApplySettings(value), PickFilesAsync, PickFolderAsync,
+        OpenPanel(() => new PlayerSettingsPanel(_settings, value => ApplySettings(value), PickFilesAsync, () => OpenTrackLibraryAsync(pickSource: true),
             ClosePanel, PreviewAppearance));
 
     private void OpenPanel(Func<View> createPanel)
@@ -89,7 +89,12 @@ public sealed partial class MainPage
 
     protected override bool OnBackButtonPressed()
     {
-        if (_view.Panel is null) return base.OnBackButtonPressed();
+        if (_view.Panel is null) return _view.TryCloseQueueEditor() || base.OnBackButtonPressed();
+        if (_view.Panel is TrackLibraryPanel)
+        {
+            CloseTrackLibrary();
+            return true;
+        }
         if (_view.Panel is PlayerSettingsPanel settings && settings.TryClosePaletteEditor()) return true;
         ClosePanel();
         return true;

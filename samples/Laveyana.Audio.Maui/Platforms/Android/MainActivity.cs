@@ -20,9 +20,11 @@ public class MainActivity : MauiAppCompatActivity
     private TaskCompletionSource<AndroidUri?>? _folderResult;
     private ScreenStateReceiver? _screenReceiver;
     private bool? _hideStatusBar;
+    private bool _resumed;
 
     internal bool IsPlayerVisible { get; private set; }
     internal event Action<bool>? PlayerVisibilityChanged;
+    internal event Action? DisplayClockRefreshRequested;
 
     /// <summary>Initializes the Android activity, media volume controls and system folder picker.</summary>
     protected override void OnCreate(Android.OS.Bundle? savedInstanceState)
@@ -51,7 +53,21 @@ public class MainActivity : MauiAppCompatActivity
         else
             RegisterReceiver(_screenReceiver, filter);
 
-        UpdatePlayerVisibility(GetSystemService(PowerService) is not PowerManager { IsInteractive: false });
+        UpdatePlayerVisibility(IsScreenInteractive);
+    }
+
+    protected override void OnResume()
+    {
+        base.OnResume();
+        _resumed = true;
+        UpdatePlayerVisibility(IsScreenInteractive);
+    }
+
+    protected override void OnPause()
+    {
+        _resumed = false;
+        UpdatePlayerVisibility(false);
+        base.OnPause();
     }
 
     protected override void OnStop()
@@ -70,8 +86,11 @@ public class MainActivity : MauiAppCompatActivity
     public override void OnWindowFocusChanged(bool hasFocus)
     {
         base.OnWindowFocusChanged(hasFocus);
-        if (hasFocus && _hideStatusBar is { } hide && GetInsetsController() is { } controller)
+        if (!hasFocus) return;
+        if (_hideStatusBar is { } hide && GetInsetsController() is { } controller)
             ApplyStatusBarVisibility(controller, hide);
+        UpdatePlayerVisibility(IsScreenInteractive);
+        if (IsPlayerVisible) DisplayClockRefreshRequested?.Invoke();
     }
 
     internal void ApplySystemBarAppearance(bool light, bool hideStatusBar)
@@ -106,9 +125,11 @@ public class MainActivity : MauiAppCompatActivity
             Window?.ClearFlags(WindowManagerFlags.ShowWhenLocked);
     }
 
+    private bool IsScreenInteractive => GetSystemService(PowerService) is not PowerManager { IsInteractive: false };
+
     private void UpdatePlayerVisibility(bool screenInteractive)
     {
-        bool visible = _screenReceiver is not null && screenInteractive;
+        bool visible = _resumed && _screenReceiver is not null && screenInteractive;
         if (IsPlayerVisible == visible) return;
         IsPlayerVisible = visible;
         PlayerVisibilityChanged?.Invoke(visible);

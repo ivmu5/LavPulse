@@ -45,13 +45,21 @@ internal sealed class QueueTrackRow : Border
             WidthRequest = 38, HeightRequest = 38, VerticalOptions = LayoutOptions.Center,
             StrokeThickness = 0, StrokeShape = new RoundRectangle { CornerRadius = 5 }, Content = _art
         };
-        var content = new Grid { ColumnSpacing = 6, ColumnDefinitions = [new(38), new(GridLength.Star), new(24)] };
-        content.Add(_cover);
-        content.Add(_graphics, 1);
-        content.Add(DragHandle, 2);
+        var body = new Grid
+        {
+            BackgroundColor = Colors.Transparent,
+            ColumnSpacing = 6, ColumnDefinitions = [new(38), new(GridLength.Star)]
+        };
+        body.Add(_cover);
+        body.Add(_graphics, 1);
+        TrackBody = body;
+        var content = new Grid { ColumnSpacing = 6, ColumnDefinitions = [new(GridLength.Star), new(30)] };
+        content.Add(body);
+        content.Add(DragHandle, 1);
         Content = new Grid { IsClippedToBounds = true, Children = { _spectrum, content } };
     }
 
+    public View TrackBody { get; }
     public View DragHandle { get; }
     public bool IsPlayed => _played;
     public bool NeedsAnimation => File is not null && (_loading || _text.IsOverflowing);
@@ -72,6 +80,7 @@ internal sealed class QueueTrackRow : Border
         _art.Source = null;
         _cover.Background = null;
         Scale = 1;
+        TranslationX = 0;
         Opacity = 1;
     }
     public void SetSpectrum(IDrawable? drawable) => _spectrum.Drawable = drawable;

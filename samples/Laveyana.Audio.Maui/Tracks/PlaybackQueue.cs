@@ -6,6 +6,7 @@ namespace Laveyana.Audio.Maui.Tracks;
 internal sealed class PlaybackQueue
 {
     private readonly List<TrackFile> _tracks = [];
+    private readonly HashSet<TrackFile> _members = [];
     private int? _detachedIndex;
     private int NextIndex => _detachedIndex ?? (Current is null ? 0 : PlayedCount + 1);
 
@@ -30,6 +31,7 @@ internal sealed class PlaybackQueue
     {
         foreach (var file in files)
         {
+            if (!_members.Add(file)) continue;
             if (Current == file && _detachedIndex is int index)
             {
                 _tracks.Insert(index, file);
@@ -38,7 +40,16 @@ internal sealed class PlaybackQueue
             else _tracks.Add(file);
         }
     }
-    public void Remove(TrackFile file) => _tracks.Remove(file);
+    public bool Contains(TrackFile file) => _members.Contains(file);
+
+    public void Remove(TrackFile file)
+    {
+        int index = _tracks.IndexOf(file);
+        if (index < 0) return;
+        RemoveAt(index);
+        _members.Remove(file);
+        if (Current == file) _detachedIndex = index;
+    }
     public void SetCurrent(TrackFile file)
     {
         Current = file;
@@ -60,7 +71,11 @@ internal sealed class PlaybackQueue
         var previousBoundary = _detachedIndex;
         RemoveAt(index);
         if (Current == file) _detachedIndex = index;
-        if ((!refreshSuccessor && ReferenceEquals(previousNext, Next)) || changeNext(Next)) return true;
+        if ((!refreshSuccessor && ReferenceEquals(previousNext, Next)) || changeNext(Next))
+        {
+            _members.Remove(file);
+            return true;
+        }
 
         _tracks.Insert(index, file);
         _detachedIndex = previousBoundary;

@@ -19,6 +19,8 @@ public sealed partial class WindowsWindowChrome
     private bool _captionVisible = true;
     private long _captionAnimationStart;
     private double _captionAnimationFrom;
+    private SpectrumFrameClock _captionClock;
+    private int _captionRate;
 
     private void AttachFullscreenCaption()
     {
@@ -91,6 +93,7 @@ public sealed partial class WindowsWindowChrome
 
         _captionAnimationFrom = _captionTranslation.Y;
         _captionAnimationStart = Stopwatch.GetTimestamp();
+        _captionClock = default;
         CompositionTarget.Rendering += OnCaptionAnimationFrame;
     }
 
@@ -103,6 +106,15 @@ public sealed partial class WindowsWindowChrome
             CompleteCaptionAnimation(target);
             return;
         }
+
+        int rate = _player?.Spectrum.FramesPerSecond ?? 0;
+        if (_captionRate != rate)
+        {
+            _captionRate = rate;
+            _captionClock = default;
+        }
+        if (args is not RenderingEventArgs frame ||
+            !_captionClock.TryAdvance(frame.RenderingTime.TotalSeconds, rate, out _)) return;
 
         double remaining = 1 - progress;
         _captionTranslation.Y = target + (_captionAnimationFrom - target) * remaining * remaining * remaining;

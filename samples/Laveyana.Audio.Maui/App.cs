@@ -36,9 +36,14 @@ public sealed class App : Application
             if (window.Handler?.PlatformView is MainActivity activity)
             {
                 activity.PlayerVisibilityChanged += page.SetWindowVisible;
+                activity.DisplayClockRefreshRequested += page.RefreshDisplayClock;
                 activity.SetPlayerOnLockScreen(page.ShowOnLockScreen);
                 page.SetWindowVisible(activity.IsPlayerVisible);
-                window.Destroying += (_, _) => activity.PlayerVisibilityChanged -= page.SetWindowVisible;
+                window.Destroying += (_, _) =>
+                {
+                    activity.PlayerVisibilityChanged -= page.SetWindowVisible;
+                    activity.DisplayClockRefreshRequested -= page.RefreshDisplayClock;
+                };
             }
         };
 #elif IOS || MACCATALYST

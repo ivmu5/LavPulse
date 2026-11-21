@@ -24,7 +24,7 @@ public sealed class DeckView : Border
     private readonly Grid _overviewLayer;
     private long _detailStart = -1;
     private long _overviewPaintedPosition;
-    private readonly IDispatcherTimer _timer;
+    private bool _scrubDirty;
     private CachedTrack? _track;
     private GraphicsView? _gesture;
     private long _position;
@@ -83,16 +83,6 @@ public sealed class DeckView : Border
         MixerStyle.StyleCard(this, new VerticalStackLayout { Spacing = 5, Children = { header, detailLayer, _overviewLayer } });
         Padding = new Thickness(10, 7);
 
-        _timer = Dispatcher.CreateTimer();
-        _timer.Interval = TimeSpan.FromMilliseconds(25);
-        _timer.Tick += (_, _) =>
-        {
-            if (_gesture == _detail && _moved)
-            {
-                AdvancePreview();
-                Redraw();
-            }
-        };
         TimelineInput.Attach(_detail, p => Begin(_detail, p), Move, End, CancelScrub);
         TimelineInput.Attach(_overview, p => Begin(_overview, p), Move, End, CancelScrub);
     }
@@ -100,6 +90,16 @@ public sealed class DeckView : Border
     public event Action<CachedTrack, long>? SeekRequested;
     public event Action<CachedTrack, double>? SpeedRequested;
     internal CachedTrack? DisplayedTrack => _track;
+    internal bool IsScrubbing => _gesture is not null && _moved;
+    internal event Action? ScrubAnimationChanged;
+
+    internal void DrawScrubFrame()
+    {
+        if (!IsScrubbing || (!_scrubDirty && (_gesture != _detail || _speed == 0))) return;
+        _scrubDirty = false;
+        if (_gesture == _detail) AdvancePreview();
+        Redraw();
+    }
 
     private async Task ChooseSpeedAsync()
     {
@@ -270,18 +270,19 @@ public sealed class DeckView : Border
             return;
         }
 
-        if (!_moved)
+        bool started = !_moved;
+        if (started)
         {
             if (Math.Abs(point.X - _startX) < DragThreshold) return;
 
             _moved = true;
             _preview = _displayPosition;
             _lastTick = System.Diagnostics.Stopwatch.GetTimestamp();
-            if (view == _detail) _timer.Start();
         }
 
         UpdatePreview(view, point.X);
-        Redraw();
+        _scrubDirty = true;
+        if (started) ScrubAnimationChanged?.Invoke();
     }
 
     /// <summary>Commits only when the pointer is released inside the gesture's original waveform.</summary>
@@ -314,7 +315,8 @@ public sealed class DeckView : Border
         }
 
         _gesture = null;
-        _timer.Stop();
+        _scrubDirty = false;
+        ScrubAnimationChanged?.Invoke();
         Redraw();
     }
 
