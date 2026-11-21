@@ -1,6 +1,8 @@
 using Laveyana.Audio;
 using Laveyana.Audio.Playback;
 using Laveyana.Audio.Maui.Tracks;
+using Laveyana.Audio.Maui.Controls;
+using System.Diagnostics;
 
 const int Rate = PlaybackFormat.SampleRate;
 const int PauseFrames = Rate * 300 / 1000;
@@ -10,6 +12,7 @@ try
 {
     CheckQueuePreservesOrderOnDirectSelection();
     CheckQueueChangesDuringPreparation();
+    CheckQueueViewport();
     await CheckInterruptedQueueAnalysis();
     await CheckQueueAnalysisLookahead();
     CheckMp3AudioInfo();
@@ -38,6 +41,30 @@ try
 finally
 {
     Directory.Delete(directory, recursive: true);
+}
+
+static void CheckQueueViewport()
+{
+    long last = Stopwatch.Frequency;
+    Require(QueueViewport.CanFollow(null, last) &&
+        !QueueViewport.CanFollow(last, last + 9 * Stopwatch.Frequency) &&
+        QueueViewport.CanFollow(last, last + 10 * Stopwatch.Frequency),
+        "Queue follow must respect the full idle interval.");
+
+    const int rowHeight = 54;
+    const int stride = 59;
+    const int viewport = 236;
+    const int tenRows = 9 * stride + rowHeight;
+    double content = QueueViewport.ContentHeight(tenRows, viewport, rowHeight, alignToTop: true);
+    Require(QueueViewport.TrackOffset(9, stride, rowHeight, viewport, content, center: false) == 9 * stride,
+        "The last track could not appear first while retaining the played history.");
+    Require(QueueViewport.TrackOffset(5, stride, rowHeight, viewport, tenRows, center: true) ==
+        5 * stride - (viewport - rowHeight) / 2,
+        "The queue editor did not center the current track.");
+    Require(QueueViewport.TrackOffset(0, stride, rowHeight, viewport, rowHeight, center: true) == 0 &&
+        QueueViewport.TrackOffset(9, stride, rowHeight, viewport, tenRows, center: true) == tenRows - viewport,
+        "The queue editor scrolled beyond the available rows.");
+    Console.WriteLine("OK: queue follow interval, final-row alignment, and editor centering.");
 }
 
 static void CheckQueueChangesDuringPreparation()

@@ -23,6 +23,9 @@ public sealed partial class TrackLibraryPanel
         private readonly Label _details = TrackLabel(11, MixerColor.Muted);
         private readonly Grid _folder;
         private readonly Grid _track;
+        private readonly HorizontalStackLayout _actions;
+        private readonly ImageButton _add = MixerStyle.IconButton("player_queue_add.png", 36);
+        private readonly ImageButton _import = MixerStyle.IconButton("player_import.png", 36);
         private TreeRow? _row;
         private CancellationTokenSource? _preview;
         private bool _active;
@@ -52,17 +55,32 @@ public sealed partial class TrackLibraryPanel
             {
                 VerticalOptions = LayoutOptions.Center, Spacing = 2, Children = { _title, _details }
             }, column: 1);
+            _add.Clicked += async (_, _) =>
+            {
+                if (_row is { } row) await _panel.ImportSelectedAsync(row, addToQueue: true);
+            };
+            _import.Clicked += async (_, _) =>
+            {
+                if (_row is { } row) await _panel.ImportSelectedAsync(row, addToQueue: false);
+            };
+            _actions = new HorizontalStackLayout
+            {
+                Spacing = 3, VerticalOptions = LayoutOptions.Center, Children = { _add, _import }
+            };
+            var rowContent = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 4 };
+            rowContent.Add(content);
+            rowContent.Add(_actions, 1);
             _card = new Border
             {
                 Margin = new Thickness(0, 2), Padding = new Thickness(9, 0), StrokeThickness = 0,
-                StrokeShape = new RoundRectangle { CornerRadius = 8 }, Content = content
+                StrokeShape = new RoundRectangle { CornerRadius = 8 }, Content = rowContent
             };
             var tap = new TapGestureRecognizer();
             tap.Tapped += async (_, _) =>
             {
                 if (_row is { } row) await _panel.RunAsync(() => _panel.SelectAsync(row), "Не удалось открыть папку");
             };
-            _card.GestureRecognizers.Add(tap);
+            content.GestureRecognizers.Add(tap);
             Add(_card);
             SetDynamicResource(ArtworkColorsProperty, MixerStyle.ArtworkColorsResource);
 
@@ -103,6 +121,16 @@ public sealed partial class TrackLibraryPanel
         {
             if (_row is not { } row) return;
             _chevron.Text = row.Expanded ? "▾" : "▸";
+            _actions.IsVisible = row.Selected;
+            _import.IsVisible = !_panel._local;
+            _add.IsEnabled = _import.IsEnabled = !_panel._busy;
+            bool folder = row.File is null;
+            string add = folder ? "Добавить папку в очередь" : "Добавить трек в очередь";
+            string import = folder ? "Импортировать папку в медиатеку" : "Импортировать трек в медиатеку";
+            SemanticProperties.SetDescription(_add, add);
+            SemanticProperties.SetDescription(_import, import);
+            ToolTipProperties.SetText(_add, add);
+            ToolTipProperties.SetText(_import, import);
             MixerStyle.UseColor(_card, BackgroundColorProperty, row.Selected ? MixerColor.Selected : MixerColor.Surface);
         }
 
