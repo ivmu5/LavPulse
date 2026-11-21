@@ -40,7 +40,11 @@ public sealed class TrackPreparation(string cacheDirectory)
         ImportAsync(file, null, token);
 
     /// <summary>Reuses tags already fetched for the queue and decodes directly from seekable MP3 streams.</summary>
-    public async Task<CachedTrack> ImportAsync(TrackFile file, TrackMetadata? metadata, CancellationToken token)
+    public Task<CachedTrack> ImportAsync(TrackFile file, TrackMetadata? metadata, CancellationToken token) =>
+        ImportAsync(file, metadata, null, token);
+
+    internal async Task<CachedTrack> ImportAsync(TrackFile file, TrackMetadata? metadata,
+        (TrackWaveform Waveform, TrackAudioInfo? Info)? analysis, CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(file);
         if (!TrackFile.IsMp3(file.Name))
@@ -59,7 +63,7 @@ public sealed class TrackPreparation(string cacheDirectory)
                 await using var direct = file.OpenReadAsync is { } open ? await open().ConfigureAwait(false) : null;
                 if (direct is not null && CanAnalyzeInPlace(direct))
                 {
-                    return Decode(direct, file, pcmPath, metadata, token);
+                    return Decode(direct, file, pcmPath, metadata, analysis, token);
                 }
 
                 await using var copy = new FileStream(prefix + ".mp3", FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None,
@@ -67,7 +71,7 @@ public sealed class TrackPreparation(string cacheDirectory)
                 if (direct is not null) await direct.CopyToAsync(copy, token).ConfigureAwait(false);
                 else await file.CopyToAsync(copy, token).ConfigureAwait(false);
                 copy.Position = 0;
-                return Decode(copy, file, pcmPath, metadata, token);
+                return Decode(copy, file, pcmPath, metadata, analysis, token);
             }, token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
             return track;
@@ -78,6 +82,15 @@ public sealed class TrackPreparation(string cacheDirectory)
             throw;
         }
     }
+
+    /// <summary>Scans a locally imported track without producing a PCM file.</summary>
+    internal Task<(TrackWaveform Waveform, TrackAudioInfo? Info)> AnalyzeAsync(string path, CancellationToken token) =>
+        Task.Run(() =>
+        {
+            using var source = File.OpenRead(path);
+            var waveform = DecodeWaveform(source, null, null, token);
+            return (waveform, Mp3AudioInfoReader.Read(source, token));
+        }, token);
 
     private static bool CanAnalyzeInPlace(Stream source)
     {
@@ -95,9 +108,9 @@ public sealed class TrackPreparation(string cacheDirectory)
     }
 
     private CachedTrack Decode(Stream source, TrackFile file, string pcmPath, TrackMetadata? metadata,
-        CancellationToken token)
+        (TrackWaveform Waveform, TrackAudioInfo? Info)? analysis, CancellationToken token)
     {
-        var waveform = DecodePcm(source, pcmPath, token);
+        var waveform = DecodeWaveform(source, pcmPath, analysis?.Waveform, token);
 
         if (metadata is null)
         {
@@ -105,12 +118,13 @@ public sealed class TrackPreparation(string cacheDirectory)
             metadata = ReadTags(file, source);
         }
 
-        var audioInfo = Mp3AudioInfoReader.Read(source, token);
+        var audioInfo = analysis?.Info ?? Mp3AudioInfoReader.Read(source, token);
         token.ThrowIfCancellationRequested();
         return new CachedTrack(file.Name, pcmPath, waveform, metadata, audioInfo);
     }
 
-    private TrackWaveform DecodePcm(Stream source, string pcmPath, CancellationToken token)
+    private TrackWaveform DecodeWaveform(Stream source, string? pcmPath, TrackWaveform? waveform,
+        CancellationToken token)
     {
         if (_openPlatformDecoder is not null)
         {
@@ -119,7 +133,7 @@ public sealed class TrackPreparation(string cacheDirectory)
                 if (_openPlatformDecoder(source, token) is { } platformDecoder)
                 {
                     using var decoder = new Mp3PcmSource(platformDecoder);
-                    return WritePcm(decoder, pcmPath, token);
+                    return AnalyzeOrRecord(decoder, pcmPath, waveform, token);
                 }
             }
             catch (InvalidDataException ex)
@@ -127,19 +141,39 @@ public sealed class TrackPreparation(string cacheDirectory)
                 // Retry from the beginning with NLayer after a rejected stream or a stalled decoder.
                 token.ThrowIfCancellationRequested();
                 System.Diagnostics.Debug.WriteLine(ex);
-                File.Delete(pcmPath);
+                if (pcmPath is not null) File.Delete(pcmPath);
             }
             source.Position = 0;
         }
 
         using var managedDecoder = new Mp3PcmSource(source);
-        return WritePcm(managedDecoder, pcmPath, token);
+        return AnalyzeOrRecord(managedDecoder, pcmPath, waveform, token);
     }
 
-    private static TrackWaveform WritePcm(Mp3PcmSource decoder, string pcmPath, CancellationToken token)
+    private static TrackWaveform AnalyzeOrRecord(Mp3PcmSource decoder, string? pcmPath, TrackWaveform? waveform,
+        CancellationToken token)
     {
-        using var pcm = new FileStream(pcmPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024);
-        return TrackWaveform.Analyze(new RecordingSource(decoder, pcm), token);
+        if (pcmPath is null) return TrackWaveform.Analyze(decoder, token);
+
+        long frames = 0;
+        using (var pcm = new FileStream(pcmPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024))
+        {
+            var recording = new RecordingSource(decoder, pcm);
+            if (waveform is null) return TrackWaveform.Analyze(recording, token);
+
+            var buffer = new float[4096 * PlaybackFormat.Channels];
+            int read;
+            while ((read = recording.Read(buffer)) != 0)
+            {
+                token.ThrowIfCancellationRequested();
+                frames += read;
+            }
+        }
+        if (frames == waveform.TotalFrames) return waveform;
+
+        // A different decoder can produce a different count of padded frames for the same MP3.
+        using var recorded = new CachedPcmSource(pcmPath, new DeckCursor(frames, 0));
+        return TrackWaveform.Analyze(recorded, token);
     }
 
     private static TrackMetadata ReadTags(TrackFile file, Stream source)

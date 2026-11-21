@@ -31,8 +31,8 @@ public sealed partial class MasterSpectrumView
 
         // Keep the shared playhead clock at its normal rate for low spectrum limits.
         int requested = ActiveSpectrumFrameRate;
-        int maximum = IsSpectrumActive && (requested == 0 || requested > 60) ? 120 : 60;
-        int preferred = Math.Clamp(requested, 60, maximum);
+        int maximum = _drawQueue is not null || (IsSpectrumActive && (requested == 0 || requested > 60)) ? 120 : 60;
+        int preferred = _drawQueue is not null ? 120 : Math.Clamp(requested, 60, maximum);
         link.PreferredFrameRateRange = CAFrameRateRange.Create(30, maximum, preferred);
     }
 }

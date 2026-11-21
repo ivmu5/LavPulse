@@ -4,9 +4,8 @@ using System.Collections.Concurrent;
 namespace Laveyana.Audio.Maui.Tracks;
 
 /// <summary>Holds the window's file selection and deduplicates background preparation requests.</summary>
-internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationToken lifetime)
+internal sealed class PlayerLibrary(TrackPreparation preparation, LocalTrackStore store, CancellationToken lifetime)
 {
-    private const long PcmBudgetBytes = 256L * 1024 * 1024;
     private const long ArtworkBudgetBytes = 32L * 1024 * 1024;
     private const long ThumbnailBudgetBytes = 24L * 1024 * 1024;
     private readonly object _cacheGate = new();
@@ -21,6 +20,7 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
     private long _access;
     private Task _cacheCleanup = Task.CompletedTask;
     private readonly Dictionary<TrackFile, Preparation> _prepared = new();
+    private readonly HashSet<TrackFile> _analyzing = [];
     private readonly Dictionary<TrackFile, Task<TrackMetadata>> _metadata = new();
     private readonly Dictionary<TrackFile, Task<TrackMetadata>> _queueMetadata = new();
     private readonly SemaphoreSlim _thumbnailSlots = new(2);
@@ -71,7 +71,7 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
                 // Interactive requests can decode tags themselves instead of waiting behind thumbnails.
                 if (selection.CanBeCanceled && metadata?.IsCompletedSuccessfully != true)
                     metadata = null;
-                pending = new(DecodeAsync(file, metadata, token, pending?.Work), token);
+                pending = new(DecodeAsync(file, metadata, token, pending?.Work, _cacheCleanup), token);
                 _prepared[file] = pending;
             }
             return selection.CanBeCanceled ? pending.Work.WaitAsync(selection) : pending.Work;
@@ -170,7 +170,27 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
     public bool IsPreparing(TrackFile file)
     {
         lock (_cacheGate)
-            return _prepared.TryGetValue(file, out var pending) && !pending.Token.IsCancellationRequested && !pending.Work.IsCompleted;
+            return _analyzing.Contains(file) ||
+                (_prepared.TryGetValue(file, out var pending) && !pending.Token.IsCancellationRequested && !pending.Work.IsCompleted);
+    }
+
+    public bool HasAnalysis(TrackFile file) => store.HasAnalysis(file);
+
+    public async Task AnalyzeAsync(TrackFile file)
+    {
+        await _decodeSlots.WaitAsync(lifetime).ConfigureAwait(false);
+        try
+        {
+            if (store.HasAnalysis(file)) return;
+            lock (_cacheGate) _analyzing.Add(file);
+            var analysis = await preparation.AnalyzeAsync(file.LocalPath!, lifetime).ConfigureAwait(false);
+            await store.SaveAnalysisAsync(file, analysis.Waveform, analysis.Info, null, lifetime).ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (_cacheGate) _analyzing.Remove(file);
+            _decodeSlots.Release();
+        }
     }
 
     private async Task<TrackMetadata> ReadTagsAsync(TrackFile file)
@@ -188,7 +208,7 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
 
     /// <summary>Limits simultaneous MP3 analysis on mobile while letting playback continue.</summary>
     private async Task<CachedTrack> DecodeAsync(TrackFile file, Task<TrackMetadata>? metadata,
-        CancellationToken token, Task<CachedTrack>? previous)
+        CancellationToken token, Task<CachedTrack>? previous, Task cacheCleanup)
     {
         if (previous is not null)
         {
@@ -197,6 +217,8 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex.Message); }
         }
 
+        // A prior eviction may still be deleting the PCM named by this track's saved analysis.
+        await cacheCleanup.WaitAsync(token).ConfigureAwait(false);
         await _decodeSlots.WaitAsync(token).ConfigureAwait(false);
         try
         {
@@ -210,7 +232,27 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
                 System.Diagnostics.Debug.WriteLine(ex);
             }
 
-            var track = await preparation.ImportAsync(file, tags, token).ConfigureAwait(false);
+            var analysis = await store.ReadAnalysisAsync(file, token).ConfigureAwait(false);
+            CachedTrack track;
+            if (analysis is not null && store.FindPcm(analysis) is { } pcm)
+            {
+                tags ??= await preparation.ReadMetadataAsync(file, token).ConfigureAwait(false);
+                track = new(file.Name, pcm, analysis.Waveform, tags, analysis.AudioInfo);
+            }
+            else
+            {
+                track = await preparation.ImportAsync(file, tags,
+                    analysis is null ? null : (analysis.Waveform, analysis.AudioInfo), token).ConfigureAwait(false);
+                try
+                {
+                    await store.SaveAnalysisAsync(file, track.Waveform, track.AudioInfo, track.Path, token).ConfigureAwait(false);
+                }
+                catch
+                {
+                    track.Delete();
+                    throw;
+                }
+            }
             _decodedFiles[track] = file;
             return track;
         }
@@ -239,12 +281,12 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
             totalBytes += task.Result.PcmSizeBytes;
             coverBytes += task.Result.Artwork.Length;
         }
-        if (totalBytes > PcmBudgetBytes || coverBytes > ArtworkBudgetBytes)
+        if (totalBytes > LocalTrackStore.PcmBudgetBytes || coverBytes > ArtworkBudgetBytes)
         {
             var evicted = new List<CachedTrack>();
             foreach (var file in _pcmAccess.OrderBy(entry => entry.Value).Select(entry => entry.Key).ToArray())
             {
-                if (totalBytes <= PcmBudgetBytes && coverBytes <= ArtworkBudgetBytes) break;
+                if (totalBytes <= LocalTrackStore.PcmBudgetBytes && coverBytes <= ArtworkBudgetBytes) break;
                 if (file == selected || file == armed || upcoming.Contains(file) || GetPrepared(file) is not { } track ||
                     ReferenceEquals(track, current) || ReferenceEquals(track, incoming)) continue;
 
@@ -286,7 +328,7 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
         foreach (var track in tracks) track.Delete();
     });
 
-    /// <summary>Waits for all imports to stop before deleting their PCM caches.</summary>
+    /// <summary>Waits for pending imports and leaves complete PCM caches available for the next launch.</summary>
     public async Task CloseAsync()
     {
         var tasks = _prepared.Values.Select(entry => entry.Work).ToArray();
@@ -297,13 +339,6 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, CancellationTo
         catch (Exception)
         {
             // Failed imports clean up their own temporary files.
-        }
-        foreach (var task in tasks)
-        {
-            if (task.IsCompletedSuccessfully)
-            {
-                task.Result.Delete();
-            }
         }
         _decodeSlots.Dispose();
         _metadataSlots.Dispose();

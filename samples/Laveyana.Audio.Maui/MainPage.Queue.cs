@@ -84,6 +84,7 @@ public sealed partial class MainPage
         {
             return;
         }
+        _ = SaveQueueAsync();
         UpdateQueue();
         if (_selected is { } next && !ReferenceEquals(_armed, next))
         {
@@ -102,6 +103,7 @@ public sealed partial class MainPage
         {
             ToggleRepeatOne();
         }
+        _ = SaveQueueAsync();
         UpdateQueue();
         if (ReferenceEquals(file, _firstLoadFile))
         {

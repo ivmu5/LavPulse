@@ -45,7 +45,7 @@ public sealed partial class MainPage
         UpdateSystemPlayback(snapshot.Current, updateCommands: true);
     }
 
-    /// <summary>Stops output before closing readers and clears temporary decoded tracks.</summary>
+    /// <summary>Stops output, finishes the queue save and releases playback readers.</summary>
     internal async Task CloseAsync()
     {
         if (_closed)
@@ -63,7 +63,8 @@ public sealed partial class MainPage
         StopPlayback();
         try
         {
-            await Task.WhenAll(_worker ?? Task.CompletedTask, _coverAnimation ?? Task.CompletedTask, _analysisWorker);
+            await Task.WhenAll(_worker ?? Task.CompletedTask, _coverAnimation ?? Task.CompletedTask, _analysisWorker,
+                _restoreQueue ?? Task.CompletedTask, _saveQueue);
         }
         catch (Exception)
         {

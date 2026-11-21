@@ -12,6 +12,9 @@ public sealed partial class MasterSpectrumView : ContentView
     private int _framesPerSecond;
     private Func<ISpectrumSource?>? _getSource;
     private Action? _drawPlayheads;
+    private Action<double>? _drawQueue;
+    private SpectrumFrameClock _queueFrameClock;
+    private VisualElement? _queueFrameTarget;
     private bool _frameLoopRunning;
     private bool IsSpectrumActive => _getSource is not null && IsVisible;
 
@@ -30,6 +33,14 @@ public sealed partial class MasterSpectrumView : ContentView
     internal void SetPlayheadCallback(Action? drawPlayheads)
     {
         _drawPlayheads = drawPlayheads;
+        SyncFrameLoop();
+    }
+
+    internal void SetQueueCallback(VisualElement target, Action<double>? drawQueue)
+    {
+        _queueFrameTarget = target;
+        _drawQueue = drawQueue;
+        _queueFrameClock = default;
         SyncFrameLoop();
     }
 
@@ -83,7 +94,7 @@ public sealed partial class MasterSpectrumView : ContentView
 
     private void SyncFrameLoop()
     {
-        bool run = IsSpectrumActive || (_getSource is not null && _drawPlayheads is not null);
+        bool run = IsSpectrumActive || _drawQueue is not null || (_getSource is not null && _drawPlayheads is not null);
         if (run != _frameLoopRunning)
         {
             _frameLoopRunning = run;
@@ -105,6 +116,7 @@ public sealed partial class MasterSpectrumView : ContentView
     private void DrawFrame(double time)
     {
         _drawPlayheads?.Invoke();
+        if (_drawQueue is { } queue && _queueFrameClock.TryAdvance(time, 120, out _)) queue(time);
         if (!IsVisible || _getSource?.Invoke() is not { } mix ||
             !_frameClock.TryAdvance(time, _framesPerSecond, out float elapsed))
         {

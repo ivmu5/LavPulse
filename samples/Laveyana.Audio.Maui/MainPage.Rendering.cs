@@ -131,6 +131,7 @@ public sealed partial class MainPage
             if (_library.Find(current.Track) is { } file)
             {
                 _queue.SetCurrent(file);
+                _ = SaveQueueAsync();
             }
             if (animate)
             {

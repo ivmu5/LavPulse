@@ -11,14 +11,20 @@ public sealed partial class MasterSpectrumView
 
     partial void ApplyNativeFrameRateHint()
     {
-        if (OperatingSystem.IsAndroidVersionAtLeast(35) &&
-            _graphics.Handler?.PlatformView is global::Android.Views.View view)
+        if (OperatingSystem.IsAndroidVersionAtLeast(35))
         {
-            // Android uses NaN for its default policy. Request high refresh only while the spectrum is active.
+            // Android uses NaN for its default policy between visual updates.
             int requested = ActiveSpectrumFrameRate;
-            float preferred = requested > 60 ? requested : float.NaN;
-            if (!view.RequestedFrameRate.Equals(preferred)) view.RequestedFrameRate = preferred;
+            SetHint(_graphics, requested > 60 ? requested : float.NaN);
+            SetHint(_queueFrameTarget, _drawQueue is null ? float.NaN : 120);
         }
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("android35.0")]
+    private static void SetHint(VisualElement? target, float preferred)
+    {
+        if (target?.Handler?.PlatformView is global::Android.Views.View view &&
+            !view.RequestedFrameRate.Equals(preferred)) view.RequestedFrameRate = preferred;
     }
 
     /// <summary>Registers an Android display callback at the system-selected refresh rate.</summary>

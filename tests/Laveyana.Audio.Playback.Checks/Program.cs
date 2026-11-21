@@ -14,6 +14,7 @@ try
     await CheckQueueAnalysisLookahead();
     CheckMp3AudioInfo();
     await TrackPreparationChecks.RunAsync(directory);
+    await LocalTrackStoreChecks.RunAsync(directory);
     CheckSpectrumCaptureToggle();
     Console.WriteLine("OK: MP3 stream properties.");
     CachedTrack first = MakeTrack(directory, "first", left: 8192, right: 0);

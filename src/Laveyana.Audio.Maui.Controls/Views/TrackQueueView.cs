@@ -37,7 +37,6 @@ internal sealed partial class TrackQueueView : Grid
     private bool _refreshingRows;
     private bool _refreshRowsAgain;
     private readonly Label _empty = MixerStyle.Label("Очередь пуста", MixerStyle.PhoneFont(12, 11), MixerColor.Muted);
-    private readonly IDispatcherTimer _rowClock;
     private readonly long _start = Stopwatch.GetTimestamp();
     private TrackFile? _currentTrack;
     private IDrawable? _masterSpectrum;
@@ -48,12 +47,17 @@ internal sealed partial class TrackQueueView : Grid
     private QueueTrackRow? _dropTarget;
     private Action? _pendingDrop;
     private int _dragScrollDirection;
-    private long _lastDragScroll;
+    private double? _lastDragScroll;
+    private Task? _dragScroll;
     private long _lastDrag;
     private bool _showRecommendations;
     private int _animation;
     private bool _handoff;
     private bool _rowAnimationsEnabled = true;
+    private bool _framesRequested;
+    private QueueTransition? _transition;
+
+    internal event Action<bool>? AnimationChanged;
 
     public TrackQueueView()
     {
@@ -61,16 +65,18 @@ internal sealed partial class TrackQueueView : Grid
         ColumnSpacing = MixerStyle.IsPhone ? 12 : 16;
         IsClippedToBounds = true;
         _queueScroll = new ScrollView { Content = _rows, MaximumHeightRequest = ViewportHeight };
-        _rowClock = Dispatcher.CreateTimer();
-        _rowClock.Interval = TimeSpan.FromMilliseconds(40);
-        _rowClock.Tick += (_, _) => AnimateRows();
         Loaded += (_, _) =>
         {
             if (!_rowAnimationsEnabled) return;
             FocusCurrent();
             SyncRowClock();
         };
-        Unloaded += (_, _) => _rowClock.Stop();
+        Unloaded += (_, _) =>
+        {
+            bool animationsEnabled = _rowAnimationsEnabled;
+            Reset();
+            _rowAnimationsEnabled = animationsEnabled;
+        };
         _recommendations.IsVisible = false;
         _feedSelector = CreateFeedSelector();
         _queue = new VerticalStackLayout { Spacing = 7, Children = { _feedSelector, _queueScroll, _recommendations } };
@@ -474,6 +480,7 @@ internal sealed partial class TrackQueueView : Grid
     {
         _pendingDrop ??= action;
         _dragScrollDirection = 0;
+        _lastDragScroll = null;
         SyncRowClock();
     }
 
@@ -490,6 +497,7 @@ internal sealed partial class TrackQueueView : Grid
             target.InputTransparent = true;
         }
         _dragScrollDirection = 0;
+        _lastDragScroll = null;
         ClearDropTarget();
         SyncRowClock();
         if (wasDragging)
@@ -517,8 +525,8 @@ internal sealed partial class TrackQueueView : Grid
 
     private void SyncRowClock()
     {
-        bool needed = false;
-        if (CanAnimateRows)
+        bool needed = IsLoaded && _rowAnimationsEnabled && _transition is not null;
+        if (!needed && CanAnimateRows)
         {
             needed = _dragScrollDirection != 0;
             foreach (var row in _trackRows.Values)
@@ -527,9 +535,14 @@ internal sealed partial class TrackQueueView : Grid
                 needed = row.NeedsAnimation && IsInViewport(row);
             }
         }
-        if (needed == _rowClock.IsRunning) return;
-        if (needed) _rowClock.Start();
-        else _rowClock.Stop();
+        RequestFrames(needed);
+    }
+
+    private void RequestFrames(bool needed)
+    {
+        if (_framesRequested == needed) return;
+        _framesRequested = needed;
+        AnimationChanged?.Invoke(needed);
     }
 
     private bool IsInViewport(QueueTrackRow row)
@@ -539,17 +552,34 @@ internal sealed partial class TrackQueueView : Grid
         return rowTop < top + _queueScroll.Height && rowTop + QueueTrackRow.RowHeight > top;
     }
 
-    /// <summary>Animates only rows inside the scroll viewport, including the slow text marquee.</summary>
-    private void AnimateRows()
+    /// <summary>Advances cover transitions and visible rows on the display clock.</summary>
+    internal void DrawFrame(double time)
     {
+        if (_transition is { } transition)
+        {
+            transition.Start ??= time;
+            double progress = Math.Clamp((time - transition.Start.Value) / transition.Duration, 0, 1);
+            transition.Draw(progress);
+            if (progress == 1)
+            {
+                _transition = null;
+                transition.Done.TrySetResult(true);
+                SyncRowClock();
+            }
+        }
         if (!CanAnimateRows) return;
         if (_focusCurrent) FocusCurrent();
-        if (_dragScrollDirection != 0 && Stopwatch.GetElapsedTime(_lastDragScroll).TotalMilliseconds >= 120)
+        if (_dragScrollDirection == 0)
         {
-            _lastDragScroll = Stopwatch.GetTimestamp();
-            double y = Math.Clamp(_queueScroll.ScrollY + _dragScrollDirection * RowStride / 2d, 0,
+            _lastDragScroll = null;
+        }
+        else if (_dragScroll is null || _dragScroll.IsCompleted)
+        {
+            double elapsed = _lastDragScroll is double previous ? Math.Clamp(time - previous, 0, .05) : 1d / 120;
+            _lastDragScroll = time;
+            double y = Math.Clamp(_queueScroll.ScrollY + _dragScrollDirection * RowStride / .24 * elapsed, 0,
                 Math.Max(0, _rows.HeightRequest - _queueScroll.Height));
-            if (y != _queueScroll.ScrollY) _ = _queueScroll.ScrollToAsync(0, y, false);
+            if (y != _queueScroll.ScrollY) _dragScroll = _queueScroll.ScrollToAsync(0, y, false);
         }
 
         double seconds = Stopwatch.GetElapsedTime(_start).TotalSeconds;
@@ -557,6 +587,30 @@ internal sealed partial class TrackQueueView : Grid
         {
             if (row.NeedsAnimation && IsInViewport(row)) row.Animate(seconds);
         }
+    }
+
+    private Task<bool> AnimateAsync(int milliseconds, Action<double> draw)
+    {
+        CancelTransition();
+        if (!IsLoaded || !_rowAnimationsEnabled) return Task.FromResult(false);
+        var animation = new QueueTransition(milliseconds / 1000d, draw);
+        _transition = animation;
+        SyncRowClock();
+        return animation.Done.Task;
+    }
+
+    private void CancelTransition()
+    {
+        _transition?.Done.TrySetResult(false);
+        _transition = null;
+    }
+
+    private sealed class QueueTransition(double duration, Action<double> draw)
+    {
+        public double Duration { get; } = duration;
+        public Action<double> Draw { get; } = draw;
+        public double? Start { get; set; }
+        public TaskCompletionSource<bool> Done { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     /// <summary>Updates the stable left-side cover outside of a handoff.</summary>
@@ -572,16 +626,21 @@ internal sealed partial class TrackQueueView : Grid
         _incoming.TranslationY = originY;
         _incoming.ScaleX = .96;
         _incoming.ScaleY = Math.Clamp(rowHeight / Math.Max(1, _right.Height), .15, 1);
-        await Task.WhenAll(
-            _incoming.TranslateToAsync(0, 0, 260, Easing.CubicOut),
-            _incoming.ScaleXToAsync(1, 260, Easing.CubicOut),
-            _incoming.ScaleYToAsync(1, 260, Easing.CubicOut));
+        double startingScale = _incoming.ScaleY;
+        await AnimateAsync(260, progress =>
+        {
+            double eased = Easing.CubicOut.Ease(progress);
+            _incoming.TranslationY = originY * (1 - eased);
+            _incoming.ScaleX = .96 + .04 * eased;
+            _incoming.ScaleY = startingScale + (1 - startingScale) * eased;
+        });
     }
 
     /// <summary>Shows the incoming card at rest, including when the app returns during a mix.</summary>
     public void ShowIncoming(CachedTrack track)
     {
         _animation++;
+        CancelTransition();
         _queue.InputTransparent = true;
         _queue.Opacity = 0;
         _incoming.Show(track, "Сведение");
@@ -591,6 +650,7 @@ internal sealed partial class TrackQueueView : Grid
         _incoming.AnchorY = 0;
         _incoming.Opacity = 1;
         _incoming.IsVisible = true;
+        SyncRowClock();
     }
 
     /// <summary>Replaces the outgoing cover, then brings the next list in from the right edge.</summary>
@@ -598,7 +658,6 @@ internal sealed partial class TrackQueueView : Grid
     {
         int animation = ++_animation;
         _handoff = true;
-        _incoming.CancelAnimations();
         _incoming.Show(track);
         _incoming.ScaleX = _incoming.ScaleY = 1;
         _incoming.TranslationY = 0;
@@ -606,11 +665,14 @@ internal sealed partial class TrackQueueView : Grid
         _queue.Opacity = 0;
         // The right-aligned artwork has its own inset within the second column.
         double offset = -(_right.X - _current.X + Math.Max(0, _right.Width - _incoming.CoverWidth));
-        await Task.WhenAll(
-            _current.ScaleToAsync(.7, 210, Easing.CubicIn),
-            _current.FadeToAsync(0, 210, Easing.CubicIn),
-            _incoming.TranslateToAsync(offset, 0, 300, Easing.CubicOut));
-        if (animation != _animation)
+        bool completed = await AnimateAsync(300, progress =>
+        {
+            double outgoing = Easing.CubicIn.Ease(Math.Min(1, progress * 300 / 210));
+            _current.Scale = 1 - .3 * outgoing;
+            _current.Opacity = 1 - outgoing;
+            _incoming.TranslationX = offset * Easing.CubicOut.Ease(progress);
+        });
+        if (!completed || animation != _animation)
         {
             return;
         }
@@ -623,11 +685,13 @@ internal sealed partial class TrackQueueView : Grid
         refreshQueue();
 
         // The parent page clips the content beyond the device's right edge.
-        _queue.TranslationX = Math.Max(0, (Window?.Width ?? Width) - _right.X);
+        double entrance = Math.Max(0, (Window?.Width ?? Width) - _right.X);
+        _queue.TranslationX = entrance;
         _queue.Opacity = 1;
         SyncRowClock();
-        await _queue.TranslateToAsync(0, 0, 340, Easing.CubicOut);
-        if (animation == _animation)
+        completed = await AnimateAsync(340, progress =>
+            _queue.TranslationX = entrance * (1 - Easing.CubicOut.Ease(progress)));
+        if (completed && animation == _animation)
         {
             _queue.InputTransparent = false;
             _handoff = false;
@@ -642,11 +706,9 @@ internal sealed partial class TrackQueueView : Grid
     public void Reset()
     {
         _rowAnimationsEnabled = false;
-        _rowClock.Stop();
+        CancelTransition();
+        RequestFrames(false);
         _animation++;
-        _current.CancelAnimations();
-        _incoming.CancelAnimations();
-        _queue.CancelAnimations();
         _current.Scale = _current.Opacity = 1;
         _incoming.IsVisible = false;
         _queue.Opacity = 1;
