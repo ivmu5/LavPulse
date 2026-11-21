@@ -12,12 +12,17 @@ internal sealed partial class TrackQueueView : Grid
     private const int ViewportHeight = 236;
     private const int OverscanRows = 2;
     private const int CoverInfoGap = 8;
+    private const uint SwipeThreshold = 66;
     private readonly TrackCard _current = new(TextAlignment.Start, showAudioInfo: true);
     private readonly TrackCard _incoming = new(TextAlignment.End);
     private readonly AbsoluteLayout _rows = new();
     private readonly VerticalStackLayout _queue;
     private readonly View _feedSelector;
     private readonly Grid _right;
+    private readonly Grid _editorHeader;
+    private readonly Label _editorHint = MixerStyle.Label("Свайп влево убирает трек из очереди", 11, MixerColor.Muted);
+    private QueueTrackRow? _swipeRow;
+    private double? _swipeStart;
     private readonly Button _queueTab = MixerStyle.Button("Очередь", icon: "player_queue.png", stacked: true);
     private readonly Button _recommendationsTab = MixerStyle.Button("Рекомендации", icon: "player_recommendations.png", stacked: true);
     private readonly ScrollView _queueScroll;
@@ -40,8 +45,6 @@ internal sealed partial class TrackQueueView : Grid
     private readonly long _start = Stopwatch.GetTimestamp();
     private TrackFile? _currentTrack;
     private IDrawable? _masterSpectrum;
-    private View? _removeTarget;
-    private double? _dragStartX;
     private bool _focusCurrent;
     private TrackFile? _dragging;
     private QueueTrackRow? _dropTarget;
@@ -58,6 +61,9 @@ internal sealed partial class TrackQueueView : Grid
     private QueueTransition? _transition;
 
     internal event Action<bool>? AnimationChanged;
+    internal event Action<bool>? EditingChanged;
+    internal event Action? LibraryRequested;
+    internal bool IsEditing { get; private set; }
 
     public TrackQueueView()
     {
@@ -79,7 +85,24 @@ internal sealed partial class TrackQueueView : Grid
         };
         _recommendations.IsVisible = false;
         _feedSelector = CreateFeedSelector();
-        _queue = new VerticalStackLayout { Spacing = 7, Children = { _feedSelector, _queueScroll, _recommendations } };
+        var done = MixerStyle.Button("Готово", icon: "player_confirm.png");
+        done.Clicked += (_, _) => CloseEditor();
+        var title = MixerStyle.Label("Редактор очереди", MixerStyle.PhoneFont(19, 16), bold: true);
+        title.VerticalOptions = LayoutOptions.Center;
+        SemanticProperties.SetHeadingLevel(title, SemanticHeadingLevel.Level1);
+        _editorHeader = new Grid
+        {
+            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 6, IsVisible = false
+        };
+        _editorHeader.Add(title);
+        _editorHeader.Add(done, 1);
+        _editorHint.IsVisible = false;
+        _queue = new VerticalStackLayout
+        {
+            Spacing = 7, Children = { _feedSelector, _editorHeader, _editorHint, _queueScroll, _recommendations }
+        };
+        _editorHeader.SizeChanged += (_, _) => UpdateQueueViewport();
+        _editorHint.SizeChanged += (_, _) => UpdateQueueViewport();
         _feedSelector.SizeChanged += (_, _) => UpdateQueueViewport();
         _queueScroll.Scrolled += (_, _) => RefreshRows();
         _queueScroll.SizeChanged += (_, _) =>
@@ -109,9 +132,12 @@ internal sealed partial class TrackQueueView : Grid
     private void UpdateQueueViewport()
     {
         if (_rows.HeightRequest < 0) return;
-        double available = Height > 0 && _feedSelector.Height > 0
-            ? Math.Max(0, Height - _feedSelector.Height - _queue.Spacing) : ViewportHeight;
-        _queueScroll.HeightRequest = Math.Min(_rows.HeightRequest, Math.Min(available, ViewportHeight));
+        double header = IsEditing ? Math.Max(44, _editorHeader.Height) + Math.Max(16, _editorHint.Height) + _queue.Spacing
+            : Math.Max(0, _feedSelector.Height);
+        double available = Height > 0 ? Math.Max(0, Height - header - _queue.Spacing) : ViewportHeight;
+        double maximum = IsEditing ? available : Math.Min(available, ViewportHeight);
+        _queueScroll.MaximumHeightRequest = maximum;
+        _queueScroll.HeightRequest = Math.Min(_rows.HeightRequest, maximum);
     }
 
     public event Action<TrackFile>? TrackRequested;
@@ -156,9 +182,14 @@ internal sealed partial class TrackQueueView : Grid
             }
         };
         _recommendationsTab.Clicked += (_, _) => SelectRecommendations(true);
-        var segments = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)] };
+        var library = MixerStyle.IconButton("player_folder.png", 33);
+        library.VerticalOptions = LayoutOptions.Center;
+        SemanticProperties.SetDescription(library, "Открыть медиатеку");
+        library.Clicked += (_, _) => LibraryRequested?.Invoke();
+        var segments = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star), new(GridLength.Auto)] };
         segments.Add(_queueTab);
         segments.Add(_recommendationsTab, 1);
+        segments.Add(library, 2);
         var selector = new Border
         {
             StrokeThickness = 1,
@@ -178,6 +209,7 @@ internal sealed partial class TrackQueueView : Grid
         {
             return;
         }
+        if (show) CloseEditor();
         _showRecommendations = show;
         _queueScroll.IsVisible = !show;
         _recommendations.IsVisible = show;
@@ -290,7 +322,7 @@ internal sealed partial class TrackQueueView : Grid
         foreach (var (file, row) in _trackRows)
         {
             // Keep native views in use by the drag attached until the platform finishes.
-            if (!_visibleFiles.Contains(file) && !ReferenceEquals(file, _dragging) && !ReferenceEquals(row, _dropTarget))
+            if (!_visibleFiles.Contains(file) && !ReferenceEquals(file, _dragging) && !ReferenceEquals(row, _dropTarget) && !ReferenceEquals(row, _swipeRow))
             {
                 _leavingRows.Add(file);
             }
@@ -341,27 +373,32 @@ internal sealed partial class TrackQueueView : Grid
         }
     }
 
-    public void AttachRemovalTarget(View target)
+    private void OpenEditor()
     {
-        _removeTarget = target;
-        var drop = new DropGestureRecognizer { AllowDrop = true };
-        drop.DragOver += (_, args) =>
-        {
-            bool accepted = CanRemove(args.GetPosition(this));
-            args.AcceptedOperation = accepted ? DataPackageOperation.Copy : DataPackageOperation.None;
-            target.Opacity = accepted ? 1 : .65;
-        };
-        drop.DragLeave += (_, _) => target.Opacity = .65;
-        drop.Drop += (_, args) =>
-        {
-            if (!CanRemove(args.GetPosition(this)) || _dragging is not { } file) return;
-            args.Handled = true;
-            DeferDrop(() => RemoveRequested?.Invoke(file));
-        };
-        target.GestureRecognizers.Add(drop);
+        if (IsEditing || _showRecommendations || _queue.InputTransparent) return;
+        SetEditing(true);
+    }
 
-        bool CanRemove(Point? point) =>
-            _dragging is not null && (_dragStartX is not double start || point is null || point.Value.X >= start + 14);
+    internal bool CloseEditor()
+    {
+        if (!IsEditing) return false;
+        EndDrag();
+        CompleteSwipe();
+        SetEditing(false);
+        return true;
+    }
+
+    private void SetEditing(bool editing)
+    {
+        IsEditing = editing;
+        _feedSelector.IsVisible = !editing;
+        _editorHeader.IsVisible = _editorHint.IsVisible = editing;
+        _current.IsVisible = !editing;
+        Grid.SetColumn(_right, editing ? 0 : 1);
+        Grid.SetColumnSpan(_right, editing ? 2 : 1);
+        EditingChanged?.Invoke(editing);
+        UpdateQueueViewport();
+        RefreshRows(force: true);
     }
 
     private void FocusCurrent()
@@ -399,14 +436,21 @@ internal sealed partial class TrackQueueView : Grid
         var tap = new TapGestureRecognizer();
         tap.Tapped += (_, _) =>
         {
-            if (row.File is { } file && _dragging is null &&
+            if (!IsEditing && row.File is { } file && _dragging is null &&
                 (_lastDrag == 0 || Stopwatch.GetElapsedTime(_lastDrag).TotalMilliseconds >= 300))
             {
                 if (row.IsPlayed) HistoryRequested?.Invoke(file);
                 else if (!ReferenceEquals(_currentTrack, file)) TrackRequested?.Invoke(file);
             }
         };
-        row.GestureRecognizers.Add(tap);
+        row.TrackBody.GestureRecognizers.Add(tap);
+        var edit = new TapGestureRecognizer();
+        edit.Tapped += (_, _) => OpenEditor();
+        row.DragHandle.GestureRecognizers.Add(edit);
+        var swipe = new SwipeGestureRecognizer { Direction = SwipeDirection.Left, Threshold = SwipeThreshold };
+        swipe.Swiped += (_, _) => BeginSwipe(row);
+        row.TrackBody.GestureRecognizers.Add(swipe);
+        AttachMouseSwipe(row);
         var drag = new DragGestureRecognizer { CanDrag = true };
         drag.DragStarting += (_, args) =>
         {
@@ -415,13 +459,13 @@ internal sealed partial class TrackQueueView : Grid
                 args.Cancel = true;
                 return;
             }
-            _dragging = file;
-            _dragStartX = args.GetPosition(this)?.X;
-            if (_removeTarget is { } target)
+            if (_swipeRow is not null)
             {
-                target.Opacity = .65;
-                target.InputTransparent = false;
+                args.Cancel = true;
+                return;
             }
+            _dragging = file;
+            OpenEditor();
             args.Data.Text = "LavPulse.QueueTrack";
         };
         drag.DropCompleted += (_, _) => EndDrag(commit: true);
@@ -490,12 +534,6 @@ internal sealed partial class TrackQueueView : Grid
         var drop = commit ? _pendingDrop : null;
         _pendingDrop = null;
         _dragging = null;
-        _dragStartX = null;
-        if (_removeTarget is { } target)
-        {
-            target.Opacity = 0;
-            target.InputTransparent = true;
-        }
         _dragScrollDirection = 0;
         _lastDragScroll = null;
         ClearDropTarget();
@@ -528,7 +566,7 @@ internal sealed partial class TrackQueueView : Grid
         bool needed = IsLoaded && _rowAnimationsEnabled && _transition is not null;
         if (!needed && CanAnimateRows)
         {
-            needed = _dragScrollDirection != 0;
+            needed = _dragScrollDirection != 0 || _swipeRow is not null;
             foreach (var row in _trackRows.Values)
             {
                 if (needed) break;
@@ -568,6 +606,13 @@ internal sealed partial class TrackQueueView : Grid
             }
         }
         if (!CanAnimateRows) return;
+        if (_swipeRow is { } swipe)
+        {
+            _swipeStart ??= time;
+            double progress = Math.Clamp((time - _swipeStart.Value) / .15, 0, 1);
+            swipe.TranslationX = -swipe.Width * Easing.CubicOut.Ease(progress);
+            if (progress == 1) CompleteSwipe();
+        }
         if (_focusCurrent) FocusCurrent();
         if (_dragScrollDirection == 0)
         {
@@ -575,7 +620,7 @@ internal sealed partial class TrackQueueView : Grid
         }
         else if (_dragScroll is null || _dragScroll.IsCompleted)
         {
-            double elapsed = _lastDragScroll is double previous ? Math.Clamp(time - previous, 0, .05) : 1d / 120;
+            double elapsed = _lastDragScroll is double previous ? Math.Clamp(time - previous, 0, .05) : 0;
             _lastDragScroll = time;
             double y = Math.Clamp(_queueScroll.ScrollY + _dragScrollDirection * RowStride / .24 * elapsed, 0,
                 Math.Max(0, _rows.HeightRequest - _queueScroll.Height));
@@ -587,6 +632,28 @@ internal sealed partial class TrackQueueView : Grid
         {
             if (row.NeedsAnimation && IsInViewport(row)) row.Animate(seconds);
         }
+    }
+
+    private bool CanSwipe => IsEditing && !_queue.InputTransparent && _rowAnimationsEnabled &&
+        _dragging is null && _swipeRow is null;
+
+    private void BeginSwipe(QueueTrackRow row)
+    {
+        if (!CanSwipe || row.File is null) return;
+        _swipeRow = row;
+        _swipeStart = null;
+        SyncRowClock();
+    }
+
+    partial void AttachMouseSwipe(QueueTrackRow row);
+
+    private void CompleteSwipe()
+    {
+        if (_swipeRow is not { } row) return;
+        _swipeRow = null;
+        row.TranslationX = 0;
+        if (row.File is { } file) Dispatcher.Dispatch(() => RemoveRequested?.Invoke(file));
+        SyncRowClock();
     }
 
     private Task<bool> AnimateAsync(int milliseconds, Action<double> draw)
@@ -619,6 +686,7 @@ internal sealed partial class TrackQueueView : Grid
     /// <summary>Expands the selected row into the full incoming card over the queue.</summary>
     public async Task BeginMixAsync(CachedTrack track, TrackFile? file)
     {
+        if (IsEditing) return;
         var row = file is not null && _trackRows.TryGetValue(file, out var item) ? item : null;
         double originY = row is null ? 0 : Math.Clamp(_queueScroll.Y + (double)(row.Index - _visibleStart) * RowStride - _queueScroll.ScrollY, 0, Math.Max(0, _right.Height - 44));
         double rowHeight = Math.Max(44, row?.Height ?? 0);
@@ -656,6 +724,12 @@ internal sealed partial class TrackQueueView : Grid
     /// <summary>Replaces the outgoing cover, then brings the next list in from the right edge.</summary>
     public async Task FinishMixAsync(CachedTrack track, Action refreshQueue)
     {
+        if (IsEditing)
+        {
+            _current.Show(track);
+            refreshQueue();
+            return;
+        }
         int animation = ++_animation;
         _handoff = true;
         _incoming.Show(track);
@@ -706,6 +780,7 @@ internal sealed partial class TrackQueueView : Grid
     public void Reset()
     {
         _rowAnimationsEnabled = false;
+        CloseEditor();
         CancelTransition();
         RequestFrames(false);
         _animation++;

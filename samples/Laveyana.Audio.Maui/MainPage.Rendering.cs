@@ -83,7 +83,13 @@ public sealed partial class MainPage
 
         if (IsPlayerVisible) RestorePlayer(snapshot);
         if (_worker is not null) _view.StartPlaybackVisuals(() => _playback.Spectrum);
+        RefreshDisplayClock();
         ProcessSystemTrackRequests();
+    }
+
+    internal void RefreshDisplayClock()
+    {
+        if (!_closed && _windowVisible) _view.RestartDisplayClock();
     }
 
     private void UpdatePositionRefreshInterval() =>

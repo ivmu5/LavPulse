@@ -7,24 +7,41 @@ public sealed partial class MasterSpectrumView
     private DisplayFrameCallback? _displayCallback;
 
     partial void ObserveNativeGraphicsView() =>
-        _graphics.HandlerChanged += (_, _) => ApplyNativeFrameRateHint();
+        _graphics.HandlerChanged += (_, _) => ApplyNativeFrameRateHint(force: true);
 
-    partial void ApplyNativeFrameRateHint()
+    partial void ApplyNativeFrameRateHint(bool force)
     {
+        int requested = NeedsFrames ? (FramesPerSecond == 0 ? 120 : FramesPerSecond) : 0;
         if (OperatingSystem.IsAndroidVersionAtLeast(35))
         {
-            // Android uses NaN for its default policy between visual updates.
-            int requested = ActiveSpectrumFrameRate;
-            SetHint(_graphics, requested > 60 ? requested : float.NaN);
-            SetHint(_queueFrameTarget, _drawQueue is null ? float.NaN : 120);
+            float hint = requested == 0 ? float.NaN : requested;
+            SetHint(_graphics, IsSpectrumActive ? hint : float.NaN, force);
+            SetHint(_uiFrameTarget, _drawUi is null ? float.NaN : hint, force);
+        }
+        else if (Window?.Handler?.PlatformView is global::Android.App.Activity activity && activity.Window is { } window &&
+                 window.Attributes is { } attributes)
+        {
+            float hint = requested;
+            if (hint > 0 && !OperatingSystem.IsAndroidVersionAtLeast(34))
+            {
+#pragma warning disable CS0618, CA1422 // Legacy Android requires a rate advertised by this window's display.
+                var display = window.DecorView.Display;
+                hint = display?.GetSupportedRefreshRates()?.MinBy(rate => (Math.Abs(rate - requested), -rate)) ?? 0;
+#pragma warning restore CS0618, CA1422
+            }
+            if (force && hint > 0 || !attributes.PreferredRefreshRate.Equals(hint))
+            {
+                attributes.PreferredRefreshRate = hint;
+                window.Attributes = attributes;
+            }
         }
     }
 
     [System.Runtime.Versioning.SupportedOSPlatform("android35.0")]
-    private static void SetHint(VisualElement? target, float preferred)
+    private static void SetHint(VisualElement? target, float preferred, bool force)
     {
         if (target?.Handler?.PlatformView is global::Android.Views.View view &&
-            !view.RequestedFrameRate.Equals(preferred)) view.RequestedFrameRate = preferred;
+            (force && !float.IsNaN(preferred) || !view.RequestedFrameRate.Equals(preferred))) view.RequestedFrameRate = preferred;
     }
 
     /// <summary>Registers an Android display callback at the system-selected refresh rate.</summary>

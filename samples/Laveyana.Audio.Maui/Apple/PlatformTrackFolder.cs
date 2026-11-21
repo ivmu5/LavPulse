@@ -8,7 +8,7 @@ namespace Laveyana.Audio.Maui.Tracks;
 internal static class PlatformTrackFolder
 {
     /// <summary>Opens the document picker and resolves the selected security-scoped directory.</summary>
-    public static async Task<TrackFolder?> PickAsync(Window owner, CancellationToken token)
+    public static async Task<TrackFolderSource?> PickAsync(Window owner, CancellationToken token)
     {
         var parent = Microsoft.Maui.ApplicationModel.Platform.GetCurrentUIViewController()
             ?? throw new InvalidOperationException("Окно LavPulse ещё не готово.");
@@ -19,7 +19,7 @@ internal static class PlatformTrackFolder
         try
         {
             NSUrl? folder = await result.Selection.Task.WaitAsync(token);
-            return folder is null ? null : await Task.Run(() => ReadFolder(folder, token), token);
+            return folder is null ? null : OpenFolder(folder);
         }
         finally
         {
@@ -30,33 +30,17 @@ internal static class PlatformTrackFolder
         }
     }
 
-    /// <summary>Enumerates MP3 files inside the security-scoped folder.</summary>
-    private static TrackFolder ReadFolder(NSUrl folder, CancellationToken token)
+    private static TrackFolderSource OpenFolder(NSUrl folder)
     {
-        bool scoped = folder.StartAccessingSecurityScopedResource();
-        try
-        {
-            string path = folder.Path ?? throw new IOException("Не удалось прочитать путь папки.");
-            var tracks = new List<TrackFile>();
-            foreach (string file in Directory.EnumerateFiles(path))
+        string path = folder.Path ?? throw new IOException("Не удалось прочитать путь папки.");
+        return TrackFolderReader.FromDirectory(path, Path.GetFileName(Path.TrimEndingDirectorySeparator(path)),
+            file => TrackFile.FromStream(Path.GetFileName(file), () => Task.FromResult(OpenScopedFile(folder, file))),
+            read =>
             {
-                token.ThrowIfCancellationRequested();
-                if (TrackFile.IsMp3(file))
-                {
-                    tracks.Add(TrackFile.FromStream(Path.GetFileName(file), () =>
-                        Task.FromResult<Stream>(OpenScopedFile(folder, file))) with { LocalPath = file });
-                }
-            }
-
-            return TrackFolder.FromFiles(Path.GetFileName(Path.TrimEndingDirectorySeparator(path)), tracks);
-        }
-        finally
-        {
-            if (scoped)
-            {
-                folder.StopAccessingSecurityScopedResource();
-            }
-        }
+                bool scoped = folder.StartAccessingSecurityScopedResource();
+                try { return read(); }
+                finally { if (scoped) folder.StopAccessingSecurityScopedResource(); }
+            });
     }
 
     /// <summary>Holds the folder's security grant for the lifetime of the seekable file.</summary>

@@ -78,6 +78,7 @@ public sealed partial class MainPage : ContentPage
         _view.EqualizerRequested += OpenEqualizer;
         _view.EqualizerToggled += ToggleEqualizer;
         _view.SettingsRequested += OpenSettings;
+        _view.LibraryRequested += async () => await OpenTrackLibraryAsync();
         _view.RecommendationsSelected += SelectRecommendations;
         _view.QueueRequested += async file => await ChooseAsync(file);
         _view.HistoryRequested += async file => await ReplayHistoryAsync(file);

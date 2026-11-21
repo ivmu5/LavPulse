@@ -45,6 +45,13 @@ public sealed partial class MainPage
         UpdateSystemPlayback(snapshot.Current, updateCommands: true);
     }
 
+    private async Task AwaitImportSavesAsync()
+    {
+        await _importGate.WaitAsync();
+        _importGate.Release();
+        await _saveQueue;
+    }
+
     /// <summary>Stops output, finishes the queue save and releases playback readers.</summary>
     internal async Task CloseAsync()
     {
@@ -64,7 +71,7 @@ public sealed partial class MainPage
         try
         {
             await Task.WhenAll(_worker ?? Task.CompletedTask, _coverAnimation ?? Task.CompletedTask, _analysisWorker,
-                _restoreQueue ?? Task.CompletedTask, _saveQueue);
+                _restoreQueue ?? Task.CompletedTask, AwaitImportSavesAsync());
         }
         catch (Exception)
         {

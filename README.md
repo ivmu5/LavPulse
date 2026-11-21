@@ -40,11 +40,13 @@ Before installing the simulator build with `simctl install`, locally sign the ge
 
 Run `dotnet restore Laveyana.Audio.Maui.slnx` after switching platforms or updating workloads. The solution keeps Windows and Android intermediate outputs separate (see [`Directory.Build.props`](Directory.Build.props)) to prevent mixed NuGet assets and long Android resource paths.
 
-In the app, import MP3 files or a folder from **Settings → Media library**; Windows also supports drag-and-drop. Select a track in the queue to start a transition without reordering the playlist. Tap the active **Queue** tab again to hide or show played tracks.
+Import MP3 files from **Settings → Media library**, or open the library using the folder icon beside the queue. Expand a folder to browse its tracks and subfolders. Selecting a folder and leaving **Include subfolders** unchecked adds only its direct MP3s. Imported tracks and their folder paths stay in the local library after a restart. Windows also supports dropping MP3 files from Explorer.
+
+Tap a track in the queue to play it in the current order. Tap the active **Queue** tab again to hide or show played tracks. Tapping or starting a drag on a track's three-line handle opens the full-width queue editor. Use the handle to reorder a row, or swipe left across the row itself to remove it from the queue. Its local copy remains available in the library.
 
 Use **▾** beside the deck speed for presets from **0.75× to 1.25×** in steps of **0.05×**. The field accepts manual input, and a Windows mouse wheel step changes speed by **0.01×**.
 
-**Settings → Master spectrum → Frame rate (FPS)** sets a drawing limit for the spectrum. **Auto** follows the platform's frame clock. The presets are 30, 60, 90 and 120 FPS, with 144, 165, 240 and 360 FPS also available on Windows. Changes preview immediately. **Save** keeps the selection and **Cancel** restores it. The device controls the available refresh rate. Deck playheads keep using every available display tick, and the FFT retains its analysis interval.
+**Settings → Interface and FPS** limits the refresh rate of the master spectrum, deck playheads and transitions, queue animations, and the Windows fullscreen caption. **Auto** follows the display clock. The presets are 30, 60, 90 and 120 FPS, with 144, 165, 240 and 360 FPS also available on Windows. Changes preview immediately. **Save** keeps the selection and **Cancel** restores it. System scrolling and the FFT retain their own timing. Android reapplies the display preference when the app resumes or regains focus.
 
 Open an MP3 from the system file manager to play it in LavPulse. On Windows, launch LavPulse once from its installed location, then select it under **Settings → Apps → Default apps → .mp3**. On Android, choose LavPulse in the file chooser and tap **Always** when offered. On iPhone, select LavPulse in **Files → Open With**. On versions of Files that support a default per file type, set it in the MP3 file’s **Get Info** menu. On Mac, Finder’s **Get Info → Open with → Change All** sets the association for MP3.
 
@@ -53,7 +55,7 @@ Open an MP3 from the system file manager to play it in LavPulse. On Windows, lau
 - Two decks with manually requested or automatic hyperbolic crossfades, transport fades, repeat-one and variable playback speed.
 - Ten-band master EQ plus output gain, applied **before** master-spectrum analysis.
 - Detailed and overview waveforms, seek gestures, a frequency spectrum and an animated deck handoff.
-- Restorable queue and played-track history, local MP3 copies, and sequential background scanning. Queue animation follows the display clock at up to 120 FPS.
+- Restorable folder library and editable queue, local MP3 copies, and sequential background scanning.
 - Background playback and OS media commands on Android, Windows, and iOS.
 
 ## Architecture

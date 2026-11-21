@@ -26,7 +26,12 @@ public sealed record TrackFile(string Name, Func<Stream, CancellationToken, Task
 
 public sealed record TrackFolder(string Name, IReadOnlyList<TrackFile> Files)
 {
+    public IReadOnlyList<TrackFolderSource> Children { get; init; } = [];
+
     /// <summary>Sorts the selected folder's tracks by their user-visible names.</summary>
     public static TrackFolder FromFiles(string name, IEnumerable<TrackFile> files)
         => new(name, files.OrderBy(file => file.Name, StringComparer.CurrentCultureIgnoreCase).ToArray());
 }
+
+/// <summary>A folder whose immediate contents can be read without traversing its subfolders.</summary>
+public sealed record TrackFolderSource(string Id, string Name, Func<CancellationToken, Task<TrackFolder>> ReadAsync);

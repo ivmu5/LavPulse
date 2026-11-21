@@ -11,7 +11,7 @@ internal static class LocalTrackStoreChecks
         var second = await store.CopyAsync(Source("second.mp3", 2), default);
         var duplicate = await store.CopyAsync(Source("copy.mp3", 1), default);
         Require(first.LocalPath == duplicate.LocalPath, "Identical imports duplicated local media.");
-        await store.SaveQueueAsync(LocalTrackStore.Snapshot([second, first], first));
+        await store.SaveQueueAsync(store.Snapshot([second, first], first));
 
         var preparation = new TrackPreparation(store.PcmDirectory);
         var scanned = await preparation.AnalyzeAsync(second.LocalPath!, default);
@@ -40,7 +40,78 @@ internal static class LocalTrackStoreChecks
         rebuilt.Delete();
 
         await CheckScanOrderAsync(tracks);
+        await CheckFolderLibraryAsync(directory);
+        await CheckLegacyQueueAsync(directory, first);
         Console.WriteLine("OK: durable track copies, queue restore, saved waveform reuse and ordered analysis.");
+    }
+
+    private static async Task CheckFolderLibraryAsync(string directory)
+    {
+        string source = Path.Combine(directory, "source-folder");
+        string child = Path.Combine(source, "Disc 2");
+        Directory.CreateDirectory(child);
+        await File.WriteAllBytesAsync(Path.Combine(source, "b.MP3"), [2]);
+        await File.WriteAllBytesAsync(Path.Combine(source, "a.mp3"), [1]);
+        await File.WriteAllBytesAsync(Path.Combine(source, "notes.txt"), [0]);
+        await File.WriteAllBytesAsync(Path.Combine(child, "c.mp3"), [3]);
+
+        var folder = TrackFolderReader.FromDirectory(source, "Album", TrackFile.FromPath);
+        var rootListing = await folder.ReadAsync(default);
+        Require(rootListing.Children.Count == 1, "The browser did not expose a nested directory.");
+        var guarded = folder with
+        {
+            ReadAsync = _ => Task.FromResult(rootListing with
+            {
+                Children = [rootListing.Children[0] with
+                {
+                    ReadAsync = _ => throw new InvalidOperationException("Flat scans must leave subfolders unopened.")
+                }]
+            })
+        };
+        var direct = await TrackFolderReader.ReadTracksAsync(guarded, false, default);
+        Require(direct.Select(item => item.File.Name).SequenceEqual(["a.mp3", "b.MP3"]),
+            "A flat scan did not preserve direct file order.");
+        var recursive = await TrackFolderReader.ReadTracksAsync(folder, true, default);
+        Require(recursive.Select(item => item.File.Name).SequenceEqual(["a.mp3", "b.MP3", "c.mp3"]) &&
+            recursive[^1].Folders.Select(item => item.Name).SequenceEqual(["Album", "Disc 2"]),
+            "Recursive imports lost order or folder ancestry.");
+
+        string libraryPath = Path.Combine(directory, "folder-library");
+        var store = new LocalTrackStore(libraryPath);
+        var queued = new List<TrackFile>();
+        foreach (var item in recursive)
+        {
+            var local = await store.CopyAsync(item.File, default);
+            Require(store.Remember(local, item.Folders) && !store.Remember(local, item.Folders),
+                "Importing the same track into the same folder duplicated its membership.");
+            queued.Add(local);
+        }
+        Require(store.Remember(queued[^1], [recursive[^1].Folders[^1]]),
+            "The same media copy cannot be indexed from more than one folder path.");
+        await store.SaveQueueAsync(store.Snapshot([queued[0]], queued[0]));
+        Directory.Delete(source, recursive: true);
+
+        var reopened = new LocalTrackStore(libraryPath);
+        var restored = await reopened.ReadQueueAsync(default);
+        Require(restored.Tracks.Length == 1, "Library-only tracks were returned to the playback queue.");
+        var library = await reopened.OpenLibrary(reopened.LibrarySnapshot()).ReadAsync(default);
+        var album = await library.Children.Single(folder => folder.Name == "Album").ReadAsync(default);
+        var nested = await album.Children.Single().ReadAsync(default);
+        Require(nested.Files.Single().LocalPath == queued[^1].LocalPath &&
+            album.Files.Select(file => file.Name).SequenceEqual(["a.mp3", "b.MP3"]),
+            "The saved hierarchy failed to reopen after the source directory was deleted.");
+        Require(library.Children.Single(folder => folder.Name == "Disc 2").Id != album.Children.Single().Id,
+            "Different tree branches cannot share expansion state.");
+    }
+
+    private static async Task CheckLegacyQueueAsync(string directory, TrackFile source)
+    {
+        var store = new LocalTrackStore(Path.Combine(directory, "legacy-library"));
+        var local = await store.CopyAsync(source, default);
+        await store.SaveQueueAsync(new([new(Path.GetFileNameWithoutExtension(local.LocalPath!), local.Name)], null));
+        await store.ReadQueueAsync(default);
+        var listing = await store.OpenLibrary(store.LibrarySnapshot()).ReadAsync(default);
+        Require(listing.Files.Single().Name == local.Name, "The legacy queue did not migrate into the local library.");
     }
 
     private static async Task CheckScanOrderAsync(TrackFile[] tracks)

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Laveyana.Audio.Maui.AudioOutput;
 using Laveyana.Audio.Maui.Controls;
 using Laveyana.Audio.Maui.Tracks;
@@ -9,12 +10,16 @@ namespace Laveyana.Audio.Maui;
 /// <summary>Partial player coordinator: import workflow.</summary>
 public sealed partial class MainPage
 {
+    private const int ImportBatchSize = 16;
+    private static readonly TimeSpan ImportCheckpointInterval = TimeSpan.FromMilliseconds(500);
+
     private bool _canOpenSystemTracks;
     private bool _openingSystemTracks;
     private bool _localQueueReady;
     private Task? _restoreQueue;
     private Task _saveQueue = Task.CompletedTask;
     private TrackFile[] _analysisQueue = [];
+    private View? _libraryReturnPanel;
     private readonly SemaphoreSlim _importGate = new(1);
 
     internal void ActivateSystemTrackRequests()
@@ -42,7 +47,7 @@ public sealed partial class MainPage
             {
                 try
                 {
-                    var requested = await ImportLocalTracksAsync(files);
+                    var (requested, _) = await ImportLocalTracksAsync(files);
                     if (_closed) return;
                     if (requested.Count == 0) continue;
 
@@ -83,17 +88,47 @@ public sealed partial class MainPage
         }
     }
 
-    /// <summary>Adds the MP3s in a platform folder to the local library.</summary>
-    private async Task PickFolderAsync()
+    private async Task OpenTrackLibraryAsync(bool pickSource = false)
     {
-        if (Window is { } window && await WithPickerAsync(() => PlatformTrackFolder.PickAsync(window, _lifetime.Token)) is { } folder)
-        {
-            if (folder.Files.Count == 0)
-            {
-                _view.Status.Text = "В этой папке нет MP3.";
-            }
-            await AddFilesAsync(folder.Files);
-        }
+        if (_closed || _view.Panel is TrackLibraryPanel || _pickerOpen) return;
+        _libraryReturnPanel = _view.Panel;
+        var library = new TrackLibraryPanel(
+            () => Window is { } window ? WithPickerAsync(() => PlatformTrackFolder.PickAsync(window, _lifetime.Token))
+                : Task.FromResult<TrackFolderSource?>(null),
+            OpenSavedLibraryAsync, AddLibrarySelectionAsync, CloseTrackLibrary, _lifetime.Token);
+        _view.ShowPanel(library);
+        _view.SuspendPlayerAnimations();
+        UpdatePositionRefreshInterval();
+        await library.InitializeAsync(pickSource);
+    }
+
+    private void CloseTrackLibrary()
+    {
+        if (_view.Panel is not TrackLibraryPanel) return;
+        if (_libraryReturnPanel is { } settings)
+            _view.ShowPanel(settings);
+        else
+            ClosePanel();
+        _libraryReturnPanel = null;
+    }
+
+    private async Task<TrackFolderSource> OpenSavedLibraryAsync()
+    {
+        await (_restoreQueue ??= RestoreLocalQueueAsync());
+        var entries = _trackStore.LibrarySnapshot();
+        return await Task.Run(() => _trackStore.OpenLibrary(entries), _lifetime.Token);
+    }
+
+    private async Task<int> AddLibrarySelectionAsync(TrackLibrarySelection selection)
+    {
+        var folders = selection.Folders;
+        var files = selection.File is { } file
+            ? (IReadOnlyList<FolderTrack>)[new(file, folders.Select(folder => new StoredFolder(folder.Id, folder.Name)).ToArray())]
+            : await TrackFolderReader.ReadTracksAsync(folders[^1], selection.IncludeChildren, _lifetime.Token,
+                folders.Take(folders.Count - 1).ToArray());
+        var (_, updated) = await ImportLocalTracksAsync(files, loadFirst: true, alreadyLocal: selection.Local);
+        if (!_closed && !IsLoadingFirst) await SelectDefaultAsync();
+        return updated;
     }
 
     /// <summary>Serializes native picker launches and reports a picker error in the player.</summary>
@@ -152,9 +187,9 @@ public sealed partial class MainPage
     private Task SaveQueueAsync()
     {
         var current = _queue.Current;
-        if (current is not null && !_queue.Tracks.Contains(current)) current = _queue.Next;
+        if (current is not null && !_queue.Contains(current)) current = _queue.Next;
         _analysisQueue = _queue.Tracks.ToArray();
-        var snapshot = LocalTrackStore.Snapshot(_analysisQueue, current);
+        var snapshot = _trackStore.Snapshot(_analysisQueue, current);
         return _saveQueue = SaveAfterAsync(_saveQueue, snapshot);
     }
 
@@ -171,23 +206,31 @@ public sealed partial class MainPage
         }
     }
 
-    private async Task<IReadOnlyList<TrackFile>> ImportLocalTracksAsync(IReadOnlyList<TrackFile> files, bool loadFirst = false)
+    private Task<(IReadOnlyList<TrackFile> Tracks, int Updated)> ImportLocalTracksAsync(IReadOnlyList<TrackFile> files, bool loadFirst = false) =>
+        ImportLocalTracksAsync(files.Select(file => new FolderTrack(file, [])).ToArray(), loadFirst);
+
+    private async Task<(IReadOnlyList<TrackFile> Tracks, int Updated)> ImportLocalTracksAsync(IReadOnlyList<FolderTrack> files, bool loadFirst,
+        bool alreadyLocal = false)
     {
-        if (_closed) return [];
+        if (_closed) return ([], 0);
         var token = _lifetime.Token;
         var requested = new List<TrackFile>();
+        int updated = 0;
         try
         {
             await (_restoreQueue ??= RestoreLocalQueueAsync());
             await _importGate.WaitAsync(token);
+            int pending = 0;
+            long lastCheckpoint = Stopwatch.GetTimestamp();
             try
             {
-                foreach (var file in files)
+                foreach (var item in files)
                 {
-                    if (!TrackFile.IsMp3(file.Name)) continue;
                     token.ThrowIfCancellationRequested();
+                    var file = item.File;
+                    if (!TrackFile.IsMp3(file.Name)) continue;
                     TrackFile local;
-                    try { local = await Task.Run(() => _trackStore.CopyAsync(file, token), token); }
+                    try { local = alreadyLocal ? file : await Task.Run(() => _trackStore.CopyAsync(file, token), token); }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
                         _view.Status.Text = $"Не удалось сохранить {file.Name}. {ex.Message}";
@@ -195,20 +238,41 @@ public sealed partial class MainPage
                     }
                     if (_closed) break;
                     var canonical = _library.Add([local], [])[0];
+                    bool remember = !alreadyLocal && _trackStore.Remember(local, item.Folders);
+                    bool add = !_queue.Contains(canonical);
+                    if (add)
+                    {
+                        _queue.AddRange([canonical]);
+                    }
                     requested.Add(canonical);
-                    if (_queue.Tracks.Contains(canonical)) continue;
-                    _queue.AddRange([canonical]);
-                    var save = SaveQueueAsync();
-                    UpdateQueue();
-                    await save;
-                    if (loadFirst && !_closed && _playback.Snapshot.Current is null && !IsLoadingFirst)
+                    if (!add && !remember) continue;
+                    pending++;
+                    updated++;
+                    bool first = loadFirst && _playback.Snapshot.Current is null && !IsLoadingFirst;
+                    if (!first && pending < ImportBatchSize &&
+                        Stopwatch.GetElapsedTime(lastCheckpoint) < ImportCheckpointInterval) continue;
+                    await FlushAsync();
+                    if (first && !_closed && _playback.Snapshot.Current is null && !IsLoadingFirst)
                         _ = LoadFirstAsync();
                 }
             }
-            finally { _importGate.Release(); }
+            finally
+            {
+                try { if (pending > 0) await FlushAsync(); }
+                finally { _importGate.Release(); }
+            }
+
+            async Task FlushAsync()
+            {
+                pending = 0;
+                lastCheckpoint = Stopwatch.GetTimestamp();
+                var save = SaveQueueAsync();
+                if (!_closed) UpdateQueue();
+                await save;
+            }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
-        return requested;
+        return (requested, updated);
     }
 
     /// <summary>Keeps each local copy and starts analysis as the files appear in the queue.</summary>
@@ -243,7 +307,7 @@ public sealed partial class MainPage
                 {
                     return;
                 }
-                if (_queue.Tracks.Contains(file))
+                if (_queue.Contains(file))
                 {
                     if (track is not null)
                     {

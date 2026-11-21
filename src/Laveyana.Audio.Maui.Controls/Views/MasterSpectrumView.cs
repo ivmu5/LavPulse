@@ -11,10 +11,8 @@ public sealed partial class MasterSpectrumView : ContentView
     private SpectrumFrameClock _frameClock;
     private int _framesPerSecond;
     private Func<ISpectrumSource?>? _getSource;
-    private Action? _drawPlayheads;
-    private Action<double>? _drawQueue;
-    private SpectrumFrameClock _queueFrameClock;
-    private VisualElement? _queueFrameTarget;
+    private Action<double>? _drawUi;
+    private VisualElement? _uiFrameTarget;
     private bool _frameLoopRunning;
     private bool IsSpectrumActive => _getSource is not null && IsVisible;
 
@@ -30,18 +28,25 @@ public sealed partial class MasterSpectrumView : ContentView
     internal IDrawable QueueDrawable { get; }
     internal event Action? VisualizationChanged;
 
-    internal void SetPlayheadCallback(Action? drawPlayheads)
+    internal int FramesPerSecond => _framesPerSecond;
+    private bool NeedsFrames => IsSpectrumActive || _drawUi is not null;
+
+    internal void SetUiCallback(VisualElement target, Action<double>? drawUi)
     {
-        _drawPlayheads = drawPlayheads;
+        _uiFrameTarget = target;
+        _drawUi = drawUi;
         SyncFrameLoop();
     }
 
-    internal void SetQueueCallback(VisualElement target, Action<double>? drawQueue)
+    internal void RestartDisplayClock()
     {
-        _queueFrameTarget = target;
-        _drawQueue = drawQueue;
-        _queueFrameClock = default;
-        SyncFrameLoop();
+        _frameClock = default;
+        if (_frameLoopRunning)
+        {
+            StopFrameLoop();
+            _frameLoopRunning = false;
+        }
+        SyncFrameLoop(forceFrameRateHint: true);
     }
 
     internal void SetAppearance(MixerTheme theme, PlayerSettings settings)
@@ -92,22 +97,22 @@ public sealed partial class MasterSpectrumView : ContentView
         VisualizationChanged?.Invoke();
     }
 
-    private void SyncFrameLoop()
+    private void SyncFrameLoop(bool forceFrameRateHint = false)
     {
-        bool run = IsSpectrumActive || _drawQueue is not null || (_getSource is not null && _drawPlayheads is not null);
+        bool run = NeedsFrames;
         if (run != _frameLoopRunning)
         {
             _frameLoopRunning = run;
+            _frameClock = default;
             if (run) StartFrameLoop();
             else StopFrameLoop();
         }
-        ApplyNativeFrameRateHint();
+        ApplyNativeFrameRateHint(forceFrameRateHint);
     }
 
     private void ResetLevels()
     {
         _version = 0;
-        _frameClock = default;
         Array.Clear(_levels);
         _drawable.Reset();
     }
@@ -115,10 +120,9 @@ public sealed partial class MasterSpectrumView : ContentView
     /// <summary>Reads the next audible spectrum and applies elapsed-time smoothing.</summary>
     private void DrawFrame(double time)
     {
-        _drawPlayheads?.Invoke();
-        if (_drawQueue is { } queue && _queueFrameClock.TryAdvance(time, 120, out _)) queue(time);
-        if (!IsVisible || _getSource?.Invoke() is not { } mix ||
-            !_frameClock.TryAdvance(time, _framesPerSecond, out float elapsed))
+        if (!_frameClock.TryAdvance(time, _framesPerSecond, out float elapsed)) return;
+        _drawUi?.Invoke(time);
+        if (!IsVisible || _getSource?.Invoke() is not { } mix)
         {
             return;
         }
@@ -141,11 +145,7 @@ public sealed partial class MasterSpectrumView : ContentView
     /// <summary>Stops the display clock and releases its callback.</summary>
     partial void StopFrameLoop();
     partial void ObserveNativeGraphicsView();
-    partial void ApplyNativeFrameRateHint();
-
-#if ANDROID || IOS || MACCATALYST
-    private int ActiveSpectrumFrameRate => IsSpectrumActive ? _framesPerSecond : 0;
-#endif
+    partial void ApplyNativeFrameRateHint(bool force);
 
 #if !ANDROID && !WINDOWS && !IOS && !MACCATALYST
     private IDispatcherTimer? _displayTimer;

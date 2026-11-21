@@ -31,8 +31,13 @@ public sealed class PlayerView : Grid
     private readonly ContentView _panelHost = new() { IsClippedToBounds = true, IsVisible = false };
     private readonly VerticalStackLayout _decks = new() { Spacing = 8 };
     private DeckView? _leavingDeck;
-    private int _deckExit;
+    private DeckSlide? _deckEntrance;
+    private DeckSlide? _deckExit;
+    private bool _playheadsAnimating;
+    private bool _queueAnimating;
+    private bool _uiClockActive;
     private PlayingTrack? _latestCurrent;
+    private PlayingTrack? _latestIncoming;
     private bool _latestCanSeek;
     private bool _latestOverview;
     private bool _syncingEqualizerToggle;
@@ -57,40 +62,18 @@ public sealed class PlayerView : Grid
         this.Add(_body);
 
         _queue.SetMasterSpectrum(Spectrum.QueueDrawable);
-        _queue.AnimationChanged += active => Spectrum.SetQueueCallback(_queue, active ? _queue.DrawFrame : null);
+        _queue.AnimationChanged += active =>
+        {
+            _queueAnimating = active;
+            SyncUiFrames();
+        };
+        CurrentDeck.ScrubAnimationChanged += SyncUiFrames;
+        IncomingDeck.ScrubAnimationChanged += SyncUiFrames;
         Spectrum.VisualizationChanged += () =>
         {
             if (Panel is null) _queue.InvalidateMasterSpectrum();
         };
-        var removeLabel = MixerStyle.Label("Убрать", 11);
-        removeLabel.RemoveDynamicResource(Label.TextColorProperty);
-        removeLabel.TextColor = Colors.White;
-        removeLabel.HorizontalTextAlignment = TextAlignment.Center;
-        var removeTarget = new Border
-        {
-            WidthRequest = 24, HorizontalOptions = LayoutOptions.End, Margin = new Thickness(0, 52, 0, 0),
-            BackgroundColor = Color.FromArgb("#BF882F44"), StrokeThickness = 0, Opacity = 0, InputTransparent = true,
-            Content = new VerticalStackLayout
-            {
-                VerticalOptions = LayoutOptions.Center, Spacing = 4,
-                Children =
-                {
-                    new Image { Source = "player_cancel.png", WidthRequest = 16, HeightRequest = 16, HorizontalOptions = LayoutOptions.Center },
-                    removeLabel
-                }
-            }
-        };
-        removeLabel.IsVisible = false;
-        SizeChanged += (_, _) =>
-        {
-            // Leave the drag handle's column available for ordinary vertical moves.
-            bool wide = Width >= 860;
-            removeTarget.WidthRequest = wide ? 58 : 24;
-            removeLabel.IsVisible = wide;
-        };
-        SemanticProperties.SetDescription(removeTarget, "Отпусти правее, чтобы убрать трек из очереди.");
-        _queue.AttachRemovalTarget(removeTarget);
-        _body.Add(removeTarget);
+        _queue.LibraryRequested += () => LibraryRequested?.Invoke();
         this.Add(_panelHost);
 
         _queue.ShowCurrent(null);
@@ -128,7 +111,17 @@ public sealed class PlayerView : Grid
         };
         player.Add(_queue);
         player.Add(deckScroll, row: 1);
-        player.Add(new VerticalStackLayout { Spacing = 5, Children = { Status, CreateTransport() } }, row: 2);
+        var transport = new VerticalStackLayout { Spacing = 5, Children = { Status, CreateTransport() } };
+        player.Add(transport, row: 2);
+        _queue.EditingChanged += editing =>
+        {
+            Grid.SetRowSpan(_queue, editing ? 3 : 1);
+            _queue.ZIndex = editing ? 1 : 0;
+            deckScroll.IsVisible = transport.IsVisible = !editing;
+            if (editing) ResetDeckMotion();
+            else ShowDecksAtRest();
+            SyncUiFrames();
+        };
         Status.IsVisible = false;
         Status.PropertyChanged += (_, args) =>
         {
@@ -191,6 +184,9 @@ public sealed class PlayerView : Grid
         remove => _queue.RemoveRequested -= value;
     }
     public event Action? SettingsRequested;
+    public event Action? LibraryRequested;
+
+    public bool TryCloseQueueEditor() => _queue.CloseEditor();
     public event Action<bool>? RecommendationsSelected
     {
         add => _queue.RecommendationsSelected += value;
@@ -340,7 +336,8 @@ public sealed class PlayerView : Grid
     {
         CurrentDeck.SetPlayheadAnimation(enabled);
         IncomingDeck.SetPlayheadAnimation(enabled);
-        Spectrum.SetPlayheadCallback(enabled ? DrawPlayheads : null);
+        _playheadsAnimating = enabled;
+        SyncUiFrames();
     }
 
     public void SnapPlayheadsOnNextPosition()
@@ -349,27 +346,53 @@ public sealed class PlayerView : Grid
         IncomingDeck.SnapOnNextPosition();
     }
 
-    private void DrawPlayheads()
+    public void RestartDisplayClock() => Spectrum.RestartDisplayClock();
+
+    private void SyncUiFrames()
     {
-        if (Panel is not null) return;
-        double time = DeckPlayhead.Now;
-        CurrentDeck.DrawPlayhead(time);
-        if (!ReferenceEquals(IncomingDeck, _leavingDeck)) IncomingDeck.DrawPlayhead(time);
+        bool needed = _queueAnimating || _deckEntrance is not null || _deckExit is not null ||
+            (!_queue.IsEditing && (_playheadsAnimating || CurrentDeck.IsScrubbing || IncomingDeck.IsScrubbing));
+        if (_uiClockActive == needed) return;
+        _uiClockActive = needed;
+        Spectrum.SetUiCallback(this, needed ? DrawUiFrame : null);
+    }
+
+    private void DrawUiFrame(double time)
+    {
+        if (_queueAnimating) _queue.DrawFrame(time);
+        if (_deckEntrance is { } entrance && entrance.Advance(time)) _deckEntrance = null;
+        if (_deckExit is { } exit && exit.Advance(time))
+        {
+            CompleteDeckExit(exit.Deck);
+            CurrentDeck.Show(_latestCurrent, _latestCanSeek, _latestOverview);
+        }
+        if (!_queue.IsEditing)
+        {
+            if (_playheadsAnimating)
+            {
+                double now = DeckPlayhead.Now;
+                CurrentDeck.DrawPlayhead(now);
+                if (!ReferenceEquals(IncomingDeck, _leavingDeck)) IncomingDeck.DrawPlayhead(now);
+            }
+            CurrentDeck.DrawScrubFrame();
+            if (!ReferenceEquals(IncomingDeck, _leavingDeck)) IncomingDeck.DrawScrubFrame();
+        }
+        SyncUiFrames();
     }
 
     /// <summary>Moves physical deck views without replacing the outgoing waveform during its exit.</summary>
     public void ShowDecks(QueueSnapshot snapshot, bool canSeek, bool showOverview)
     {
-        _latestCurrent = snapshot.Current;
-        _latestCanSeek = canSeek;
-        _latestOverview = showOverview;
+        RememberDecks(snapshot, canSeek, showOverview);
+        if (_queue.IsEditing) return;
         if (snapshot.Current is { } current && CurrentDeck.DisplayedTrack is { } previous && !ReferenceEquals(previous, current.Track))
         {
             ShowEnteringDeck(current);
             (CurrentDeck, IncomingDeck) = (IncomingDeck, CurrentDeck);
             IncomingDeck.FreezeForExit();
             _leavingDeck = IncomingDeck;
-            _ = SlideOutAsync(IncomingDeck, ++_deckExit);
+            _deckExit = new(IncomingDeck, -SlideDistance, .26, Easing.CubicIn);
+            SyncUiFrames();
         }
 
         CurrentDeck.Show(snapshot.Current, canSeek && _leavingDeck is null, showOverview && _leavingDeck is null);
@@ -393,37 +416,43 @@ public sealed class PlayerView : Grid
         bool firstFrame = !ReferenceEquals(entering.DisplayedTrack, track.Track);
         if (firstFrame)
         {
-            entering.CancelAnimations();
             entering.TranslationX = SlideDistance;
         }
         entering.Show(track, false, showOverview: false);
         if (firstFrame)
         {
-            _ = entering.TranslateToAsync(0, 0, 280, Easing.CubicOut);
+            if (_deckEntrance is { } previousEntrance && !ReferenceEquals(previousEntrance.Deck, entering))
+                previousEntrance.Deck.TranslationX = 0;
+            _deckEntrance = new(entering, 0, .28, Easing.CubicOut);
+            SyncUiFrames();
         }
     }
 
     private double SlideDistance => Math.Max(280, Window?.Width ?? _body.Width);
 
-    private async Task SlideOutAsync(DeckView deck, int exit)
-    {
-        await deck.TranslateToAsync(-SlideDistance, 0, 260, Easing.CubicIn);
-        if (exit == _deckExit)
-        {
-            CompleteDeckExit(deck);
-            CurrentDeck.Show(_latestCurrent, _latestCanSeek, _latestOverview);
-        }
-    }
-
     private void CompleteDeckExit(DeckView deck)
     {
-        _deckExit++;
+        _deckExit = null;
         _leavingDeck = null;
-        deck.CancelAnimations();
         deck.Show(null, false, showOverview: false);
         deck.TranslationX = 0;
         _decks.Children.Remove(deck);
         _decks.Children.Add(deck);
+    }
+
+    private sealed class DeckSlide(DeckView deck, double to, double duration, Easing easing)
+    {
+        private readonly double _from = deck.TranslationX;
+        private double? _start;
+        public DeckView Deck { get; } = deck;
+
+        public bool Advance(double time)
+        {
+            _start ??= time;
+            double progress = Math.Clamp((time - _start.Value) / duration, 0, 1);
+            Deck.TranslationX = _from + (to - _from) * easing.Ease(progress);
+            return progress == 1;
+        }
     }
 
     public void ShowCurrent(CachedTrack? track) => _queue.ShowCurrent(track);
@@ -441,23 +470,39 @@ public sealed class PlayerView : Grid
     public void SuspendPlayerAnimations()
     {
         SetPlayheadAnimation(false);
-        if (_leavingDeck is { } leaving)
-        {
-            CompleteDeckExit(leaving);
-        }
+        ResetDeckMotion();
+        _queue.Reset();
+        SyncUiFrames();
+    }
+
+    private void ResetDeckMotion()
+    {
+        if (_leavingDeck is { } leaving) CompleteDeckExit(leaving);
         CurrentDeck.CancelScrub();
         IncomingDeck.CancelScrub();
-        CurrentDeck.CancelAnimations();
-        IncomingDeck.CancelAnimations();
+        _deckEntrance = null;
         CurrentDeck.TranslationX = IncomingDeck.TranslationX = 0;
-        _queue.Reset();
+    }
+
+    private void RememberDecks(QueueSnapshot snapshot, bool canSeek, bool showOverview)
+    {
+        _latestCurrent = snapshot.Current;
+        _latestIncoming = snapshot.Incoming;
+        _latestCanSeek = canSeek;
+        _latestOverview = showOverview;
+    }
+
+    private void ShowDecksAtRest()
+    {
+        CurrentDeck.Show(_latestCurrent, _latestCanSeek, _latestOverview);
+        IncomingDeck.Show(_latestIncoming, false, showOverview: false);
     }
 
     /// <summary>Restores the visible player straight to the mixer's latest position.</summary>
     public void ResumeAnimations(QueueSnapshot snapshot, bool canSeek, bool showOverview, bool animatePlayheads = false)
     {
-        CurrentDeck.Show(snapshot.Current, canSeek, showOverview);
-        IncomingDeck.Show(snapshot.Incoming, false, showOverview: false);
+        RememberDecks(snapshot, canSeek, showOverview);
+        ShowDecksAtRest();
         _queue.ShowCurrent(snapshot.Current?.Track);
         if (snapshot.Incoming is { } incoming) _queue.ShowIncoming(incoming.Track);
         _queue.ResumeAnimations();

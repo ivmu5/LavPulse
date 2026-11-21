@@ -6,8 +6,8 @@ public sealed partial class PlayerSettingsPanel : ContentView
     private readonly Action<PlayerSettings>? _previewAppearance;
     private readonly Func<Task> _pickFiles;
     private readonly Func<Task> _pickFolder;
-    private readonly ContentView[] _sectionHosts = new ContentView[6];
-    private readonly Button[] _sectionButtons = new Button[6];
+    private readonly ContentView[] _sectionHosts = new ContentView[7];
+    private readonly Button[] _sectionButtons = new Button[7];
     private readonly List<NumericSettingInput> _visibleNumbers = [];
     private readonly Grid _settingsLayout;
     private readonly ContentView _paletteEditorHost = new() { IsVisible = false };
@@ -36,7 +36,7 @@ public sealed partial class PlayerSettingsPanel : ContentView
         header.Add(reset, 1);
 
         var sections = new VerticalStackLayout { Spacing = 8 };
-        string[] names = ["Медиатека", "Воспроизведение", "Деки", "Цвета", "Мастер-спектр", "Яркость спектра"];
+        string[] names = ["Медиатека", "Воспроизведение", "Деки", "Цвета", "Интерфейс и FPS", "Мастер-спектр", "Яркость спектра"];
         for (int index = 0; index < names.Length; index++)
         {
             int section = index;
@@ -105,7 +105,8 @@ public sealed partial class PlayerSettingsPanel : ContentView
             1 => CreatePlaybackSection(),
             2 => CreateDeckSection(),
             3 => CreateColorSection(),
-            4 => CreateSpectrumSection(),
+            4 => CreateFrameRateSection(),
+            5 => CreateSpectrumSection(),
             _ => CreateBrightnessSection()
         };
         for (int section = 0; section < _sectionButtons.Length; section++)
@@ -220,14 +221,9 @@ public sealed partial class PlayerSettingsPanel : ContentView
         return sections;
     }
 
-    private View CreateSpectrumSection()
+    private View CreateFrameRateSection()
     {
-        var defaults = new PlayerSettings();
-        var spectrum = Toggle("Показывать мастер-спектр", _settings.ShowSpectrum,
-            value => _settings = _settings with { ShowSpectrum = value });
-        var peaks = Toggle("Показывать пиковые метки", _settings.ShowPeaks,
-            value => _settings = _settings with { ShowPeaks = value });
-        var frameRate = Select("Частота отрисовки (FPS)",
+        var frameRate = Select("Частота анимаций (FPS)",
             [(SpectrumFrameRate.Automatic, "Авто"), (SpectrumFrameRate.Fps30, "30"), (SpectrumFrameRate.Fps60, "60"),
              (SpectrumFrameRate.Fps90, "90"), (SpectrumFrameRate.Fps120, "120"),
 #if WINDOWS
@@ -239,6 +235,17 @@ public sealed partial class PlayerSettingsPanel : ContentView
                 _settings = _settings with { SpectrumFrameRate = value };
                 _previewAppearance?.Invoke(_settings);
             }, maxColumns: 5);
+        var hint = MixerStyle.Label("Мастер-спектр, деки и очередь. В режиме «Авто» частоту задаёт дисплей.", 12, MixerColor.Muted);
+        return Section("Интерфейс и FPS", frameRate, hint);
+    }
+
+    private View CreateSpectrumSection()
+    {
+        var defaults = new PlayerSettings();
+        var spectrum = Toggle("Показывать мастер-спектр", _settings.ShowSpectrum,
+            value => _settings = _settings with { ShowSpectrum = value });
+        var peaks = Toggle("Показывать пиковые метки", _settings.ShowPeaks,
+            value => _settings = _settings with { ShowPeaks = value });
         var width = Number("Ширина с каждой стороны", "%",
             new(0, PlayerSettings.MaximumSpectrumWidthPercent, defaults.SpectrumWidthPercent, 1),
             _settings.SpectrumWidthPercent, value => _settings = _settings with { SpectrumWidthPercent = value });
@@ -248,7 +255,7 @@ public sealed partial class PlayerSettingsPanel : ContentView
         var bottom = Number("Отступ снизу", "полосы",
             new(0, PlayerSettings.MaximumSpectrumPaddingRows, defaults.SpectrumBottomPaddingRows, 1),
             _settings.SpectrumBottomPaddingRows, value => _settings = _settings with { SpectrumBottomPaddingRows = value });
-        return Section("Мастер-спектр", Pair(spectrum, peaks), frameRate, width.Row, Pair(top.Row, bottom.Row));
+        return Section("Мастер-спектр", Pair(spectrum, peaks), width.Row, Pair(top.Row, bottom.Row));
     }
 
     private View CreateBrightnessSection()

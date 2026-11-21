@@ -21,7 +21,7 @@ public sealed partial class MainPage
     private async Task ChooseAsync(TrackFile file)
     {
         if (_closed || _recommendations || IsStopping || IsTransitioning(_playback.Snapshot) ||
-            !_queue.Tracks.Contains(file))
+            !_queue.Contains(file))
         {
             return;
         }
@@ -73,7 +73,7 @@ public sealed partial class MainPage
 
     private bool UpdateQueueSuccessor(TrackFile? next) =>
         _shownCurrent is null ||
-        (_selectedByUser && _selected is { } file && _queue.Tracks.Contains(file)) ||
+        (_selectedByUser && _selected is { } file && _queue.Contains(file)) ||
         TrySetSelection(next);
 
     /// <summary>Moves a row while keeping playback on the same track.</summary>
@@ -141,7 +141,7 @@ public sealed partial class MainPage
         }
         var token = request.Token;
         if (await PrepareAsync(file, token) is not { } track || _closed || token.IsCancellationRequested ||
-            !ReferenceEquals(_selected, file) || !_queue.Tracks.Contains(file) || _shownCurrent is not { } current)
+            !ReferenceEquals(_selected, file) || !_queue.Contains(file) || _shownCurrent is not { } current)
         {
             return false;
         }
