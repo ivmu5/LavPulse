@@ -89,20 +89,31 @@ public sealed partial class TrackLibraryPanel
             }
             _row = row;
             SetDeleteReveal(0);
-            SetArtwork(row?.File?.Name);
-            if (row is null) return;
+            if (row is null)
+            {
+                SetArtwork(null);
+                return;
+            }
             row.Changed += UpdateRow;
             row.MetadataChanged += LoadMetadata;
             Margin = new Thickness(Math.Min(9, row.Depth) * 12, 0, 0, 0);
             bool folder = row.File is null;
             _folder.IsVisible = folder;
             ShowCover(!folder);
-            _details.Text = "";
-            _details.IsVisible = false;
-            _title.Text = folder ? row.Folders[^1].Name : Path.GetFileNameWithoutExtension(row.File!.Name);
             UpdateSize();
             UpdateRow();
-            LoadMetadata();
+            if (row.File is { } file && _panel._local && _panel._metadataCache.Get(file) is { } cached)
+            {
+                ApplyMetadata(file, cached);
+            }
+            else
+            {
+                SetArtwork(row.File?.Name);
+                _details.Text = "";
+                _details.IsVisible = false;
+                _title.Text = folder ? row.Folders[^1].Name : Path.GetFileNameWithoutExtension(row.File!.Name);
+                LoadMetadata();
+            }
         }
 
         public void UpdateRow()
@@ -143,11 +154,8 @@ public sealed partial class TrackLibraryPanel
             {
                 var tags = await _panel._readMetadata(file, token);
                 if (token.IsCancellationRequested || _row?.File != file) return;
-                _title.Text = tags.Title;
-                var details = new[] { tags.Artist, tags.Album }.Where(value => !string.IsNullOrWhiteSpace(value));
-                _details.Text = string.Join(" · ", details);
-                _details.IsVisible = _details.Text.Length > 0;
-                SetArtwork(file.Name, tags.Artwork);
+                if (_panel._local) _panel._metadataCache.Store(file, tags);
+                ApplyMetadata(file, tags);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { }
             catch (Exception ex)
@@ -155,6 +163,16 @@ public sealed partial class TrackLibraryPanel
                 // The filename and gradient remain available even if a provider cannot open its tags.
                 Debug.WriteLine(ex);
             }
+        }
+
+        private void ApplyMetadata(TrackFile file, TrackMetadata tags)
+        {
+            _title.Text = tags.Title;
+            string? artist = string.IsNullOrWhiteSpace(tags.Artist) ? null : tags.Artist;
+            string? album = string.IsNullOrWhiteSpace(tags.Album) ? null : tags.Album;
+            _details.Text = artist is null ? album ?? "" : album is null ? artist : $"{artist} · {album}";
+            _details.IsVisible = _details.Text.Length > 0;
+            SetArtwork(file.Name, tags.Artwork);
         }
 
         private void CancelPreview()

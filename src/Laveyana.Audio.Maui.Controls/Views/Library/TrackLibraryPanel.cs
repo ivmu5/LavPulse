@@ -157,6 +157,7 @@ public sealed partial class TrackLibraryPanel : ContentView
         if (_closed) return;
         _closed = true;
         _session.Cancel();
+        _metadataCache.Clear();
         ResetFolderSizes();
         ResetEditing();
         SetScanPreviewVisible(false);

@@ -6,6 +6,7 @@ public sealed partial class TrackLibraryPanel
 {
     private readonly HashSet<string> _expanded = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TrackFolder> _listings = new(StringComparer.Ordinal);
+    private readonly TrackMetadataCache _metadataCache = new();
     private TreeRow? _selected;
 
     private async Task OpenLibraryAsync() => await ShowRootAsync(await _openLibrary(), local: true);
@@ -40,6 +41,7 @@ public sealed partial class TrackLibraryPanel
 
         _token.ThrowIfCancellationRequested();
         ResetFolderSizes();
+        _metadataCache.Clear();
         _rows.Clear();
         _local = local;
         var row = new TreeRow([root], null) { Expanded = _expanded.Contains(root.Id) };

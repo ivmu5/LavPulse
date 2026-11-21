@@ -141,20 +141,29 @@ internal sealed partial class LocalTrackStore(string root)
 
     private sealed class LibraryFolder(string id, string name)
     {
+        private Task<TrackFolder>? _listing;
         public string Id { get; } = id;
         private string Name { get; } = name;
         public List<TrackFile> Files { get; } = [];
         public Dictionary<string, LibraryFolder> Children { get; } = new(StringComparer.Ordinal);
 
-        public TrackFolderSource AsSource() => new(Id, Name, token =>
+        public TrackFolderSource AsSource() => new(Id, Name, ReadAsync);
+
+        private Task<TrackFolder> ReadAsync(CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
-            return Task.FromResult(TrackFolder.FromFiles(Name, Files) with
+            // The catalog snapshot is complete before AsSource is called. Size refreshes
+            // and folder expansion can share the same sorted listing.
+            return Volatile.Read(ref _listing) ?? LazyInitializer.EnsureInitialized(ref _listing, CreateListing);
+        }
+
+        private Task<TrackFolder> CreateListing() =>
+            Task.FromResult(new TrackFolder(Name, Array.AsReadOnly(
+                Files.OrderBy(file => file.Name, StringComparer.CurrentCultureIgnoreCase).ToArray()))
             {
-                Children = Children.Values.OrderBy(folder => folder.Name, StringComparer.CurrentCultureIgnoreCase)
-                    .Select(folder => folder.AsSource()).ToArray()
+                Children = Array.AsReadOnly(Children.Values.OrderBy(folder => folder.Name, StringComparer.CurrentCultureIgnoreCase)
+                    .Select(folder => folder.AsSource()).ToArray())
             });
-        });
     }
 
     private string MediaPath(string id) => Path.Combine(MediaDirectory, id + ".mp3");
