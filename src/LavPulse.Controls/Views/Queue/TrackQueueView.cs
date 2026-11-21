@@ -15,7 +15,8 @@ internal sealed partial class TrackQueueView : Grid
     private readonly View _feedSelector;
     private readonly Grid _right;
     private readonly Grid _editorHeader;
-    private readonly Label _editorHint = MixerStyle.Label("За три полоски можно передвигать треки. Корзина удаляет строку.", 11, MixerColor.Muted);
+    private readonly Label _editorHint = MixerStyle.Label("", 11, MixerColor.Muted);
+    private readonly Button _deleteMode = MixerStyle.Button("Удаление", icon: "player_delete.png");
     private readonly Button _queueTab = MixerStyle.Button("Очередь", icon: "player_queue.png", stacked: true);
     private readonly Button _recommendationsTab = MixerStyle.Button("Рекомендации", icon: "player_recommendations.png", stacked: true);
     private readonly TrackListView<TrackFile, QueueTrackRow> _queueScroll;
@@ -26,6 +27,7 @@ internal sealed partial class TrackQueueView : Grid
     private TrackFile? _currentTrack;
     private IDrawable? _masterSpectrum;
     private bool _showRecommendations;
+    private bool _deletingTracks;
 
     internal event Action<bool>? AnimationChanged;
     internal event Action<bool>? EditingChanged;
@@ -74,18 +76,26 @@ internal sealed partial class TrackQueueView : Grid
         _feedSelector = CreateFeedSelector();
         var done = MixerStyle.Button("Готово", icon: "player_confirm.png");
         MixerStyle.SetListEditButton(done, editing: true);
+        done.HorizontalOptions = LayoutOptions.Start;
         done.Clicked += (_, _) => CloseEditor();
+        _deleteMode.HorizontalOptions = LayoutOptions.End;
+        _deleteMode.Clicked += (_, _) => SetDeleteMode(!_deletingTracks);
+        UpdateEditorActions();
         var title = MixerStyle.Label("Редактор очереди", MixerStyle.PhoneFont(19, 16), bold: true);
         title.VerticalOptions = LayoutOptions.Center;
         SemanticProperties.SetHeadingLevel(title, SemanticHeadingLevel.Level1);
         _editorHeader = new Grid
         {
-            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)],
+            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)],
+            RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)],
             ColumnSpacing = 6,
+            RowSpacing = 4,
             IsVisible = false
         };
         _editorHeader.Add(title);
-        _editorHeader.Add(done, 1);
+        Grid.SetColumnSpan(title, 2);
+        _editorHeader.Add(done, row: 1);
+        _editorHeader.Add(_deleteMode, column: 1, row: 1);
         _editorHint.IsVisible = false;
         _queue = new VerticalStackLayout
         {
@@ -244,7 +254,7 @@ internal sealed partial class TrackQueueView : Grid
     private void BindRow(QueueTrackRow row, TrackFile file, int index)
     {
         row.Bind(file, index);
-        row.SetEditing(IsEditing);
+        row.SetEditorActions(IsEditing && !_deletingTracks, _deletingTracks);
         if (_readRow is { } read)
             row.Show(read(file), ReferenceEquals(file, _currentTrack), index < _playedCount, _theme);
     }
@@ -281,11 +291,36 @@ internal sealed partial class TrackQueueView : Grid
         return true;
     }
 
+    internal bool ExitDeleteMode() => SetDeleteMode(false);
+
+    private bool SetDeleteMode(bool deleting)
+    {
+        if (!IsEditing || _deletingTracks == deleting || _dragging is not null || (deleting && !CanEditRows)) return false;
+        _deletingTracks = deleting;
+        UpdateEditorActions();
+        _queueScroll.Refresh(force: true);
+        return true;
+    }
+
+    private void UpdateEditorActions()
+    {
+        _deleteMode.Text = _deletingTracks ? "К порядку" : "Удаление";
+        MixerStyle.UseIcon(_deleteMode, Button.ImageSourceProperty, _deletingTracks ? "player_reorder.png" : "player_delete.png");
+        SemanticProperties.SetDescription(_deleteMode, _deletingTracks
+            ? "Вернуться к перетаскиванию" : "Включить удаление треков");
+        MixerStyle.UseColor(_deleteMode, BackgroundColorProperty, _deletingTracks ? MixerColor.Selected : MixerColor.Button);
+        _editorHint.Text = _deletingTracks
+            ? "Нажми корзину рядом с треком, чтобы убрать его из очереди."
+            : "Перетаскивай треки за три полоски справа.";
+    }
+
     private void SetEditing(bool editing)
     {
         DismissDeleteAction();
         PrepareViewportChange(editing);
         IsEditing = editing;
+        _deletingTracks = false;
+        UpdateEditorActions();
         _feedSelector.IsVisible = !editing;
         _editorHeader.IsVisible = _editorHint.IsVisible = editing;
         _current.IsVisible = !editing;

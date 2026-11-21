@@ -184,6 +184,7 @@ public sealed partial class PlayerView : Grid
     }
 
     public bool TryOpenQueueEditor() => Panel is null && _queue.OpenEditor();
+    public bool TryNavigateQueueBack() => _queue.ExitDeleteMode() || TryCloseQueueEditor();
     public bool TryCloseQueueEditor() => _queue.CloseEditor() || _queue.DismissDeleteAction();
     public event Action<bool>? RecommendationsSelected
     {
@@ -301,6 +302,7 @@ public sealed partial class PlayerView : Grid
     {
         if (Panel is TrackLibraryPanel previous) previous.ScanAnimationChanged -= SyncUiFrames;
         _panelHost.Content = panel;
+        if (panel is not null) _queue.CloseEditor();
         _panelHost.IsVisible = panel is not null;
         _body.IsVisible = panel is null;
         if (panel is TrackLibraryPanel library) library.ScanAnimationChanged += SyncUiFrames;
