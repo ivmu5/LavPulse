@@ -41,11 +41,12 @@ internal sealed partial class TrackQueueView
         tap.Tapped += (_, _) =>
         {
             RecordQueueInteraction();
-            if (DismissDeleteAction() || IsEditing) return;
+            if (DismissDeleteAction() || !CanEditRows) return;
             if (row.File is { } file && _dragging is null &&
                 (_lastDrag == 0 || Stopwatch.GetElapsedTime(_lastDrag).TotalMilliseconds >= 300))
             {
-                if (row.IsPlayed) HistoryRequested?.Invoke(file);
+                if (IsEditing) PlayRequested?.Invoke(file);
+                else if (row.IsPlayed) HistoryRequested?.Invoke(file);
                 else if (!ReferenceEquals(_currentTrack, file)) TrackRequested?.Invoke(file);
             }
         };

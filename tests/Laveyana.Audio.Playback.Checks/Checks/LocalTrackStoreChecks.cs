@@ -151,6 +151,12 @@ internal static class LocalTrackStoreChecks
         var reopened = new LocalTrackStore(libraryPath);
         var restored = await reopened.ReadQueueAsync(default);
         Require(restored.Tracks.Length == 1, "Library-only tracks were returned to the playback queue.");
+        await reopened.SaveQueueAsync(reopened.Snapshot([], null));
+        var afterClear = new LocalTrackStore(libraryPath);
+        var cleared = await afterClear.ReadQueueAsync(default);
+        Require(cleared.Tracks.Length == 0 && cleared.Current is null &&
+            afterClear.LibrarySnapshot().Length == queued.Count + 1 && queued.All(file => File.Exists(file.LocalPath)),
+            "Clearing the saved queue lost library entries or restored removed rows.");
         var libraryRoot = reopened.OpenLibrary(reopened.LibrarySnapshot());
         var library = await libraryRoot.ReadAsync(default);
         Require(ReferenceEquals(library, await libraryRoot.ReadAsync(default)),

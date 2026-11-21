@@ -165,6 +165,28 @@ internal static partial class Program
         }), 0, CancellationToken.None);
     }
 
+    private static async Task CheckClearingPlaybackSuccessor(CachedTrack first, CachedTrack second)
+    {
+        using var session = new QueuePlaybackSession();
+        session.SetFirst(first);
+        Require(session.SetNext(second, first) && session.RequestMix(), "Could not request the pending mix.");
+        var before = session.Snapshot.Current;
+        Require(session.SetNext(null) && !session.Snapshot.IsMixing && session.Snapshot.Current == before,
+            "Clearing the successor left a pending mix or moved the current deck.");
+
+        Require(session.SetNext(second, first) && session.RequestMix(), "Could not start the second mix.");
+        var block = new float[BlockSize * PlaybackFormat.Channels];
+        await session.RunAsync(new InMemoryOutput(source =>
+        {
+            Require(source.Render(block) == BlockSize && session.Snapshot.Incoming?.Track == second,
+                "The transition did not reach the audio output.");
+            Require(!session.SetNext(null), "Clearing interrupted a transition already being rendered.");
+            while (source.Render(block) > 0) { }
+            Require(session.Snapshot is { IsMixing: false, Current.Track: var track } && track == second,
+                "The committed transition did not finish after clearing.");
+        }), 0, CancellationToken.None);
+    }
+
     /// <summary>Verifies that repeat fills the block across the loop boundary and leaves manual mixing available.</summary>
     private static async Task CheckRepeatOne(CachedTrack first, CachedTrack second)
     {
