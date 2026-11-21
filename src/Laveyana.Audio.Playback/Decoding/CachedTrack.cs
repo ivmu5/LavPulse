@@ -11,6 +11,7 @@ public sealed class CachedTrack
         Waveform = waveform;
         Title = tags?.Title ?? System.IO.Path.GetFileNameWithoutExtension(name);
         Artist = tags?.Artist;
+        Album = tags?.Album;
         Artwork = tags?.Artwork ?? ReadOnlyMemory<byte>.Empty;
         AudioInfo = audioInfo;
     }
@@ -18,6 +19,7 @@ public sealed class CachedTrack
     public string Name { get; }
     public string Title { get; }
     public string? Artist { get; }
+    public string? Album { get; }
     public ReadOnlyMemory<byte> Artwork { get; }
     public TrackAudioInfo? AudioInfo { get; }
     internal string Path { get; }

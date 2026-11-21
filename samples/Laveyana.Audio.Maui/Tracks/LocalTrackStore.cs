@@ -190,13 +190,20 @@ internal sealed class LocalTrackStore(string root)
     }
 
     public async Task SaveAnalysisAsync(TrackFile file, TrackWaveform waveform, TrackAudioInfo? info,
-        string? pcm, CancellationToken token)
+        string? pcm, CancellationToken token, bool replaceAnalysis = false)
     {
         await _analysisWrites.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            // A low-priority waveform scan must not replace a concurrently prepared PCM cache.
-            if (pcm is null && HasAnalysis(file)) return;
+            // A background scan cannot replace a prepared cache. An explicit scan may refresh
+            // the waveform while retaining compatible PCM that is still used for playback.
+            if (pcm is null && HasAnalysis(file))
+            {
+                if (!replaceAnalysis) return;
+                if (await ReadAnalysisAsync(file, token).ConfigureAwait(false) is { } previous &&
+                    previous.TotalFrames == waveform.TotalFrames)
+                    pcm = FindPcm(previous);
+            }
             var analysis = new StoredAnalysis(waveform.TotalFrames, waveform.FramesPerPoint, waveform.Points.ToArray(),
                 info, Path.GetFileName(pcm));
             await WriteAsync(AnalysisPath(file), analysis, TrackStoreJson.Default.StoredAnalysis, token).ConfigureAwait(false);

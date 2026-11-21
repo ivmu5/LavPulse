@@ -5,7 +5,7 @@ using System.Text;
 namespace Laveyana.Audio.Playback;
 
 /// <summary>Optional display tags from an MP3's ID3 header.</summary>
-internal sealed record Mp3Tags(string? Title = null, string? Artist = null, byte[]? Artwork = null)
+internal sealed record Mp3Tags(string? Title = null, string? Artist = null, byte[]? Artwork = null, string? Album = null)
 {
     private const int MaxTagSize = 8 * 1024 * 1024;
     private const int MaxArtworkSize = 3 * 1024 * 1024;
@@ -62,6 +62,7 @@ internal sealed record Mp3Tags(string? Title = null, string? Artist = null, byte
 
         string? title = null;
         string? artist = null;
+        string? album = null;
         ReadOnlySpan<byte> artwork = default;
         while (offset <= bytes.Length - 10)
         {
@@ -88,6 +89,10 @@ internal sealed record Mp3Tags(string? Title = null, string? Artist = null, byte
             {
                 artist = ReadText(data);
             }
+            else if (album is null && frame[..4].SequenceEqual("TALB"u8))
+            {
+                album = ReadText(data);
+            }
             else if (frame[..4].SequenceEqual("APIC"u8))
             {
                 var image = ReadArtwork(data, out bool frontCover);
@@ -98,7 +103,7 @@ internal sealed record Mp3Tags(string? Title = null, string? Artist = null, byte
             }
         }
 
-        return new(title, artist, artwork.IsEmpty ? null : artwork.ToArray());
+        return new(title, artist, artwork.IsEmpty ? null : artwork.ToArray(), album);
     }
 
     /// <summary>Decodes a text frame with its declared encoding and drops padding.</summary>

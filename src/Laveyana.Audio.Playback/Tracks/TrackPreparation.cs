@@ -2,7 +2,10 @@ using System.Runtime.InteropServices;
 
 namespace Laveyana.Audio.Playback;
 
-public sealed record TrackMetadata(string Title, string? Artist, ReadOnlyMemory<byte> Artwork);
+public sealed record TrackMetadata(string Title, string? Artist, ReadOnlyMemory<byte> Artwork)
+{
+    public string? Album { get; init; }
+}
 
 /// <summary>Prepares seekable PCM and a display waveform from an MP3 stream.</summary>
 public sealed class TrackPreparation(string cacheDirectory)
@@ -179,7 +182,10 @@ public sealed class TrackPreparation(string cacheDirectory)
     private static TrackMetadata ReadTags(TrackFile file, Stream source)
     {
         var tags = Mp3Tags.Read(source);
-        return new TrackMetadata(tags.Title ?? Path.GetFileNameWithoutExtension(file.Name), tags.Artist, tags.Artwork ?? []);
+        return new TrackMetadata(tags.Title ?? Path.GetFileNameWithoutExtension(file.Name), tags.Artist, tags.Artwork ?? [])
+        {
+            Album = tags.Album
+        };
     }
 
     /// <summary>Writes the same samples used by the waveform analysis to the PCM cache.</summary>

@@ -8,10 +8,11 @@ internal static partial class MixerStyle
     private static readonly MixerColor[] ColorRoles = Enum.GetValues<MixerColor>();
     private static readonly string[] Icons =
     [
-        "automix", "cancel", "confirm", "equalizer", "file", "folder", "next", "pause",
+        "automix", "cancel", "confirm", "delete", "equalizer", "file", "folder", "next", "pause",
         "play", "previous", "queue", "recommendations", "reorder", "repeat_one", "reset", "settings"
     ];
     private const double ButtonFontSize = 12;
+    internal const string ArtworkColorsResource = "LavPulse.ArtworkColors";
     private const int ButtonIconSize = 24;
 
     internal static bool IsPhone { get; } = DeviceInfo.Idiom == DeviceIdiom.Phone;
@@ -19,6 +20,7 @@ internal static partial class MixerStyle
 
     internal static void ApplyTheme(ResourceDictionary resources, MixerTheme theme, bool refreshIcons)
     {
+        resources[ArtworkColorsResource] = theme.Artwork;
         foreach (var role in ColorRoles)
         {
             resources[ColorKey(role)] = theme[role];

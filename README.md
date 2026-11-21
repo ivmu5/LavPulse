@@ -40,9 +40,9 @@ Before installing the simulator build with `simctl install`, locally sign the ge
 
 Run `dotnet restore Laveyana.Audio.Maui.slnx` after switching platforms or updating workloads. The solution keeps Windows and Android intermediate outputs separate (see [`Directory.Build.props`](Directory.Build.props)) to prevent mixed NuGet assets and long Android resource paths.
 
-Import MP3 files from **Settings → Media library**, or open the library using the folder icon beside the queue. Expand a folder to browse its tracks and subfolders. Selecting a folder and leaving **Include subfolders** unchecked adds only its direct MP3s. Imported tracks and their folder paths stay in the local library after a restart. Windows also supports dropping MP3 files from Explorer.
+Open the media library using the folder icon beside the queue. Use **Files** or **Folder** to import MP3s. Expand folders in place to browse embedded covers, titles, artists and albums. Choose a saved track or folder and tap **Rescan** to refresh its analysis. Leave **Include subfolders** unchecked to limit folder import and scanning to its direct MP3s. Imported tracks and paths stay in the local library after a restart. Windows also supports dropping MP3 files from Explorer.
 
-Tap a track in the queue to play it in the current order. Tap the active **Queue** tab again to hide or show played tracks. Tapping or starting a drag on a track's three-line handle opens the full-width queue editor. Use the handle to reorder a row, or swipe left across the row itself to remove it from the queue. Its local copy remains available in the library.
+Tap a track in the queue to play it in the current order. Tap the active **Queue** tab again to hide or show played tracks. Tapping or starting a drag on a track's three-line handle opens the full-width queue editor. Use the handle to reorder a row. Swipe left across the row to reveal the trash button, then tap it to remove the track from the queue. Tapping elsewhere or scrolling dismisses the button. The local copy remains in the library.
 
 Use **▾** beside the deck speed for presets from **0.75× to 1.25×** in steps of **0.05×**. The field accepts manual input, and a Windows mouse wheel step changes speed by **0.01×**.
 

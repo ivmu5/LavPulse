@@ -63,6 +63,7 @@ public sealed partial class MainPage
         _closed = true;
         try { SaveOpenEqualizer(); }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }
+        if (_view.Panel is TrackLibraryPanel library) library.Cancel();
         _lifetime.Cancel();
         SetSelection(null, null);
         _positions.Stop();

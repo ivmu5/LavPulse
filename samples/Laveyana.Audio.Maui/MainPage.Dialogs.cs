@@ -41,8 +41,7 @@ public sealed partial class MainPage
     }
 
     private void OpenSettings() =>
-        OpenPanel(() => new PlayerSettingsPanel(_settings, value => ApplySettings(value), PickFilesAsync, () => OpenTrackLibraryAsync(pickSource: true),
-            ClosePanel, PreviewAppearance));
+        OpenPanel(() => new PlayerSettingsPanel(_settings, value => ApplySettings(value), ClosePanel, PreviewAppearance));
 
     private void OpenPanel(Func<View> createPanel)
     {
