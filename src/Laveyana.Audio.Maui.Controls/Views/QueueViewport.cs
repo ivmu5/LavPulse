@@ -7,8 +7,7 @@ internal static class QueueViewport
     internal static bool CanFollow(long? lastInteraction, long now) =>
         lastInteraction is null || Stopwatch.GetElapsedTime(lastInteraction.Value, now) >= TimeSpan.FromSeconds(10);
 
-    internal static double ContentHeight(double rowsHeight, double viewport, double rowHeight, bool alignToTop) =>
-        rowsHeight + (alignToTop ? Math.Max(0, viewport - rowHeight) : 0);
+    internal static double EndPadding(double viewport, double rowHeight) => Math.Max(0, viewport - rowHeight);
 
     internal static double TrackOffset(int index, double stride, double rowHeight, double viewport,
         double contentHeight, bool center)

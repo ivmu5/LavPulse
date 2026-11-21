@@ -99,6 +99,8 @@ tests/Laveyana.Audio.Playback.Checks/  Executable regression checks
 
 [`MainPage`](samples/Laveyana.Audio.Maui/MainPage.cs) владеет состоянием приложения и подписками UI. Отдельные сценарии расположены в `MainPage.Import.cs`, `MainPage.Queue.cs`, `MainPage.Analysis.cs`, `MainPage.Transport.cs`, `MainPage.Rendering.cs`, `MainPage.SystemPlayback.cs`, `MainPage.Dialogs.cs` и `MainPage.State.cs`. Реализация карточки обложки очереди находится в [`TrackQueueView.TrackCard.cs`](src/Laveyana.Audio.Maui.Controls/Views/TrackQueueView.TrackCard.cs).
 
+Очередь, её редактор и дерево медиатеки используют общий виртуализированный список и разметку строк. Каждый экран задаёт свои действия и метаданные обложек.
+
 ## Основные потоки выполнения
 
 - **Импорт.** `MainPage.AddFilesAsync` добавляет записи через `PlayerLibrary.Add`. `LoadFirstAsync` готовит первую деку, а `TrackPreparation.ImportAsync` создаёт PCM-кэш и волну. `UpdateQueueAnalysis` передаёт список ближайших файлов в `QueueTrackAnalysis`.
