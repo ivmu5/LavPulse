@@ -29,6 +29,8 @@ LavPulse — локальный MP3-проигрыватель с двухдек
 | Windows | `LavPulse.csproj` | `dotnet build samples/LavPulse/LavPulse.csproj -c Debug` |
 | Android | `LavPulse.Android.csproj` | `dotnet build samples/LavPulse/LavPulse.Android.csproj -c Debug -p:AndroidPackageFormats=apk` |
 
+Для запуска на Android назначь **LavPulse.Android** запускаемым проектом в Visual Studio и выбери устройство или эмулятор. Если ранее открытое решение сообщает, что проект нужно развернуть, переоткрой `LavPulse.slnx` и проверь флажки **Сборка** и **Развертывание** у **LavPulse.Android** в меню **Сборка → Диспетчер конфигураций**. Для Windows собери **LavPulse.Controls** и **LavPulse** в одной конфигурации, чтобы WinUI нашёл сборку компонентов.
+
 На Mac собери версию для симулятора iPhone следующими командами. Версии SDK и Xcode для воспроизводимой сборки указаны в [проверке iOS](.github/workflows/ios.yml). Для физического устройства выбери `ios-arm64` и настрой подпись команды разработчика Apple.
 
 ```bash
