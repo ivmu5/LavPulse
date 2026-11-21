@@ -50,15 +50,13 @@ The player queue includes played tracks. When the track changes after ten second
 
 On Windows, the mouse **Back** and **Forward** buttons navigate between the player and its panels and editors. Opening another screen clears forward history.
 
-Use **▾** beside the deck speed for presets from **0.75× to 1.25×** in steps of **0.05×**. The field accepts manual input, and a Windows mouse wheel step changes speed by **0.01×**.
-
 **Settings → Interface and FPS** limits the refresh rate of the master spectrum, deck playheads and transitions, queue animations, and the Windows fullscreen caption. **Auto** follows the display clock. The presets are 30, 60, 90 and 120 FPS, with 144, 165, 240 and 360 FPS also available on Windows. Changes preview immediately. **Save** keeps the selection and **Cancel** restores it. System scrolling and the FFT retain their own timing. Android reapplies the display preference when the app resumes or regains focus.
 
 Open an MP3 from the system file manager to play it in LavPulse. On Windows, launch LavPulse once from its installed location, then select it under **Settings → Apps → Default apps → .mp3**. On Android, choose LavPulse in the file chooser and tap **Always** when offered. On iPhone, select LavPulse in **Files → Open With**. On versions of Files that support a default per file type, set it in the MP3 file’s **Get Info** menu. On Mac, Finder’s **Get Info → Open with → Change All** sets the association for MP3.
 
 ## Capabilities
 
-- Two decks with manually requested or automatic hyperbolic crossfades, transport fades, repeat-one and variable playback speed.
+- Two decks with manually requested or automatic hyperbolic crossfades, transport fades and repeat-one.
 - Ten-band master EQ plus output gain, applied **before** master-spectrum analysis.
 - Detailed and overview waveforms, seek gestures, a frequency spectrum and an animated deck handoff.
 - Restorable folder library and editable queue, local MP3 copies, and sequential background scanning.
@@ -193,7 +191,7 @@ For a manual iOS check, import two MP3s from Files, exercise mixing, EQ and seek
 ## Limitations
 
 - The import path accepts local **MP3**, not streaming services or arbitrary codecs. Decoding supports mono/stereo MP3 with a source rate up to 48 kHz.
-- Changing deck speed resamples PCM and **changes pitch**; beat matching and pitch-preserving time stretching are not implemented here.
+- The playback API's `TrySetSpeed` resamples PCM and **changes pitch**.
 - The mixer provides two playback decks and one stereo master output. It does not enumerate or synchronize several simultaneous audio devices.
 - Recommendations are a UI placeholder.
 - Windows may show additional latency due to WaveOut buffering; system controls and background behavior depend on the OS and device.
