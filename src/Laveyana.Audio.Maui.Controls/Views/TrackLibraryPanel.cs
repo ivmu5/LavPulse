@@ -14,9 +14,8 @@ public sealed partial class TrackLibraryPanel : ContentView
     private readonly CollectionView _tree;
     private readonly BoxView _scrollSpacer = new() { HeightRequest = 0, InputTransparent = true };
     private readonly Func<Task<TrackFolderSource?>> _pickFolder;
-    private readonly Func<Task<int?>> _pickFiles;
     private readonly Func<Task<TrackFolderSource>> _openLibrary;
-    private readonly Func<TrackLibrarySelection, Task<int>> _add;
+    private readonly Func<TrackLibrarySelection, bool, Task<int>> _import;
     private readonly Func<TrackFile, CancellationToken, Task<TrackMetadata>> _readMetadata;
     private readonly Func<TrackLibrarySelection, Action<int, int>, CancellationToken, Task<(int Scanned, int Failed)>> _scan;
     private readonly CancellationTokenSource _session;
@@ -24,10 +23,8 @@ public sealed partial class TrackLibraryPanel : ContentView
     private readonly ObservableCollection<TreeRow> _rows = [];
     private readonly Label _message = MixerStyle.Label("", 11, MixerColor.Muted);
     private readonly Label _heading = MixerStyle.Label("Медиатека", MixerStyle.PhoneFont(23, 20), bold: true);
-    private readonly Button _files = MixerStyle.Button("Файлы", icon: "player_file.png");
     private readonly Button _pick = MixerStyle.Button("Папка", icon: "player_folder.png");
     private readonly Button _saved = MixerStyle.Button("К сохранённым");
-    private readonly Button _addButton = MixerStyle.Button("В очередь", primary: true);
     private readonly Button _scanButton = MixerStyle.Button("Пересканировать", icon: "player_reset.png");
     private readonly CheckBox _nested = new() { VerticalOptions = LayoutOptions.Center };
     private readonly View _nestedOption;
@@ -39,16 +36,15 @@ public sealed partial class TrackLibraryPanel : ContentView
     private bool _closed;
     private double _scrollOffset;
 
-    public TrackLibraryPanel(Func<Task<TrackFolderSource?>> pickFolder, Func<Task<int?>> pickFiles,
-        Func<Task<TrackFolderSource>> openLibrary, Func<TrackLibrarySelection, Task<int>> add,
+    public TrackLibraryPanel(Func<Task<TrackFolderSource?>> pickFolder,
+        Func<Task<TrackFolderSource>> openLibrary, Func<TrackLibrarySelection, bool, Task<int>> import,
         Func<TrackFile, CancellationToken, Task<TrackMetadata>> readMetadata,
         Func<TrackLibrarySelection, Action<int, int>, CancellationToken, Task<(int Scanned, int Failed)>> scan,
         Action close, CancellationToken lifetime)
     {
         _pickFolder = pickFolder;
-        _pickFiles = pickFiles;
         _openLibrary = openLibrary;
-        _add = add;
+        _import = import;
         _readMetadata = readMetadata;
         _scan = scan;
         _session = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
@@ -56,10 +52,8 @@ public sealed partial class TrackLibraryPanel : ContentView
 
         var back = MixerStyle.Button("Назад");
         back.Clicked += (_, _) => close();
-        _files.Clicked += async (_, _) => await RunAsync(ImportFilesAsync, "Не удалось импортировать файлы");
         _pick.Clicked += async (_, _) => await RunAsync(PickAsync, "Не удалось открыть папку");
         _saved.Clicked += async (_, _) => await InitializeAsync();
-        _addButton.Clicked += async (_, _) => await RunAsync(AddAsync, "Не удалось добавить треки");
         _scanButton.Clicked += async (_, _) => await RunAsync(ScanAsync, "Не удалось пересканировать");
         var header = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
         _heading.VerticalOptions = LayoutOptions.Center;
@@ -68,12 +62,11 @@ public sealed partial class TrackLibraryPanel : ContentView
         header.Add(back, 1);
         var actions = new Grid
         {
-            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star), new(GridLength.Auto)],
+            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)],
             ColumnSpacing = 8
         };
-        actions.Add(_files);
-        actions.Add(_pick, 1);
-        actions.Add(_saved, 2);
+        actions.Add(_pick);
+        actions.Add(_saved, 1);
 
         MixerStyle.UseColor(_nested, CheckBox.ColorProperty, MixerColor.Accent);
         var nestedLabel = MixerStyle.Label("Включая вложенные папки", 13);
@@ -89,15 +82,11 @@ public sealed partial class TrackLibraryPanel : ContentView
         var footer = new Grid
         {
             RowDefinitions = [new(32), new(40), new(GridLength.Auto)],
-            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)],
-            ColumnSpacing = 8
+            ColumnDefinitions = [new(GridLength.Star)]
         };
         footer.Add(_message);
-        Grid.SetColumnSpan(_message, 2);
         footer.Add(_nestedOption, row: 1);
-        Grid.SetColumnSpan(_nestedOption, 2);
-        footer.Add(_addButton, row: 2);
-        footer.Add(_scanButton, column: 1, row: 2);
+        footer.Add(_scanButton, row: 2);
 
         _tree = new CollectionView
         {
@@ -153,14 +142,6 @@ public sealed partial class TrackLibraryPanel : ContentView
     private async Task PickAsync()
     {
         if (await _pickFolder() is { } root) await ShowRootAsync(root, local: false);
-    }
-
-    private async Task ImportFilesAsync()
-    {
-        if (await _pickFiles() is not int count) return;
-        _token.ThrowIfCancellationRequested();
-        if (count > 0) await OpenLibraryAsync();
-        _message.Text = count > 0 ? $"Добавлено треков: {count}" : "Нет новых треков для добавления.";
     }
 
     private async Task ShowRootAsync(TrackFolderSource root, bool local)
@@ -248,14 +229,19 @@ public sealed partial class TrackLibraryPanel : ContentView
     private bool AllowsNested(TreeRow row) =>
         _listings.GetValueOrDefault(row.Folders[^1].Id)?.Children.Count > 0;
 
-    private async Task AddAsync()
+    private Task ImportSelectedAsync(TreeRow row, bool addToQueue)
     {
-        if (Selection is not { } selection) return;
-        _message.Text = _local ? "Добавляю в очередь…" : "Сохраняю MP3…";
-        int count = await _add(selection);
-        _token.ThrowIfCancellationRequested();
-        if (count > 0 && !_local) await OpenLibraryAsync();
-        _message.Text = count > 0 ? $"Добавлено треков: {count}" : "Нет новых треков для добавления.";
+        if (!ReferenceEquals(row, _selected)) return Task.CompletedTask;
+        return RunAsync(async () =>
+        {
+            if (Selection is not { } selection || (!addToQueue && selection.Local)) return;
+            _message.Text = addToQueue && _local ? "Добавляю в очередь…" : "Сохраняю MP3…";
+            int count = await _import(selection, addToQueue);
+            _token.ThrowIfCancellationRequested();
+            _message.Text = addToQueue
+                ? count > 0 ? $"Добавлено в очередь: {count}" : "Нет новых треков для очереди."
+                : count > 0 ? $"Сохранено в медиатеке: {count}" : "Нет новых треков для импорта.";
+        }, addToQueue ? "Не удалось добавить треки" : "Не удалось импортировать треки");
     }
 
     private async Task ScanAsync()
@@ -295,16 +281,14 @@ public sealed partial class TrackLibraryPanel : ContentView
 
     private void UpdateActions()
     {
-        _files.IsEnabled = _pick.IsEnabled = _saved.IsEnabled = !_busy;
+        _pick.IsEnabled = _saved.IsEnabled = !_busy;
         _saved.IsVisible = !_local && _selected is not null;
         bool folder = _selected?.File is null;
         _nestedOption.IsVisible = folder && _selected is { } row && AllowsNested(row);
         _nestedOption.IsEnabled = !_busy;
-        _addButton.IsEnabled = !_busy && _selected is not null;
         _scanButton.IsVisible = _local;
-        Grid.SetColumnSpan(_addButton, _local ? 1 : 2);
         _scanButton.IsEnabled = !_busy && _selected is not null;
-        SemanticProperties.SetDescription(_addButton, folder ? "Добавить папку в очередь" : "Добавить трек в очередь");
+        _selected?.Refresh();
         SemanticProperties.SetDescription(_scanButton, folder ? "Пересканировать папку" : "Пересканировать трек");
     }
 

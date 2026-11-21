@@ -23,6 +23,7 @@ internal sealed class QueueTrackRow : Border
     private readonly QueueText _text = new();
     private readonly GraphicsView _graphics;
     private readonly Grid _foreground;
+    private readonly Grid _content;
     private readonly ImageButton _delete;
     private readonly GraphicsView _spectrum = new() { InputTransparent = true, IsVisible = false };
     private QueueTrackItem? _shown;
@@ -41,7 +42,7 @@ internal sealed class QueueTrackRow : Border
         _graphics = new GraphicsView { Drawable = _text, InputTransparent = true };
         _text.OverflowChanged += () => AnimationStateChanged?.Invoke();
         DragHandle = new Image { WidthRequest = 24, HeightRequest = 36,
-            VerticalOptions = LayoutOptions.Center, Aspect = Aspect.AspectFit };
+            VerticalOptions = LayoutOptions.Center, Aspect = Aspect.AspectFit, IsVisible = false };
         MixerStyle.UseIcon(DragHandle, Image.SourceProperty, "player_reorder.png");
         SemanticProperties.SetDescription(DragHandle, "Перетащить трек");
         _cover = new Border
@@ -57,10 +58,10 @@ internal sealed class QueueTrackRow : Border
         body.Add(_cover);
         body.Add(_graphics, 1);
         TrackBody = body;
-        var content = new Grid { ColumnSpacing = 6, ColumnDefinitions = [new(GridLength.Star), new(30)] };
-        content.Add(body);
-        content.Add(DragHandle, 1);
-        _foreground = new Grid { Children = { _spectrum, content } };
+        _content = new Grid { ColumnDefinitions = [new(GridLength.Star), new(0)] };
+        _content.Add(body);
+        _content.Add(DragHandle, 1);
+        _foreground = new Grid { Children = { _spectrum, _content } };
         _delete = MixerStyle.IconButton("player_delete.png", DeleteSize);
         _delete.HorizontalOptions = LayoutOptions.End;
         MixerStyle.UseColor(_delete, BackgroundColorProperty, MixerColor.Selected);
@@ -80,6 +81,14 @@ internal sealed class QueueTrackRow : Border
     public event Action? AnimationStateChanged;
     public event Action? DeleteRequested;
     public event Action? DeleteUnfocused;
+
+    public void SetEditing(bool editing)
+    {
+        if (DragHandle.IsVisible == editing) return;
+        DragHandle.IsVisible = editing;
+        _content.ColumnDefinitions[1].Width = new GridLength(editing ? 30 : 0);
+        _content.ColumnSpacing = editing ? 6 : 0;
+    }
 
     public void SetDeleteReveal(double progress)
     {

@@ -8,8 +8,8 @@ internal static partial class MixerStyle
     private static readonly MixerColor[] ColorRoles = Enum.GetValues<MixerColor>();
     private static readonly string[] Icons =
     [
-        "automix", "cancel", "confirm", "delete", "equalizer", "file", "folder", "next", "pause",
-        "play", "previous", "queue", "recommendations", "reorder", "repeat_one", "reset", "settings"
+        "automix", "cancel", "confirm", "delete", "equalizer", "file", "folder", "import", "next", "pause",
+        "play", "previous", "queue", "queue_add", "recommendations", "reorder", "repeat_one", "reset", "settings"
     ];
     private const double ButtonFontSize = 12;
     internal const string ArtworkColorsResource = "LavPulse.ArtworkColors";

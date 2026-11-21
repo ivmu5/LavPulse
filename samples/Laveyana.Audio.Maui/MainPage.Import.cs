@@ -78,21 +78,13 @@ public sealed partial class MainPage
         }
     }
 
-    private async Task<int?> PickFilesAsync()
-    {
-        if (await WithPickerAsync(Mp3FilePicker.PickMultipleAsync) is not { Count: > 0 } files) return null;
-        var (_, updated) = await ImportLocalTracksAsync(files, loadFirst: true);
-        if (!_closed && !IsLoadingFirst) await SelectDefaultAsync();
-        return updated;
-    }
-
     private async Task OpenTrackLibraryAsync()
     {
         if (_closed || _view.Panel is not null || _pickerOpen) return;
         var library = new TrackLibraryPanel(
             () => Window is { } window ? WithPickerAsync(() => PlatformTrackFolder.PickAsync(window, _lifetime.Token))
                 : Task.FromResult<TrackFolderSource?>(null),
-            PickFilesAsync, OpenSavedLibraryAsync, AddLibrarySelectionAsync, _library.ReadLibraryMetadataAsync,
+            OpenSavedLibraryAsync, ImportLibrarySelectionAsync, _library.ReadLibraryMetadataAsync,
             ScanLibrarySelectionAsync, CloseTrackLibrary, _lifetime.Token);
         _view.ShowPanel(library);
         _view.SuspendPlayerAnimations();
@@ -114,15 +106,16 @@ public sealed partial class MainPage
         return await Task.Run(() => _trackStore.OpenLibrary(entries), _lifetime.Token);
     }
 
-    private async Task<int> AddLibrarySelectionAsync(TrackLibrarySelection selection)
+    private async Task<int> ImportLibrarySelectionAsync(TrackLibrarySelection selection, bool addToQueue)
     {
         var folders = selection.Folders;
         var files = selection.File is { } file
             ? (IReadOnlyList<FolderTrack>)[new(file, folders.Select(folder => new StoredFolder(folder.Id, folder.Name)).ToArray())]
             : await TrackFolderReader.ReadTracksAsync(folders[^1], selection.IncludeChildren, _lifetime.Token,
                 folders.Take(folders.Count - 1).ToArray());
-        var (_, updated) = await ImportLocalTracksAsync(files, loadFirst: true, alreadyLocal: selection.Local);
-        if (!_closed && !IsLoadingFirst) await SelectDefaultAsync();
+        var (_, updated) = await ImportLocalTracksAsync(files, loadFirst: addToQueue, alreadyLocal: selection.Local,
+            addToQueue: addToQueue);
+        if (addToQueue && !_closed && !IsLoadingFirst) await SelectDefaultAsync();
         return updated;
     }
 
@@ -232,7 +225,7 @@ public sealed partial class MainPage
         ImportLocalTracksAsync(files.Select(file => new FolderTrack(file, [])).ToArray(), loadFirst);
 
     private async Task<(IReadOnlyList<TrackFile> Tracks, int Updated)> ImportLocalTracksAsync(IReadOnlyList<FolderTrack> files, bool loadFirst,
-        bool alreadyLocal = false)
+        bool alreadyLocal = false, bool addToQueue = true)
     {
         if (_closed) return ([], 0);
         var token = _lifetime.Token;
@@ -261,7 +254,7 @@ public sealed partial class MainPage
                     if (_closed) break;
                     var canonical = _library.Add([local], [])[0];
                     bool remember = !alreadyLocal && _trackStore.Remember(local, item.Folders);
-                    bool add = !_queue.Contains(canonical);
+                    bool add = addToQueue && !_queue.Contains(canonical);
                     if (add)
                     {
                         _queue.AddRange([canonical]);
@@ -269,8 +262,8 @@ public sealed partial class MainPage
                     requested.Add(canonical);
                     if (!add && !remember) continue;
                     pending++;
-                    updated++;
-                    bool first = loadFirst && _playback.Snapshot.Current is null && !IsLoadingFirst;
+                    if (addToQueue ? add : remember) updated++;
+                    bool first = add && loadFirst && _playback.Snapshot.Current is null && !IsLoadingFirst;
                     if (!first && pending < ImportBatchSize &&
                         Stopwatch.GetElapsedTime(lastCheckpoint) < ImportCheckpointInterval) continue;
                     await FlushAsync();
@@ -289,7 +282,7 @@ public sealed partial class MainPage
                 pending = 0;
                 lastCheckpoint = Stopwatch.GetTimestamp();
                 var save = SaveQueueAsync();
-                if (!_closed) UpdateQueue();
+                if (addToQueue && !_closed) UpdateQueue();
                 await save;
             }
         }
