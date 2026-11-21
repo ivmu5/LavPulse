@@ -64,7 +64,7 @@ internal static class TrackPreparationChecks
         Console.WriteLine("OK: platform MP3 decoding, cancellation and managed retry after a partial write.");
     }
 
-    private static Stream CreateMp3()
+    internal static Stream CreateMp3()
     {
         var frame = new byte[417];
         frame[0] = 0xff;

@@ -21,7 +21,8 @@ internal sealed class CachedPcmSource(string path, DeckCursor cursor) : IPcmSour
     }
 
     /// <summary>Reads the PCM cache at its original rate.</summary>
-    public int Read(Span<float> destination) => ReadAtRate(destination, 1);
+    public int Read(Span<float> destination) =>
+        ReadAtRate(destination[..Math.Min(destination.Length, PlaybackFormat.BlockFrames * PlaybackFormat.Channels)], 1);
 
     /// <summary>Reads stereo samples at the requested speed, keeping the cursor in source frames.</summary>
     public int ReadAtRate(Span<float> destination, double rate)

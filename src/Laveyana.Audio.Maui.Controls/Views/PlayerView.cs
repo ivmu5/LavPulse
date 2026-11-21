@@ -57,6 +57,7 @@ public sealed class PlayerView : Grid
         this.Add(_body);
 
         _queue.SetMasterSpectrum(Spectrum.QueueDrawable);
+        _queue.AnimationChanged += active => Spectrum.SetQueueCallback(_queue, active ? _queue.DrawFrame : null);
         Spectrum.VisualizationChanged += () =>
         {
             if (Panel is null) _queue.InvalidateMasterSpectrum();

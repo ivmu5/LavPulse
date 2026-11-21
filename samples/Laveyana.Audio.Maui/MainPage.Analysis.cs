@@ -31,7 +31,7 @@ public sealed partial class MainPage
         if (_windowVisible) _analysisBackgroundExpired = false;
         allowed &= !_analysisBackgroundExpired || _worker is not null;
 #endif
-        var work = _queueAnalysis.Update(upcoming, allowed);
+        var work = _queueAnalysis.Update(upcoming, allowed, _analysisQueue);
         if (!_queueAnalysis.IsRunning) return;
 
 #if ANDROID

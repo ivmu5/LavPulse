@@ -11,11 +11,17 @@ public sealed partial class MainPage
 {
     private bool _canOpenSystemTracks;
     private bool _openingSystemTracks;
+    private bool _localQueueReady;
+    private Task? _restoreQueue;
+    private Task _saveQueue = Task.CompletedTask;
+    private TrackFile[] _analysisQueue = [];
+    private readonly SemaphoreSlim _importGate = new(1);
 
     internal void ActivateSystemTrackRequests()
     {
         _canOpenSystemTracks = true;
-        ProcessSystemTrackRequests();
+        if (_localQueueReady) ProcessSystemTrackRequests();
+        else _restoreQueue ??= RestoreLocalQueueAsync();
     }
 
     internal void ProcessSystemTrackRequests()
@@ -24,7 +30,7 @@ public sealed partial class MainPage
             _ = OpenSystemTracksAsync();
     }
 
-    private bool CanOpenSystemTracks => _canOpenSystemTracks && !_closed && _windowVisible &&
+    private bool CanOpenSystemTracks => _canOpenSystemTracks && _localQueueReady && !_closed && _windowVisible &&
         !IsLoadingFirst && !IsStopping && !IsTransitioning(_playback.Snapshot);
 
     private async Task OpenSystemTracksAsync()
@@ -36,13 +42,11 @@ public sealed partial class MainPage
             {
                 try
                 {
-                    var requested = _library.Add(files, []);
+                    var requested = await ImportLocalTracksAsync(files);
+                    if (_closed) return;
                     if (requested.Count == 0) continue;
 
                     _view.ShowQueueFeed();
-                    var queued = new HashSet<TrackFile>(_queue.Tracks);
-                    _queue.AddRange(requested.Where(queued.Add));
-                    UpdateQueue();
 
                     var first = requested[0];
                     if (_playback.Snapshot.Current is not { } current)
@@ -120,25 +124,98 @@ public sealed partial class MainPage
         }
     }
 
-    /// <summary>Loads the initial track and preloads the following choice in the background.</summary>
+    private async Task RestoreLocalQueueAsync()
+    {
+        var token = _lifetime.Token;
+        try
+        {
+            var restored = await Task.Run(() => _trackStore.ReadQueueAsync(token), token);
+            if (_closed) return;
+            _queue.AddRange(_library.Add(restored.Tracks, []));
+            _analysisQueue = _queue.Tracks.ToArray();
+            _localQueueReady = true;
+            UpdateQueue();
+            if (_queue.Tracks.Count > 0) _ = LoadFirstAsync(restored.Current);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            if (!_closed) _view.Status.Text = $"Не удалось восстановить очередь. {ex.Message}";
+        }
+        finally
+        {
+            _localQueueReady = !_closed;
+            ProcessSystemTrackRequests();
+        }
+    }
+
+    private Task SaveQueueAsync()
+    {
+        var current = _queue.Current;
+        if (current is not null && !_queue.Tracks.Contains(current)) current = _queue.Next;
+        _analysisQueue = _queue.Tracks.ToArray();
+        var snapshot = LocalTrackStore.Snapshot(_analysisQueue, current);
+        return _saveQueue = SaveAfterAsync(_saveQueue, snapshot);
+    }
+
+    private async Task SaveAfterAsync(Task previous, StoredQueue snapshot)
+    {
+        try
+        {
+            await previous;
+            await Task.Run(() => _trackStore.SaveQueueAsync(snapshot));
+        }
+        catch (Exception ex)
+        {
+            if (!_closed) _view.Status.Text = $"Не удалось сохранить очередь. {ex.Message}";
+        }
+    }
+
+    private async Task<IReadOnlyList<TrackFile>> ImportLocalTracksAsync(IReadOnlyList<TrackFile> files, bool loadFirst = false)
+    {
+        if (_closed) return [];
+        var token = _lifetime.Token;
+        var requested = new List<TrackFile>();
+        try
+        {
+            await (_restoreQueue ??= RestoreLocalQueueAsync());
+            await _importGate.WaitAsync(token);
+            try
+            {
+                foreach (var file in files)
+                {
+                    if (!TrackFile.IsMp3(file.Name)) continue;
+                    token.ThrowIfCancellationRequested();
+                    TrackFile local;
+                    try { local = await Task.Run(() => _trackStore.CopyAsync(file, token), token); }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        _view.Status.Text = $"Не удалось сохранить {file.Name}. {ex.Message}";
+                        continue;
+                    }
+                    if (_closed) break;
+                    var canonical = _library.Add([local], [])[0];
+                    requested.Add(canonical);
+                    if (_queue.Tracks.Contains(canonical)) continue;
+                    _queue.AddRange([canonical]);
+                    var save = SaveQueueAsync();
+                    UpdateQueue();
+                    await save;
+                    if (loadFirst && !_closed && _playback.Snapshot.Current is null && !IsLoadingFirst)
+                        _ = LoadFirstAsync();
+                }
+            }
+            finally { _importGate.Release(); }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        return requested;
+    }
+
+    /// <summary>Keeps each local copy and starts analysis as the files appear in the queue.</summary>
     private async Task AddFilesAsync(IReadOnlyList<TrackFile> files)
     {
-        if (_closed)
-        {
-            return;
-        }
-
-        var added = _library.Add(files, _queue.Tracks);
-        _queue.AddRange(added);
-        UpdateQueue();
-        if (_playback.Snapshot.Current is null && !IsLoadingFirst)
-        {
-            await LoadFirstAsync();
-        }
-        else
-        {
-            await SelectDefaultAsync();
-        }
+        await ImportLocalTracksAsync(files, loadFirst: true);
+        if (!_closed && !IsLoadingFirst) await SelectDefaultAsync();
     }
 
     /// <summary>Attempts the first playable file and keeps later candidates available.</summary>
@@ -155,6 +232,7 @@ public sealed partial class MainPage
         _firstLoad = request;
         _firstLoadFile = file;
         previous?.Cancel();
+        var failed = new HashSet<TrackFile>();
         try
         {
             while (file is not null && !request.IsCancellationRequested)
@@ -171,12 +249,13 @@ public sealed partial class MainPage
                     {
                         _playback.SetFirst(track);
                         _queue.SetCurrent(file);
+                        _ = SaveQueueAsync();
                         ShowCurrent(_playback.Snapshot.Current!.Value);
                         break;
                     }
-                    _queue.Remove(file);
+                    failed.Add(file);
                 }
-                file = _queue.Tracks.FirstOrDefault();
+                file = _queue.Tracks.FirstOrDefault(candidate => !failed.Contains(candidate));
             }
         }
         finally

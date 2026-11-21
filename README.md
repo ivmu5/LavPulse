@@ -53,7 +53,7 @@ Open an MP3 from the system file manager to play it in LavPulse. On Windows, lau
 - Two decks with manually requested or automatic hyperbolic crossfades, transport fades, repeat-one and variable playback speed.
 - Ten-band master EQ plus output gain, applied **before** master-spectrum analysis.
 - Detailed and overview waveforms, seek gestures, a frequency spectrum and an animated deck handoff.
-- Reorderable queue, played-track history, ID3 artwork/tags, and sequential background preparation of up to ten upcoming MP3s.
+- Restorable queue and played-track history, local MP3 copies, and sequential background scanning. Queue animation follows the display clock at up to 120 FPS.
 - Background playback and OS media commands on Android, Windows, and iOS.
 
 ## Architecture
@@ -81,7 +81,7 @@ flowchart TD
 
 [`QueueSource`](src/Laveyana.Audio.Playback/Session/QueueSource.cs) owns the current and prepared next PCM readers, provides seek and speed control, and promotes the incoming deck when a transition finishes. A manual transition is requested before the next render block. [`MasterEqualizerSource`](src/Laveyana.Audio.Playback/Session/MasterEqualizerSource.cs) filters that **combined** signal using ten peaking bands and a gain stage; configuration changes crossfade between filter banks. [`MixedPlayback`](src/Laveyana.Audio.Playback/Session/MixedPlayback.cs) renders blocks and publishes FFT results with the native playback-head position where available.
 
-[`PlayerLibrary`](samples/Laveyana.Audio.Maui/Tracks/PlayerLibrary.cs) limits concurrent decoders, deduplicates preparation tasks, and protects the occupied decks and up to ten upcoming tracks from cache eviction. The app prepares that window in queue order on a worker thread. A directly selected track can use another decoding slot. The ordered [`PlaybackQueue`](samples/Laveyana.Audio.Maui/Tracks/PlaybackQueue.cs) does not reorder itself when the user selects a different track: the current position defines which entries are displayed as played.
+[`PlayerLibrary`](samples/Laveyana.Audio.Maui/Tracks/PlayerLibrary.cs) limits concurrent decoders, deduplicates preparation tasks, and protects the occupied decks and up to ten upcoming tracks from cache eviction. The app prepares that window in queue order and then saves compact analysis for the rest of the queue on the same worker. A directly selected track can use another decoding slot. The ordered [`PlaybackQueue`](samples/Laveyana.Audio.Maui/Tracks/PlaybackQueue.cs) does not reorder itself when the user selects a different track: the current position defines which entries are displayed as played.
 
 </details>
 
@@ -103,7 +103,7 @@ tests/Laveyana.Audio.Playback.Checks/  Executable regression checks
 - **Track selection.** `ChooseAsync` requests a transition through `StartMixAsync`. `ArmAsync` prepares the selected track for the next deck. `QueuePlaybackSession.RequestMix` forwards the request to `QueueSource`.
 - **Playback.** `QueuePlaybackSession.RunAsync` starts the native output, which pulls stereo PCM blocks through `MixedPlayback.Render` from the chain shown above.
 
-Android tries the system MP3 decoder through `MediaExtractor` and `MediaCodec`. A non-seekable input is copied to a temporary MP3 first. If the system decoder cannot prepare the track, the importer retries from the beginning with NLayer. Both paths create the same seekable 48 kHz stereo PCM16 cache and waveform data format.
+Android tries the system MP3 decoder through `MediaExtractor` and `MediaCodec`. The app imports MP3s into its application data directory. Identical contents share the same local copy. If the system decoder cannot prepare the track, the importer retries from the beginning with NLayer. Both paths use the same waveform format and write seekable 48 kHz stereo PCM16 when preparing a deck. LavPulse restores the saved queue order and opens the last current track paused at the start.
 
 ## Public API
 
@@ -145,7 +145,7 @@ For one-shot, independently controlled decks, [`PlaybackSession`](src/Laveyana.A
 
 ## Lifecycle and threading
 
-- `MainPage` owns `PlayerLibrary`, `PlaybackQueue`, `QueuePlaybackSession` and the OS media bridge; `CloseAsync` cancels/awaits playback and analysis before deleting cached audio.
+- `MainPage` owns `PlayerLibrary`, `PlaybackQueue`, `QueuePlaybackSession` and the OS media bridge; `CloseAsync` cancels and awaits playback and analysis, completes the queue save, and releases the audio readers.
 - Imports and waveform analysis use async tasks with bounded decoding. The native output consumes PCM on its own thread; C# MAUI views and queue state are updated on the UI dispatcher.
 - The audio mixer has one render caller. `QueueSource` synchronizes changes to the active/next deck; the latest display snapshot is read separately. The decoder-to-UI track lookup uses a concurrent dictionary.
 - While minimized, track preparation continues independently of the visual refresh. Android uses a foreground service for batches started from the player. On iOS, background audio keeps preparation running during playback. While paused, iOS grants limited background time and unfinished work resumes when the player returns. On Windows, preparation continues while the window is minimized.
@@ -154,7 +154,7 @@ For one-shot, independently controlled decks, [`PlaybackSession`](src/Laveyana.A
 <details>
 <summary>Performance and ownership details</summary>
 
-The 256 MiB eviction threshold applies to decoded PCM. The cache can exceed it while keeping the active, selected, and upcoming tracks ready on disk. Preparation of a previously evicted track may take time. Queue rows are virtualized; full ID3 artwork is downscaled for thumbnails. Waveform geometry is cached separately from the playhead; the spectrum analyzer can be disabled when the master-spectrum UI is hidden.
+The 256 MiB eviction threshold applies to decoded PCM. The cache can exceed it while keeping the active, selected, and upcoming tracks ready on disk. A local analysis record survives PCM eviction. If the app rebuilds that PCM, it reuses the saved waveform when the decoded frame count matches. Removing a row changes the saved queue and leaves its imported copy in the local collection. Queue rows are virtualized; full ID3 artwork is downscaled for thumbnails. Waveform geometry is cached separately from the playhead; the spectrum analyzer can be disabled when the master-spectrum UI is hidden.
 
 The master mixer renders a single source straight into the output block, applies gain when needed, clamps the samples, and clears any unwritten frames. PCM16 reads at 1× speed and a whole-frame position use SIMD when hardware supports it. Other speeds and fractional positions keep the interpolating path.
 

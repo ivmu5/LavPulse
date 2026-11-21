@@ -19,6 +19,7 @@ public sealed partial class MainPage : ContentPage
     private long _lastSystemUpdate;
     private SystemPlaybackState? _lastSystemState;
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly LocalTrackStore _trackStore = new(Path.Combine(FileSystem.AppDataDirectory, "library"));
     private readonly PlayerLibrary _library;
     private readonly IDispatcherTimer _positions;
     private readonly PlaybackQueue _queue = new();
@@ -54,13 +55,13 @@ public sealed partial class MainPage : ContentPage
     public MainPage()
     {
 #if ANDROID
-        var preparation = new TrackPreparation(FileSystem.CacheDirectory, AndroidMp3Decoder.Open);
+        var preparation = new TrackPreparation(_trackStore.PcmDirectory, AndroidMp3Decoder.Open);
 #else
-        var preparation = new TrackPreparation(FileSystem.CacheDirectory);
+        var preparation = new TrackPreparation(_trackStore.PcmDirectory);
 #endif
-        _library = new PlayerLibrary(preparation, _lifetime.Token);
+        _library = new PlayerLibrary(preparation, _trackStore, _lifetime.Token);
         _queueAnalysis = new QueueTrackAnalysis(file => _library.GetPrepared(file) is not null,
-            _library.PrepareAsync, OnQueueAnalysisProgress, _lifetime.Token);
+            _library.PrepareAsync, OnQueueAnalysisProgress, _lifetime.Token, _library.HasAnalysis, _library.AnalyzeAsync);
 #if IOS
         SafeAreaEdges = new SafeAreaEdges(SafeAreaRegions.Container);
 #else
