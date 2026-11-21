@@ -75,17 +75,17 @@ flowchart TD
 
 | Layer | Responsibility | Entry points |
 |---|---|---|
-| Core DSP | Stereo mixing, common PCM contract, frequency analysis | [`IPcmSource`](src/Laveyana.Audio/IPcmSource.cs), [`PcmMixer`](src/Laveyana.Audio/PcmMixer.cs), [`MasterSpectrum`](src/Laveyana.Audio/MasterSpectrum.cs) |
-| Preparation and playback | Decode, caching, deck state, equalization, output abstraction | [`TrackPreparation`](src/Laveyana.Audio.Playback/Tracks/TrackPreparation.cs), [`QueuePlaybackSession`](src/Laveyana.Audio.Playback/Session/QueuePlaybackSession.cs), [`IAudioOutput`](src/Laveyana.Audio.Playback/Session/IAudioOutput.cs) |
-| Application | Library, ordered queue, commands, platform lifetime | [`MainPage`](samples/Laveyana.Audio.Maui/MainPage.cs), [`PlayerLibrary`](samples/Laveyana.Audio.Maui/Tracks/PlayerLibrary.cs), [`PlaybackQueue`](samples/Laveyana.Audio.Maui/Tracks/PlaybackQueue.cs) |
-| Views | C# MAUI controls and gestures | [`PlayerView`](src/Laveyana.Audio.Maui.Controls/Views/PlayerView.cs), [`DeckView`](src/Laveyana.Audio.Maui.Controls/Views/DeckView.cs), [`TrackQueueView`](src/Laveyana.Audio.Maui.Controls/Views/TrackQueueView.cs) |
+| Core DSP | Stereo mixing, common PCM contract, frequency analysis | [`IPcmSource`](src/Laveyana.Audio/Mixing/IPcmSource.cs), [`PcmMixer`](src/Laveyana.Audio/Mixing/PcmMixer.cs), [`MasterSpectrum`](src/Laveyana.Audio/Spectrum/MasterSpectrum.cs) |
+| Preparation and playback | Decode, caching, deck state, equalization, output abstraction | [`TrackPreparation`](src/Laveyana.Audio.Playback/Tracks/TrackPreparation.cs), [`QueuePlaybackSession`](src/Laveyana.Audio.Playback/Session/Queue/QueuePlaybackSession.cs), [`IAudioOutput`](src/Laveyana.Audio.Playback/Session/IAudioOutput.cs) |
+| Application | Library, ordered queue, commands, platform lifetime | [`MainPage`](samples/Laveyana.Audio.Maui/Pages/Player/MainPage.cs), [`PlayerLibrary`](samples/Laveyana.Audio.Maui/Tracks/Library/PlayerLibrary.cs), [`PlaybackQueue`](samples/Laveyana.Audio.Maui/Tracks/Queue/PlaybackQueue.cs) |
+| Views | C# MAUI controls and gestures | [`PlayerView`](src/Laveyana.Audio.Maui.Controls/Views/Player/PlayerView.cs), [`DeckView`](src/Laveyana.Audio.Maui.Controls/Views/Decks/DeckView.cs), [`TrackQueueView`](src/Laveyana.Audio.Maui.Controls/Views/Queue/TrackQueueView.cs) |
 
 <details>
 <summary>Audio and queue internals</summary>
 
-[`QueueSource`](src/Laveyana.Audio.Playback/Session/QueueSource.cs) owns the current and prepared next PCM readers, provides seek and speed control, and promotes the incoming deck when a transition finishes. A manual transition is requested before the next render block. [`MasterEqualizerSource`](src/Laveyana.Audio.Playback/Session/MasterEqualizerSource.cs) filters that **combined** signal using ten peaking bands and a gain stage; configuration changes crossfade between filter banks. [`MixedPlayback`](src/Laveyana.Audio.Playback/Session/MixedPlayback.cs) renders blocks and publishes FFT results with the native playback-head position where available.
+[`QueueSource`](src/Laveyana.Audio.Playback/Session/Queue/QueueSource.cs) owns the current and prepared next PCM readers, provides seek and speed control, and promotes the incoming deck when a transition finishes. A manual transition is requested before the next render block. [`MasterEqualizerSource`](src/Laveyana.Audio.Playback/Session/Equalizer/MasterEqualizerSource.cs) filters that **combined** signal using ten peaking bands and a gain stage; configuration changes crossfade between filter banks. [`MixedPlayback`](src/Laveyana.Audio.Playback/Session/MixedPlayback.cs) renders blocks and publishes FFT results with the native playback-head position where available.
 
-[`PlayerLibrary`](samples/Laveyana.Audio.Maui/Tracks/PlayerLibrary.cs) limits concurrent decoders, deduplicates preparation tasks, and protects the occupied decks and up to ten upcoming tracks from cache eviction. The app prepares that window in queue order and then saves compact analysis for the rest of the queue on the same worker. A directly selected track can use another decoding slot. The ordered [`PlaybackQueue`](samples/Laveyana.Audio.Maui/Tracks/PlaybackQueue.cs) does not reorder itself when the user selects a different track: the current position defines which entries are displayed as played.
+[`PlayerLibrary`](samples/Laveyana.Audio.Maui/Tracks/Library/PlayerLibrary.cs) limits concurrent decoders, deduplicates preparation tasks, and protects the occupied decks and up to ten upcoming tracks from cache eviction. The app prepares that window in queue order and then saves compact analysis for the rest of the queue on the same worker. A directly selected track can use another decoding slot. The ordered [`PlaybackQueue`](samples/Laveyana.Audio.Maui/Tracks/Queue/PlaybackQueue.cs) does not reorder itself when the user selects a different track: the current position defines which entries are displayed as played.
 
 </details>
 
@@ -99,7 +99,7 @@ samples/Laveyana.Audio.Maui/       MAUI host, media library, settings, output ad
 tests/Laveyana.Audio.Playback.Checks/  Executable regression checks
 ```
 
-[`MainPage`](samples/Laveyana.Audio.Maui/MainPage.cs) owns the application's state and event bindings. Its workflows are split between `MainPage.Import.cs`, `MainPage.Queue.cs`, `MainPage.Analysis.cs`, `MainPage.Transport.cs`, `MainPage.Rendering.cs`, `MainPage.SystemPlayback.cs`, `MainPage.Dialogs.cs` and `MainPage.State.cs`. The queue's cover-card implementation lives in [`TrackQueueView.TrackCard.cs`](src/Laveyana.Audio.Maui.Controls/Views/TrackQueueView.TrackCard.cs).
+[`MainPage`](samples/Laveyana.Audio.Maui/Pages/Player/MainPage.cs) owns the application's state and event bindings. The partial files in the same folder separate playback, navigation, importing, the library panel, and queue persistence. The queue's cover-card implementation lives in [`TrackQueueView.TrackCard.cs`](src/Laveyana.Audio.Maui.Controls/Views/Queue/TrackQueueView.TrackCard.cs).
 
 The queue, its editor, and the library tree share a virtualized track list and row layout. They provide their own actions and artwork metadata.
 
@@ -138,7 +138,7 @@ static async Task PlayFileAsync(
 }
 ```
 
-[`PcmMixer`](src/Laveyana.Audio/PcmMixer.cs) can also mix independent `IPcmSource` inputs with shared sample rates, without a queue. The ten EQ frequencies are published in [`EqualizerSettings.Frequencies`](src/Laveyana.Audio.Playback/Session/EqualizerSettings.cs).
+[`PcmMixer`](src/Laveyana.Audio/Mixing/PcmMixer.cs) can also mix independent `IPcmSource` inputs with shared sample rates, without a queue. The ten EQ frequencies are published in [`EqualizerSettings.Frequencies`](src/Laveyana.Audio.Playback/Session/Equalizer/EqualizerSettings.cs).
 
 <details>
 <summary>Playback integration contract</summary>
@@ -166,9 +166,9 @@ The master mixer renders a single source straight into the output block, applies
 
 The ID3 reader rents a temporary buffer and copies the selected cover once. Queue and deck image streams reuse array-backed cover bytes. Spectrum paint allocates a color for a brightness step on its first use and reuses it until the corresponding colors or mode change.
 
-The platform adapters use AudioTrack, WaveOut and AVAudioEngine. [Android](samples/Laveyana.Audio.Maui/Platforms/Android/PlatformAudioOutput.cs) · [Windows](samples/Laveyana.Audio.Maui/Platforms/Windows/PlatformAudioOutput.cs) · [Apple](samples/Laveyana.Audio.Maui/Apple/PlatformAudioOutput.cs)
+The platform adapters use AudioTrack, WaveOut and AVAudioEngine. [Android](samples/Laveyana.Audio.Maui/Platforms/Android/Playback/PlatformAudioOutput.cs) · [Windows](samples/Laveyana.Audio.Maui/Platforms/Windows/Playback/PlatformAudioOutput.cs) · [Apple](samples/Laveyana.Audio.Maui/Apple/PlatformAudioOutput.cs)
 
-Android's [`AndroidMediaPlaybackService`](samples/Laveyana.Audio.Maui/Platforms/Android/AndroidMediaPlaybackService.cs) provides system controls, and [`WindowsMediaIdentity`](samples/Laveyana.Audio.Maui/Platforms/Windows/WindowsMediaIdentity.cs) registers the unpackaged desktop identity.
+Android's [`AndroidMediaPlaybackService`](samples/Laveyana.Audio.Maui/Platforms/Android/Playback/AndroidMediaPlaybackService.cs) provides system controls, and [`WindowsMediaIdentity`](samples/Laveyana.Audio.Maui/Platforms/Windows/Playback/WindowsMediaIdentity.cs) registers the unpackaged desktop identity.
 
 </details>
 
@@ -198,12 +198,12 @@ For a manual iOS check, import two MP3s from Files, exercise mixing, EQ and seek
 
 | Task | Start here |
 |---|---|
-| Add a decoder or input source | [`IPcmSource`](src/Laveyana.Audio/IPcmSource.cs), [`TrackPreparation`](src/Laveyana.Audio.Playback/Tracks/TrackPreparation.cs) |
-| Change crossfades, pause or deck speed | [`QueueSource`](src/Laveyana.Audio.Playback/Session/QueueSource.cs), [`TransportFadeSource`](src/Laveyana.Audio.Playback/Session/TransportFadeSource.cs) |
-| Change EQ or frequency analysis | [`MasterEqualizerSource`](src/Laveyana.Audio.Playback/Session/MasterEqualizerSource.cs), [`MasterSpectrum`](src/Laveyana.Audio/MasterSpectrum.cs) |
-| Change queue, history or background preparation | [`MainPage.Queue.cs`](samples/Laveyana.Audio.Maui/MainPage.Queue.cs), [`MainPage.Analysis.cs`](samples/Laveyana.Audio.Maui/MainPage.Analysis.cs), [`PlaybackQueue`](samples/Laveyana.Audio.Maui/Tracks/PlaybackQueue.cs) |
-| Change gestures, waveforms or player layout | [`DeckView`](src/Laveyana.Audio.Maui.Controls/Views/DeckView.cs), [`TrackQueueView`](src/Laveyana.Audio.Maui.Controls/Views/TrackQueueView.cs), [`WaveformDrawable`](src/Laveyana.Audio.Maui.Controls/Views/WaveformDrawable.cs) |
-| Add a native output or media integration | [`IAudioOutput`](src/Laveyana.Audio.Playback/Session/IAudioOutput.cs), [`SystemPlaybackIntegration`](samples/Laveyana.Audio.Maui/SystemPlaybackIntegration.cs) |
+| Add a decoder or input source | [`IPcmSource`](src/Laveyana.Audio/Mixing/IPcmSource.cs), [`TrackPreparation`](src/Laveyana.Audio.Playback/Tracks/TrackPreparation.cs) |
+| Change crossfades, pause or deck speed | [`QueueSource`](src/Laveyana.Audio.Playback/Session/Queue/QueueSource.cs), [`TransportFadeSource`](src/Laveyana.Audio.Playback/Session/TransportFadeSource.cs) |
+| Change EQ or frequency analysis | [`MasterEqualizerSource`](src/Laveyana.Audio.Playback/Session/Equalizer/MasterEqualizerSource.cs), [`MasterSpectrum`](src/Laveyana.Audio/Spectrum/MasterSpectrum.cs) |
+| Change queue, history or background preparation | [`MainPage.Queue.cs`](samples/Laveyana.Audio.Maui/Pages/Player/MainPage.Queue.cs), [`MainPage.Analysis.cs`](samples/Laveyana.Audio.Maui/Pages/Player/MainPage.Analysis.cs), [`PlaybackQueue`](samples/Laveyana.Audio.Maui/Tracks/Queue/PlaybackQueue.cs) |
+| Change gestures, waveforms or player layout | [`DeckView`](src/Laveyana.Audio.Maui.Controls/Views/Decks/DeckView.cs), [`TrackQueueView`](src/Laveyana.Audio.Maui.Controls/Views/Queue/TrackQueueView.cs), [`WaveformDrawable`](src/Laveyana.Audio.Maui.Controls/Views/Decks/WaveformDrawable.cs) |
+| Add a native output or media integration | [`IAudioOutput`](src/Laveyana.Audio.Playback/Session/IAudioOutput.cs), [`SystemPlaybackIntegration`](samples/Laveyana.Audio.Maui/Playback/SystemPlaybackIntegration.cs) |
 
 ## Dependencies and license
 

@@ -6,11 +6,11 @@ namespace Laveyana.Audio.Maui;
 [Application]
 public class MainApplication : MauiApplication
 {
-	public MainApplication(IntPtr handle, JniHandleOwnership ownership)
-		: base(handle, ownership)
-	{
-	}
+    public MainApplication(IntPtr handle, JniHandleOwnership ownership)
+        : base(handle, ownership)
+    {
+    }
 
-	/// <summary>Builds the MAUI host used by the Android application.</summary>
-	protected override MauiApp CreateMauiApp() => MauiProgram.CreateMauiApp();
+    /// <summary>Builds the MAUI host used by the Android application.</summary>
+    protected override MauiApp CreateMauiApp() => MauiProgram.CreateMauiApp();
 }
