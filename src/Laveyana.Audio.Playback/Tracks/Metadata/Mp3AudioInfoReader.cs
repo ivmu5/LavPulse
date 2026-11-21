@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Buffers.Binary;
 
 namespace Laveyana.Audio.Playback;
@@ -15,13 +16,14 @@ internal static class Mp3AudioInfoReader
     public static TrackAudioInfo? Read(Stream source, CancellationToken token)
     {
         long length = source.Length;
-        long position = SkipId3Tags(source, 0, length, token);
-        if (!FindFirstFrame(source, length, token, ref position, out Frame first, out int freeFormatSize))
+        using var headers = new HeaderReader(source, length);
+        long position = SkipId3Tags(headers, 0, length, token);
+        if (!FindFirstFrame(headers, length, token, ref position, out Frame first, out int freeFormatSize))
         {
             return null;
         }
 
-        var seekHeader = ReadSeekHeader(source, position, first, freeFormatSize);
+        var seekHeader = ReadSeekHeader(headers, position, first, freeFormatSize);
         if (seekHeader != SeekHeader.None) position += first.GetLength(freeFormatSize);
 
         int initialBitrate = 0;
@@ -32,9 +34,9 @@ internal static class Mp3AudioInfoReader
         while (position <= length - HeaderSize)
         {
             token.ThrowIfCancellationRequested();
-            if (!TryReadFrame(source, position, out Frame frame) || !first.IsCompatibleWith(frame))
+            if (!TryReadFrame(headers, position, out Frame frame) || !first.IsCompatibleWith(frame))
             {
-                long next = SkipId3Tags(source, position, length, token);
+                long next = SkipId3Tags(headers, position, length, token);
                 if (next == position) break;
                 position = next;
                 continue;
@@ -65,7 +67,7 @@ internal static class Mp3AudioInfoReader
     }
 
     /// <summary>Confirms sync against the next frame so stray bytes cannot masquerade as audio.</summary>
-    private static bool FindFirstFrame(Stream source, long length, CancellationToken token,
+    private static bool FindFirstFrame(HeaderReader source, long length, CancellationToken token,
         ref long position, out Frame first, out int freeFormatSize)
     {
         for (; position <= length - HeaderSize; position++)
@@ -89,7 +91,7 @@ internal static class Mp3AudioInfoReader
     }
 
     /// <summary>Recovers the unpadded length of free-format frames from their sync spacing.</summary>
-    private static int FindFreeFormatSize(Stream source, long position, long length, Frame first)
+    private static int FindFreeFormatSize(HeaderReader source, long position, long length, Frame first)
     {
         long limit = Math.Min(position + MaxFreeFormatFrameSize, length - HeaderSize);
         for (long next = position + HeaderSize; next <= limit; next++)
@@ -108,14 +110,14 @@ internal static class Mp3AudioInfoReader
     }
 
     /// <summary>Skips ID3v2 payloads, including an optional v2.4 footer, by their declared byte size.</summary>
-    private static long SkipId3Tags(Stream source, long position, long length, CancellationToken token)
+    private static long SkipId3Tags(HeaderReader source, long position, long length, CancellationToken token)
     {
-        Span<byte> header = stackalloc byte[10];
-        while (position <= length - header.Length)
+        const int tagHeaderSize = 10;
+        while (position <= length - tagHeaderSize)
         {
             token.ThrowIfCancellationRequested();
-            source.Position = position;
-            if (source.ReadAtLeast(header, header.Length, false) != header.Length ||
+            var header = source.ReadAt(position, tagHeaderSize);
+            if (header.Length != tagHeaderSize ||
                 !header[..3].SequenceEqual("ID3"u8) || header[3] is < 2 or > 4 ||
                 ((header[6] | header[7] | header[8] | header[9]) & 0x80) != 0) break;
 
@@ -129,46 +131,40 @@ internal static class Mp3AudioInfoReader
     }
 
     /// <summary>Identifies the optional first frame carrying encoder navigation data.</summary>
-    private static SeekHeader ReadSeekHeader(Stream source, long position, Frame frame, int freeFormatSize)
+    private static SeekHeader ReadSeekHeader(HeaderReader source, long position, Frame frame, int freeFormatSize)
     {
-        Span<byte> marker = stackalloc byte[4];
         int sideInfoSize = frame.SampleCount == 1152
             ? (frame.ChannelMode == TrackChannelMode.Mono ? 17 : 32)
             : (frame.ChannelMode == TrackChannelMode.Mono ? 9 : 17);
         int offset = HeaderSize + sideInfoSize;
         int size = frame.GetLength(freeFormatSize);
-        SeekHeader xing = ReadXingMarker(source, marker, position, size, offset);
+        SeekHeader xing = ReadXingMarker(source, position, size, offset);
         if (xing == SeekHeader.None && frame.HasCrc)
         {
-            xing = ReadXingMarker(source, marker, position, size, offset + 2);
+            xing = ReadXingMarker(source, position, size, offset + 2);
         }
         if (xing != SeekHeader.None) return xing;
-        return TryReadMarker(source, marker, position, size, 36) && marker.SequenceEqual("VBRI"u8)
+        return ReadMarker(source, position, size, 36).SequenceEqual("VBRI"u8)
             ? SeekHeader.Variable : SeekHeader.None;
     }
 
-    private static SeekHeader ReadXingMarker(Stream source, Span<byte> marker, long position, int size, int offset)
+    private static SeekHeader ReadXingMarker(HeaderReader source, long position, int size, int offset)
     {
-        if (!TryReadMarker(source, marker, position, size, offset)) return SeekHeader.None;
+        var marker = ReadMarker(source, position, size, offset);
         if (marker.SequenceEqual("Xing"u8)) return SeekHeader.Variable;
         if (marker.SequenceEqual("Info"u8)) return SeekHeader.Constant;
         return SeekHeader.None;
     }
 
-    private static bool TryReadMarker(Stream source, Span<byte> marker, long position, int size, int offset)
-    {
-        if (offset + marker.Length > size) return false;
-        source.Position = position + offset;
-        return source.ReadAtLeast(marker, marker.Length, false) == marker.Length;
-    }
+    private static ReadOnlySpan<byte> ReadMarker(HeaderReader source, long position, int size, int offset) =>
+        offset + 4 <= size ? source.ReadAt(position + offset, 4) : [];
 
     /// <summary>Validates the MPEG sync word, Layer III marker and bitrate and sample rate indices.</summary>
-    private static bool TryReadFrame(Stream source, long position, out Frame frame)
+    private static bool TryReadFrame(HeaderReader source, long position, out Frame frame)
     {
         frame = default;
-        Span<byte> bytes = stackalloc byte[HeaderSize];
-        source.Position = position;
-        if (source.ReadAtLeast(bytes, bytes.Length, false) != bytes.Length) return false;
+        var bytes = source.ReadAt(position, HeaderSize);
+        if (bytes.Length != HeaderSize) return false;
 
         uint header = BinaryPrimitives.ReadUInt32BigEndian(bytes);
         if ((header & 0xFFE60000) != 0xFFE20000) return false;
@@ -185,6 +181,39 @@ internal static class Mp3AudioInfoReader
     }
 
     private enum SeekHeader { None, Constant, Variable }
+
+    /// <summary>Reads a window of bytes once for many nearby frame headers and tag probes.</summary>
+    private sealed class HeaderReader(Stream source, long length) : IDisposable
+    {
+        private const int WindowSize = 32 * 1024;
+        private readonly byte[] _buffer = ArrayPool<byte>.Shared.Rent(WindowSize);
+        private long _start;
+        private int _available;
+        private long? _logicalPosition;
+
+        public ReadOnlySpan<byte> ReadAt(long position, int count)
+        {
+            long offset = position - _start;
+            if (offset < 0 || offset > _available - count)
+            {
+                source.Position = position;
+                int requested = (int)Math.Min(WindowSize, length - position);
+                _available = source.ReadAtLeast(_buffer.AsSpan(0, requested), requested, false);
+                _start = position;
+                offset = 0;
+            }
+
+            int read = Math.Min(count, _available - (int)offset);
+            _logicalPosition = position + read;
+            return _buffer.AsSpan((int)offset, read);
+        }
+
+        public void Dispose()
+        {
+            ArrayPool<byte>.Shared.Return(_buffer);
+            if (_logicalPosition is { } position && source.Position != position) source.Position = position;
+        }
+    }
 
     private readonly record struct Frame(
         int SampleRate, int SampleCount, int Bitrate, int Padding, TrackChannelMode ChannelMode, bool HasCrc)

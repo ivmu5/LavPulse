@@ -11,6 +11,7 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
     private readonly HashSet<TrackFile> _failed = [];
     private TrackFile[] _upcoming = [];
     private TrackFile[] _queue = [];
+    private int _analysisIndex;
     private bool _allowed;
     private bool _running;
 
@@ -24,8 +25,8 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
         lock (_gate)
         {
             queue ??= [];
-            bool changed = !_upcoming.SequenceEqual(upcoming) ||
-                (!ReferenceEquals(_queue, queue) && !_queue.SequenceEqual(queue));
+            bool queueChanged = !ReferenceEquals(_queue, queue) && !_queue.SequenceEqual(queue);
+            bool changed = queueChanged || !_upcoming.SequenceEqual(upcoming);
             _upcoming = upcoming;
             _queue = queue;
             if (changed)
@@ -33,6 +34,9 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
                 _failed.RemoveWhere(file => !upcoming.Contains(file) && !queue.Contains(file));
             }
             _allowed = allowed;
+            // Keep the compact scan's progress across UI refreshes, but recheck from the start
+            // after edits or when starting a new pass (a saved analysis may have been invalidated).
+            if (queueChanged || !_running) _analysisIndex = 0;
             if (_running || lifetime.IsCancellationRequested || FindNext().File is null) return null;
 
             _running = true;
@@ -48,10 +52,20 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
     private (TrackFile? File, bool PreparePcm) FindNext()
     {
         if (!_allowed) return default;
-        var upcoming = Array.Find(_upcoming, file => !_failed.Contains(file) && !isPrepared(file));
-        if (upcoming is not null) return (upcoming, true);
-        return isAnalyzed is null ? default :
-            (Array.Find(_queue, file => !_failed.Contains(file) && !isAnalyzed(file)), false);
+        foreach (var file in _upcoming)
+        {
+            if (!_failed.Contains(file) && !isPrepared(file)) return (file, true);
+        }
+        if (isAnalyzed is not null)
+        {
+            while (_analysisIndex < _queue.Length)
+            {
+                var file = _queue[_analysisIndex];
+                if (!_failed.Contains(file) && !isAnalyzed(file)) return (file, false);
+                _analysisIndex++;
+            }
+        }
+        return default;
     }
 
     private async Task RunAsync()

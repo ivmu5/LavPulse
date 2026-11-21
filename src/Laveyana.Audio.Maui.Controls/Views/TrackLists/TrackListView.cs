@@ -104,6 +104,8 @@ internal sealed class TrackListView<TItem, TRow> : ScrollView where TItem : clas
         double scroll = Math.Clamp(ScrollY, 0, Math.Max(0, ContentHeight - height));
         var (first, end) = TrackListLayout.RealizedRange(_items.Count, scroll, height);
         if (!force && first == _first && end == _end) return;
+        int previousFirst = _first;
+        int previousEnd = _end;
         _first = first;
         _end = end;
 
@@ -138,7 +140,9 @@ internal sealed class TrackListView<TItem, TRow> : ScrollView where TItem : clas
 
             var bounds = new Rect(0, (double)i * TrackListLayout.Stride, 1, TrackListLayout.RowHeight);
             if (AbsoluteLayout.GetLayoutBounds(row!) != bounds) AbsoluteLayout.SetLayoutBounds(row!, bounds);
-            _bind(row!, item, i);
+            // Rows shared by both ranges already represent these items. Keep full rebinding
+            // for model updates, including a dragged row returning from outside the range.
+            if (force || add || i < previousFirst || i >= previousEnd) _bind(row!, item, i);
             if (add) _content.Children.Add(row!);
         }
     }

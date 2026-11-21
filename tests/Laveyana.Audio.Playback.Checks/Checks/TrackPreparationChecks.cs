@@ -4,6 +4,7 @@ internal static class TrackPreparationChecks
 {
     public static async Task RunAsync(string directory)
     {
+        CheckNativeRate();
         var input = TrackFile.FromStream("fixture.mp3", () => Task.FromResult<Stream>(CreateMp3()));
         var original = await new TrackPreparation(directory).ImportAsync(input, CancellationToken.None);
         byte[] expected = await File.ReadAllBytesAsync(original.Path);
@@ -64,6 +65,24 @@ internal static class TrackPreparationChecks
         Console.WriteLine("OK: platform MP3 decoding, cancellation and managed retry after a partial write.");
     }
 
+    private static void CheckNativeRate()
+    {
+        var decoder = new BlockDecoder(2, [[.25f, -.5f, 2, -2], [.75f, -.25f]]);
+        using var stereo = new Mp3PcmSource(decoder);
+        Span<float> block = stackalloc float[5];
+        block[4] = 10;
+        Require(stereo.Read(block[..2]) == 1 && block[..2].SequenceEqual([.25f, -.5f]),
+            "Native-rate reading changed stereo samples.");
+        Require(stereo.Read(block) == 2 && block.SequenceEqual([1, -1, .75f, -.25f, 10]),
+            "Native-rate reading lost a frame across a decoder block boundary.");
+        Require(stereo.Read(block) == 0 && stereo.Read(block) == 0 && decoder.Reads == 3,
+            "Native-rate reading did not stop at the end of the stream.");
+
+        using var mono = new Mp3PcmSource(new BlockDecoder(1, [[-.75f], [2]]));
+        Require(mono.Read(block[..4]) == 2 && block[..4].SequenceEqual([-.75f, -.75f, 1, 1]),
+            "Native-rate mono samples were not copied into both channels.");
+    }
+
     internal static Stream CreateMp3()
     {
         var frame = new byte[417];
@@ -79,6 +98,23 @@ internal static class TrackPreparationChecks
     private static void Require(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
+    }
+
+    private sealed class BlockDecoder(int channels, float[][] blocks) : IMp3SampleDecoder
+    {
+        public int Channels => channels;
+        public int SampleRate => PlaybackFormat.SampleRate;
+        public int Reads { get; private set; }
+
+        public int ReadSamples(float[] destination)
+        {
+            int block = Reads++;
+            if (block >= blocks.Length) return 0;
+            blocks[block].CopyTo(destination, 0);
+            return blocks[block].Length;
+        }
+
+        public void Dispose() { }
     }
 
     private sealed class TestDecoder(int reads, bool stopAtEnd = false, Action? onEnd = null) : IMp3SampleDecoder

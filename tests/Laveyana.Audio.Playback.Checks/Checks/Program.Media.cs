@@ -3,6 +3,7 @@ using Laveyana.Audio.Playback;
 
 internal static partial class Program
 {
+    /// <summary>Checks that disabling FFT preserves playback timing and discards pre-toggle windows.</summary>
     private static void CheckSpectrumCaptureToggle()
     {
         var source = new ContinuousPcm();
@@ -62,6 +63,16 @@ internal static partial class Program
         var freeFormat = Mp3AudioInfoReader.Read(source, CancellationToken.None);
         Require(freeFormat == new TrackAudioInfo("MP3", 44100, 128, false, TrackChannelMode.Stereo), "Invalid free-format MP3 properties.");
 
+        using var manyFrames = new CountingMemoryStream();
+        byte[] frame = CreateFrame(417, 0xfb, 0x90, 0x00);
+        for (int i = 0; i < 1000; i++) manyFrames.Write(frame);
+        manyFrames.Write(frame.AsSpan(0, 7)); // The final header has no complete frame.
+        var buffered = Mp3AudioInfoReader.Read(manyFrames, CancellationToken.None);
+        Require(buffered == new TrackAudioInfo("MP3", 44100, 128, false, TrackChannelMode.Stereo) &&
+            manyFrames.Position == 417_004 && manyFrames.Seeks < 25,
+            "MP3 properties changed across read-ahead windows or still seek frame by frame.");
+        Console.WriteLine($"OK: MP3 properties across read-ahead windows ({manyFrames.Seeks} seeks for 1,000 frames).");
+
         static byte[] CreateFrame(int length, byte versionLayer, byte rate, byte channel)
         {
             var bytes = new byte[length];
@@ -70,6 +81,20 @@ internal static partial class Program
             bytes[2] = rate;
             bytes[3] = channel;
             return bytes;
+        }
+    }
+
+    private sealed class CountingMemoryStream : MemoryStream
+    {
+        public int Seeks { get; private set; }
+        public override long Position
+        {
+            get => base.Position;
+            set
+            {
+                Seeks++;
+                base.Position = value;
+            }
         }
     }
 
