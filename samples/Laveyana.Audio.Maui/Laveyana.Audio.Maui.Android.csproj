@@ -1,9 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="TargetFramework">
-  <PropertyGroup>
-    <TargetFramework>net10.0-android</TargetFramework>
-  </PropertyGroup>
-  <Import Project="MauiApp.props" />
-  <ItemGroup>
-    <ProjectReference Include="../../src/Laveyana.Audio.Maui.Controls/Laveyana.Audio.Maui.Controls.Android.csproj" />
-  </ItemGroup>
-</Project>

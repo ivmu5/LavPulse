@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="TargetFramework">
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+  </PropertyGroup>
+  <Import Project="LavPulse.App.props" />
+  <ItemGroup>
+    <ProjectReference Include="../../src/LavPulse.Controls/LavPulse.Controls.Android.csproj" />
+  </ItemGroup>
+</Project>

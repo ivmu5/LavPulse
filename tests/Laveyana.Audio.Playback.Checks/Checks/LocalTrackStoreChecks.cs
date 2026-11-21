@@ -1,5 +1,5 @@
-using Laveyana.Audio.Maui.Controls;
-using Laveyana.Audio.Maui.Tracks;
+using Laveyana.LavPulse.Controls;
+using Laveyana.LavPulse.Tracks;
 using Laveyana.Audio.Playback;
 
 internal static class LocalTrackStoreChecks
