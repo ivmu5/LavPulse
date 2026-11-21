@@ -57,6 +57,8 @@ internal class TrackListRow : Border
     private Grid Layers { get; }
     protected double CoverOpacity { set => _cover.Opacity = value; }
 
+    internal void DrawLoadingPulse(double seconds) => Opacity = .76 + .24 * Math.Cos(seconds * 4.2);
+
     protected void SetDetails(View details) => Body.Add(details, 1);
     protected void SetActions(View actions) => _content.Add(actions, 1);
     protected void SetActionWidth(GridLength width)

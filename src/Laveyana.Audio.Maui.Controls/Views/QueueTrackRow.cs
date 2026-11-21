@@ -120,10 +120,7 @@ internal sealed class QueueTrackRow : TrackListRow
 
     public void Animate(double seconds)
     {
-        if (_loading)
-        {
-            Opacity = .76 + .24 * Math.Cos(seconds * 4.2);
-        }
+        if (_loading) DrawLoadingPulse(seconds);
         if (_text.IsOverflowing)
         {
             _text.Seconds = Stopwatch.GetElapsedTime(_marqueeStart).TotalSeconds;

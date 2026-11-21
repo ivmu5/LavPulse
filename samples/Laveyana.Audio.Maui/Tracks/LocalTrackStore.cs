@@ -145,7 +145,8 @@ internal sealed class LocalTrackStore(string root)
     {
         if (!ValidId(track.Id) || string.IsNullOrEmpty(track.Name) || !TrackFile.IsMp3(track.Name)) return null;
         string path = MediaPath(track.Id);
-        return File.Exists(path) ? TrackFile.FromPath(path) with { Name = track.Name } : null;
+        var info = new FileInfo(path);
+        return info.Exists ? TrackFile.FromPath(path) with { Name = track.Name, SizeBytes = info.Length } : null;
     }
 
     private static string FolderKey(IEnumerable<StoredFolder> folders) =>

@@ -49,8 +49,10 @@ internal static class PlatformTrackFolder
         const string mimeType = DocumentsContract.Document.ColumnMimeType;
         AndroidUri children = DocumentsContract.BuildChildDocumentsUriUsingTree(tree, folderId)
             ?? throw new IOException("Не удалось получить список файлов.");
-        using var cursor = resolver.Query(children, [documentId, displayName, mimeType], null, null, null)
+        using var cursor = resolver.Query(children, [documentId, displayName, mimeType,
+            DocumentsContract.Document.ColumnSize], null, null, null)
             ?? throw new IOException("Android не вернул список файлов.");
+        int sizeColumn = cursor.GetColumnIndex(DocumentsContract.Document.ColumnSize);
         var files = new List<TrackFile>();
         var folders = new List<TrackFolderSource>();
         while (cursor.MoveToNext())
@@ -64,8 +66,12 @@ internal static class PlatformTrackFolder
             if (cursor.GetString(2) == DocumentsContract.Document.MimeTypeDir)
                 folders.Add(OpenFolder(resolver, tree, uri, id, name));
             else if (TrackFile.IsMp3(name))
+            {
+                long? size = sizeColumn >= 0 && !cursor.IsNull(sizeColumn) ? cursor.GetLong(sizeColumn) : null;
                 files.Add(TrackFile.FromStream(name, () => Task.FromResult(
-                    resolver.OpenInputStream(uri) ?? throw new IOException($"Android не открыл {name}."))));
+                    resolver.OpenInputStream(uri) ?? throw new IOException($"Android не открыл {name}.")))
+                    with { SizeBytes = size is >= 0 ? size : null });
+            }
         }
 
         return TrackFolder.FromFiles(folderName, files) with

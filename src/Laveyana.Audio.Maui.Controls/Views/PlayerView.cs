@@ -36,6 +36,7 @@ public sealed class PlayerView : Grid
     private bool _playheadsAnimating;
     private bool _queueAnimating;
     private bool _uiClockActive;
+    private bool _uiFramesSuspended;
     private PlayingTrack? _latestCurrent;
     private PlayingTrack? _latestIncoming;
     private bool _latestCanSeek;
@@ -292,9 +293,12 @@ public sealed class PlayerView : Grid
     /// <summary>Replaces the player controls above the shared spectrum.</summary>
     public void ShowPanel(View? panel)
     {
+        if (Panel is TrackLibraryPanel previous) previous.ScanAnimationChanged -= SyncUiFrames;
         _panelHost.Content = panel;
         _panelHost.IsVisible = panel is not null;
         _body.IsVisible = panel is null;
+        if (panel is TrackLibraryPanel library) library.ScanAnimationChanged += SyncUiFrames;
+        SyncUiFrames();
     }
 
     /// <summary>Applies the saved palette and timeline settings to the player.</summary>
@@ -352,12 +356,22 @@ public sealed class PlayerView : Grid
         IncomingDeck.SnapOnNextPosition();
     }
 
-    public void RestartDisplayClock() => Spectrum.RestartDisplayClock();
+    public void RestartDisplayClock()
+    {
+        _uiFramesSuspended = false;
+        SyncUiFrames();
+        Spectrum.RestartDisplayClock();
+    }
 
     private void SyncUiFrames()
     {
-        bool needed = _queueAnimating || _deckEntrance is not null || _deckExit is not null ||
-            (!_queue.IsEditing && (_playheadsAnimating || CurrentDeck.IsScrubbing || IncomingDeck.IsScrubbing));
+        bool needed = !_uiFramesSuspended && (Panel switch
+        {
+            TrackLibraryPanel library => library.NeedsScanFrames,
+            null => _queueAnimating || _deckEntrance is not null || _deckExit is not null ||
+                (!_queue.IsEditing && (_playheadsAnimating || CurrentDeck.IsScrubbing || IncomingDeck.IsScrubbing)),
+            _ => false
+        });
         if (_uiClockActive == needed) return;
         _uiClockActive = needed;
         Spectrum.SetUiCallback(this, needed ? DrawUiFrame : null);
@@ -365,6 +379,11 @@ public sealed class PlayerView : Grid
 
     private void DrawUiFrame(double time)
     {
+        if (Panel is TrackLibraryPanel library)
+        {
+            library.DrawScanFrame(time);
+            return;
+        }
         if (_queueAnimating) _queue.DrawFrame(time);
         if (_deckEntrance is { } entrance && entrance.Advance(time)) _deckEntrance = null;
         if (_deckExit is { } exit && exit.Advance(time))
@@ -468,6 +487,7 @@ public sealed class PlayerView : Grid
 
     public void ResetAnimations()
     {
+        _uiFramesSuspended = true;
         Spectrum.Stop();
         SuspendPlayerAnimations();
     }

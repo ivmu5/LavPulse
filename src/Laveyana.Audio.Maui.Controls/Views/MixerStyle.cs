@@ -13,7 +13,7 @@ internal static partial class MixerStyle
     ];
     private const double ButtonFontSize = 12;
     internal const string ArtworkColorsResource = "LavPulse.ArtworkColors";
-    private const int ButtonIconSize = 24;
+    internal const int ButtonIconSize = 24;
 
     internal static bool IsPhone { get; } = DeviceInfo.Idiom == DeviceIdiom.Phone;
     internal static double PhoneFont(double regular, double compact) => IsPhone ? compact : regular;
