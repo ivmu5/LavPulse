@@ -39,11 +39,11 @@ public sealed partial class TrackLibraryPanel
             });
             _add.Clicked += async (_, _) =>
             {
-                if (_row is { } row) await _panel.ImportSelectedAsync(row, addToQueue: true);
+                if (_row is { } row) await _panel.ImportItemAsync(row, addToQueue: true);
             };
             _import.Clicked += async (_, _) =>
             {
-                if (_row is { } row) await _panel.ImportSelectedAsync(row, addToQueue: false);
+                if (_row is { } row) await _panel.ImportItemAsync(row, addToQueue: false);
             };
             _actions = new HorizontalStackLayout
             {
@@ -101,7 +101,7 @@ public sealed partial class TrackLibraryPanel
         {
             if (_row is not { } row) return;
             _chevron.Text = row.Expanded ? "▾" : "▸";
-            bool showActions = !_previewOnly && (row.Selected || _panel._editing);
+            bool showActions = !_previewOnly && _panel.ShowImportActions(row);
             _actions.IsVisible = showActions;
             SetActionWidth(showActions ? GridLength.Auto : new GridLength(0));
             SetInlineDelete(!_previewOnly && _panel._editing && _panel.CanRemove(row));

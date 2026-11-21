@@ -55,7 +55,7 @@ public sealed partial class TrackLibraryPanel : ContentView
         var back = MixerStyle.Button("Назад");
         back.Clicked += (_, _) => close();
         _pick.Clicked += async (_, _) => await RunAsync(PickAsync, "Не удалось открыть папку");
-        _saved.Clicked += async (_, _) => await InitializeAsync();
+        _saved.Clicked += (_, _) => TryReturnToSavedLibrary();
         _scanButton.Clicked += async (_, _) => await RunAsync(ScanAsync, "Не удалось пересканировать");
         _edit.Clicked += (_, _) => SetEditing(!_editing);
         var header = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
@@ -65,12 +65,12 @@ public sealed partial class TrackLibraryPanel : ContentView
         header.Add(back, 1);
         var actions = new Grid
         {
-            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto)],
+            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)],
             ColumnSpacing = 8
         };
         actions.Add(_pick);
         actions.Add(_saved, 1);
-        actions.Add(_edit, 2);
+        actions.Add(_edit, 1);
 
         _message.MaxLines = 2;
         _message.LineBreakMode = LineBreakMode.TailTruncation;
@@ -127,12 +127,36 @@ public sealed partial class TrackLibraryPanel : ContentView
 
     public Task InitializeAsync() => RunAsync(OpenLibraryAsync, "Не удалось открыть медиатеку");
 
+    public event Action? ImportFolderOpened;
+    public event Action<TrackFolderSource>? ImportFolderClosed;
+
+    public bool TryReturnToSavedLibrary()
+    {
+        if (_local || _rows.Count == 0) return false;
+        if (_busy) return true;
+        var root = _rows[0].Folders[0];
+        _ = RunAsync(async () =>
+        {
+            await OpenLibraryAsync();
+            _token.ThrowIfCancellationRequested();
+            ImportFolderClosed?.Invoke(root);
+        }, "Не удалось открыть медиатеку");
+        return true;
+    }
+
+    public bool TryReopenImportFolder(TrackFolderSource root)
+    {
+        if (!_local || _busy || _closed) return false;
+        _ = RunAsync(() => ShowRootAsync(root, local: false), "Не удалось открыть папку");
+        return true;
+    }
+
     public void Cancel()
     {
         if (_closed) return;
         _closed = true;
         _session.Cancel();
-        DismissDeleteAction();
+        ResetEditing();
         _scanPreview.Bind(null);
         _tree.SetItems([]);
         _session.Dispose();
@@ -142,7 +166,10 @@ public sealed partial class TrackLibraryPanel : ContentView
 
     private async Task PickAsync()
     {
-        if (await _pickFolder() is { } root) await ShowRootAsync(root, local: false);
+        if (await _pickFolder() is not { } root) return;
+        await ShowRootAsync(root, local: false);
+        _token.ThrowIfCancellationRequested();
+        ImportFolderOpened?.Invoke();
     }
 
     private async Task ShowRootAsync(TrackFolderSource root, bool local, bool preservePosition = false)
@@ -262,13 +289,14 @@ public sealed partial class TrackLibraryPanel : ContentView
 
     private TrackLibrarySelection SelectionFor(TreeRow row) => new(row.Folders, row.File, _local);
 
-    private Task ImportSelectedAsync(TreeRow row, bool addToQueue)
+    private bool ShowImportActions(TreeRow row) => !_local || row.File is null || row.Selected || _editing;
+
+    private Task ImportItemAsync(TreeRow row, bool addToQueue)
     {
-        if (!_editing && !ReferenceEquals(row, _selected)) return Task.CompletedTask;
+        if (!ShowImportActions(row) || (!addToQueue && _local)) return Task.CompletedTask;
         return RunAsync(async () =>
         {
             var selection = SelectionFor(row);
-            if (!addToQueue && selection.Local) return;
             _message.Text = addToQueue && _local ? "Добавляю в очередь…" : "Сохраняю MP3…";
             int count = await _import(selection, addToQueue);
             _token.ThrowIfCancellationRequested();
@@ -318,10 +346,18 @@ public sealed partial class TrackLibraryPanel : ContentView
 
     private void SetEditing(bool editing)
     {
-        if (_busy) return;
+        if (!_local || _busy) return;
         DismissDeleteAction();
         _editing = editing;
         UpdateActions();
+    }
+
+    public void ResetEditing()
+    {
+        DismissDeleteAction();
+        if (!_editing) return;
+        _editing = false;
+        if (!_closed) UpdateActions();
     }
 
     public bool TryCloseEditing()
@@ -351,7 +387,7 @@ public sealed partial class TrackLibraryPanel : ContentView
     private void UpdateActions()
     {
         _pick.IsEnabled = _saved.IsEnabled = _edit.IsEnabled = !_busy;
-        _edit.IsVisible = _selected is not null;
+        _edit.IsVisible = _local && _selected is not null;
         MixerStyle.SetListEditButton(_edit, _editing);
         _saved.IsVisible = !_local && _selected is not null;
         bool folder = _selected?.File is null;

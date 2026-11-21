@@ -30,8 +30,8 @@ public sealed partial class MainPage
         PlayerPreferences.SaveEqualizer(_equalizer);
     }
 
-    private void OpenEqualizer() =>
-        OpenPanel(() => new EqualizerPanel(_equalizer, ApplyEqualizer, ClosePanel));
+    private bool OpenEqualizer() =>
+        OpenPanel(() => new EqualizerPanel(_equalizer, ApplyEqualizer, ClosePanel)) is not null;
 
     private void SelectRecommendations(bool enabled)
     {
@@ -40,30 +40,44 @@ public sealed partial class MainPage
         UpdateTransport();
     }
 
-    private void OpenSettings() =>
-        OpenPanel(() => new PlayerSettingsPanel(_settings, value => ApplySettings(value), ClosePanel, PreviewAppearance));
-
-    private void OpenPanel(Func<View> createPanel)
+    private bool OpenSettings()
     {
-        if (_closed || _view.Panel is not null) return;
+        var settings = OpenPanel(() =>
+            new PlayerSettingsPanel(_settings, value => ApplySettings(value), ClosePanel, PreviewAppearance));
+        if (settings is null) return false;
+        settings.PaletteEditingChanged += editing =>
+        {
+            if (editing) RecordOpeningScreen();
+            else _forwardNavigation.Push(() => _view.Panel is PlayerSettingsPanel panel && panel.TryOpenPaletteEditor());
+        };
+        return true;
+    }
+
+    private TPanel? OpenPanel<TPanel>(Func<TPanel> createPanel) where TPanel : View
+    {
+        if (_closed || _view.Panel is not null) return null;
         try
         {
             var panel = createPanel();
             _view.ShowPanel(panel);
             _view.SuspendPlayerAnimations();
             UpdatePositionRefreshInterval();
+            RecordOpeningScreen();
+            return panel;
         }
         catch (Exception ex)
         {
             ClosePanel();
             _view.Status.Text = $"Не удалось открыть панель. {ex.Message}";
+            return null;
         }
     }
 
     private void ClosePanel()
     {
-        if (_view.Panel is null) return;
+        if (_view.Panel is not { } panel) return;
         SaveOpenEqualizer();
+        if (panel is TrackLibraryPanel library) library.Cancel();
 
         var snapshot = _playback.Snapshot;
         UpdatePositions(snapshot);
@@ -75,6 +89,7 @@ public sealed partial class MainPage
         }
         UpdatePositionRefreshInterval();
         if (IsPlayerVisible) RestorePlayer(snapshot);
+        RecordClosingPanel(panel);
     }
 
     private void SaveOpenEqualizer()
@@ -84,19 +99,6 @@ public sealed partial class MainPage
             equalizer.CommitPendingEdits();
             PlayerPreferences.SaveEqualizer(_equalizer);
         }
-    }
-
-    protected override bool OnBackButtonPressed()
-    {
-        if (_view.Panel is null) return _view.TryCloseQueueEditor() || base.OnBackButtonPressed();
-        if (_view.Panel is TrackLibraryPanel library)
-        {
-            if (!library.TryCloseEditing()) CloseTrackLibrary();
-            return true;
-        }
-        if (_view.Panel is PlayerSettingsPanel settings && settings.TryClosePaletteEditor()) return true;
-        ClosePanel();
-        return true;
     }
 
     private void PreviewAppearance(PlayerSettings draft)

@@ -5,7 +5,7 @@ namespace Laveyana.Audio.Maui.Controls;
 /// <summary>Scrolls and reuses fixed-height track rows, keeping only the viewport and its neighbors attached.</summary>
 internal sealed class TrackListView<TItem, TRow> : ScrollView where TItem : class where TRow : TrackListRow
 {
-    private readonly AbsoluteLayout _content = new();
+    private readonly AbsoluteLayout _content = new() { VerticalOptions = LayoutOptions.Start };
     private readonly Label _empty = MixerStyle.Label("", MixerStyle.PhoneFont(12, 11), MixerColor.Muted);
     private readonly Func<TRow> _create;
     private readonly Action<TRow, TItem, int> _bind;

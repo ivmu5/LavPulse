@@ -199,7 +199,7 @@ public sealed partial class PlayerSettingsPanel : ContentView
             choice => Preview(_settings with { Palette = choice }));
         var edit = MixerStyle.Button("Настроить свою палитру");
         edit.HorizontalOptions = LayoutOptions.Fill;
-        edit.Clicked += (_, _) => OpenPaletteEditor();
+        edit.Clicked += (_, _) => TryOpenPaletteEditor();
         var sections = new VerticalStackLayout
         {
             Spacing = 8,

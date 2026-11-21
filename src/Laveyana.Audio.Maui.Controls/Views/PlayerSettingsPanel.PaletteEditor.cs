@@ -4,9 +4,11 @@ namespace Laveyana.Audio.Maui.Controls;
 
 public sealed partial class PlayerSettingsPanel
 {
-    private void OpenPaletteEditor()
+    public event Action<bool>? PaletteEditingChanged;
+
+    public bool TryOpenPaletteEditor()
     {
-        if (_paletteEditorHost.IsVisible) return;
+        if (_paletteEditorHost.IsVisible) return false;
         _paletteEditorHost.Content = new PaletteEditor(_settings, colors =>
         {
             _settings = _settings with { Palette = PlayerPalette.Custom, CustomColors = colors };
@@ -16,6 +18,8 @@ public sealed partial class PlayerSettingsPanel
         }, () => TryClosePaletteEditor());
         _settingsLayout.IsEnabled = false;
         _paletteEditorHost.IsVisible = true;
+        PaletteEditingChanged?.Invoke(true);
+        return true;
     }
 
     /// <summary>Dismisses the palette editor first when the platform's Back action is used.</summary>
@@ -25,6 +29,7 @@ public sealed partial class PlayerSettingsPanel
         _paletteEditorHost.IsVisible = false;
         _paletteEditorHost.Content = null;
         _settingsLayout.IsEnabled = true;
+        PaletteEditingChanged?.Invoke(false);
         return true;
     }
 

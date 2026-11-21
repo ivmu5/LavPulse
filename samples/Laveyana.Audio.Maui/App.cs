@@ -23,6 +23,7 @@ public sealed class App : Application
         {
             if (window.Handler?.PlatformView is Microsoft.UI.Xaml.Window native)
             {
+                WindowsMouseNavigation.Attach(native, page.TryNavigateBack, page.TryNavigateForward);
                 native.VisibilityChanged += OnVisibilityChanged;
                 window.Destroying += (_, _) => native.VisibilityChanged -= OnVisibilityChanged;
             }
