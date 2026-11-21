@@ -12,6 +12,7 @@
     <Compile Include="../../samples/Laveyana.Audio.Maui/Tracks/TrackFolderReader.cs" Link="TrackFolderReader.cs" />
     <Compile Include="../../samples/Laveyana.Audio.Maui/Tracks/LocalTrackStore.cs" Link="LocalTrackStore.cs" />
     <Compile Include="../../samples/Laveyana.Audio.Maui/Tracks/QueueTrackAnalysis.cs" Link="QueueTrackAnalysis.cs" />
+    <Compile Include="../../src/Laveyana.Audio.Maui.Controls/Views/TrackListLayout.cs" Link="TrackListLayout.cs" />
     <Compile Include="../../src/Laveyana.Audio.Maui.Controls/Views/QueueViewport.cs" Link="QueueViewport.cs" />
     <Compile Include="../../src/Laveyana.Audio.Maui.Controls/Views/SpectrumFrameClock.cs" Link="SpectrumFrameClock.cs" />
   </ItemGroup>

@@ -13,6 +13,7 @@ try
     CheckQueuePreservesOrderOnDirectSelection();
     CheckQueueChangesDuringPreparation();
     CheckQueueViewport();
+    CheckTrackListLayout();
     await CheckInterruptedQueueAnalysis();
     await CheckQueueAnalysisLookahead();
     CheckMp3AudioInfo();
@@ -51,11 +52,11 @@ static void CheckQueueViewport()
         QueueViewport.CanFollow(last, last + 10 * Stopwatch.Frequency),
         "Queue follow must respect the full idle interval.");
 
-    const int rowHeight = 54;
-    const int stride = 59;
+    const int rowHeight = TrackListLayout.RowHeight;
+    const int stride = TrackListLayout.Stride;
     const int viewport = 236;
-    const int tenRows = 9 * stride + rowHeight;
-    double content = QueueViewport.ContentHeight(tenRows, viewport, rowHeight, alignToTop: true);
+    double tenRows = TrackListLayout.RowsHeight(10);
+    double content = tenRows + QueueViewport.EndPadding(viewport, rowHeight);
     Require(QueueViewport.TrackOffset(9, stride, rowHeight, viewport, content, center: false) == 9 * stride,
         "The last track could not appear first while retaining the played history.");
     Require(QueueViewport.TrackOffset(5, stride, rowHeight, viewport, tenRows, center: true) ==
@@ -65,6 +66,25 @@ static void CheckQueueViewport()
         QueueViewport.TrackOffset(9, stride, rowHeight, viewport, tenRows, center: true) == tenRows - viewport,
         "The queue editor scrolled beyond the available rows.");
     Console.WriteLine("OK: queue follow interval, final-row alignment, and editor centering.");
+}
+
+static void CheckTrackListLayout()
+{
+    const int stride = TrackListLayout.Stride;
+    const int viewport = 4 * stride;
+    Require(TrackListLayout.RealizedRange(1000, 100 * stride, viewport) == (98, 106),
+        "A track list attached rows outside the viewport and its overscan.");
+    Require(TrackListLayout.RealizedRange(0, 0, viewport) == (0, 0) &&
+        TrackListLayout.RealizedRange(3, 2 * stride, viewport).End == 3,
+        "An empty or short track list realized missing rows.");
+
+    const int offset = 8 * stride;
+    double survivingRows = TrackListLayout.RowsHeight(10);
+    double padding = TrackListLayout.PaddingToKeepOffset(10, offset, viewport);
+    Require(survivingRows + padding - viewport == offset &&
+        TrackListLayout.PaddingToKeepOffset(50, offset, viewport) == 0,
+        "Collapsing a folder changed its scroll offset or retained unnecessary space.");
+    Console.WriteLine("OK: shared track list virtualization and folder collapse offset.");
 }
 
 static void CheckQueueChangesDuringPreparation()

@@ -21,7 +21,7 @@ internal sealed partial class TrackQueueView
     private bool CanFollowTrack => _dragging is null && (IsEditing
         ? QueueViewport.CanFollow(_lastEditorInteraction, Stopwatch.GetTimestamp()) : PlayerQueueIdle);
 
-    private double TrackRowsHeight => _tracks.Count == 0 ? QueueTrackRow.RowHeight : (double)_tracks.Count * RowStride - 5;
+    private double TrackRowsHeight => TrackListLayout.RowsHeight(_tracks.Count);
 
     private void OnQueueScrolled(object? sender, ScrolledEventArgs args)
     {
@@ -35,7 +35,6 @@ internal sealed partial class TrackQueueView
                 RecordQueueInteraction();
             _lastQueueScrollY = args.ScrollY;
         }
-        RefreshRows();
     }
 
     private void RecordQueueInteraction()
@@ -91,7 +90,7 @@ internal sealed partial class TrackQueueView
         // A new editor/player layout can still report its previous viewport on the first dispatch.
         if (_switchingViewport && Math.Abs(viewport - _queueScroll.HeightRequest) > 1) return;
 
-        double contentHeight = _rows.HeightRequest;
+        double contentHeight = _queueScroll.ContentHeight;
         int index = _followingTrack && _currentTrack is { } track ? IndexOf(track) : -1;
         if (index < 0 && _restorePlayerOffset is null)
         {
@@ -100,11 +99,11 @@ internal sealed partial class TrackQueueView
             return;
         }
         double offset = index >= 0
-            ? QueueViewport.TrackOffset(index, RowStride, QueueTrackRow.RowHeight, viewport, contentHeight, IsEditing)
+            ? QueueViewport.TrackOffset(index, RowStride, TrackListLayout.RowHeight, viewport, contentHeight, IsEditing)
             : Math.Clamp(_restorePlayerOffset.GetValueOrDefault(), 0, Math.Max(0, contentHeight - viewport));
 
         // Wait for the native scroll content to include any new space after the last row.
-        if (offset > 0 && _rows.Height + 1 < offset + viewport) return;
+        if (offset > 0 && _queueScroll.MeasuredContentHeight + 1 < offset + viewport) return;
 
         _followingTrack = false;
         _restorePlayerOffset = null;

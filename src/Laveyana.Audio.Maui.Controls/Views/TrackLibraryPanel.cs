@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using System.Threading;
 using Laveyana.Audio.Playback;
 
@@ -10,9 +9,7 @@ public sealed record TrackLibrarySelection(IReadOnlyList<TrackFolderSource> Fold
 /// <summary>Browses saved imports or a selected source without opening collapsed directories.</summary>
 public sealed partial class TrackLibraryPanel : ContentView
 {
-    private const int RowHeight = 62;
-    private readonly CollectionView _tree;
-    private readonly BoxView _scrollSpacer = new() { HeightRequest = 0, InputTransparent = true };
+    private readonly TrackListView<TreeRow, LibraryTreeItem> _tree;
     private readonly Func<Task<TrackFolderSource?>> _pickFolder;
     private readonly Func<Task<TrackFolderSource>> _openLibrary;
     private readonly Func<TrackLibrarySelection, bool, Task<int>> _import;
@@ -20,7 +17,7 @@ public sealed partial class TrackLibraryPanel : ContentView
     private readonly Func<TrackLibrarySelection, Action<int, int>, CancellationToken, Task<(int Scanned, int Failed)>> _scan;
     private readonly CancellationTokenSource _session;
     private readonly CancellationToken _token;
-    private readonly ObservableCollection<TreeRow> _rows = [];
+    private readonly List<TreeRow> _rows = [];
     private readonly Label _message = MixerStyle.Label("", 11, MixerColor.Muted);
     private readonly Label _heading = MixerStyle.Label("Медиатека", MixerStyle.PhoneFont(23, 20), bold: true);
     private readonly Button _pick = MixerStyle.Button("Папка", icon: "player_folder.png");
@@ -88,20 +85,13 @@ public sealed partial class TrackLibraryPanel : ContentView
         footer.Add(_nestedOption, row: 1);
         footer.Add(_scanButton, row: 2);
 
-        _tree = new CollectionView
-        {
-            SelectionMode = SelectionMode.None,
-            ItemSizingStrategy = ItemSizingStrategy.MeasureFirstItem,
-            ItemsUpdatingScrollMode = ItemsUpdatingScrollMode.KeepScrollOffset,
-            ItemTemplate = new DataTemplate(() => new LibraryTreeItem(this)),
-            Footer = _scrollSpacer,
-            ItemsSource = _rows
-        };
+        _tree = new TrackListView<TreeRow, LibraryTreeItem>(() => new LibraryTreeItem(this),
+            (view, item, _) => view.Bind(item), view => view.Bind(null));
         _tree.Scrolled += (_, args) =>
         {
             double previous = _scrollOffset;
-            _scrollOffset = Math.Max(0, args.VerticalOffset);
-            if (!_busy && _scrollOffset < previous && _scrollSpacer.HeightRequest > 0)
+            _scrollOffset = Math.Max(0, args.ScrollY);
+            if (!_busy && _scrollOffset < previous && _tree.EndPadding > 0)
                 KeepScrollOffset(_rows.Count);
         };
         int top = 16;
@@ -134,6 +124,7 @@ public sealed partial class TrackLibraryPanel : ContentView
         if (_closed) return;
         _closed = true;
         _session.Cancel();
+        _tree.SetItems([]);
         _session.Dispose();
     }
 
@@ -152,16 +143,19 @@ public sealed partial class TrackLibraryPanel : ContentView
         _listings.Add(root.Id, listing);
         _expanded.Clear();
         _expanded.Add(root.Id);
-        _scrollOffset = _scrollSpacer.HeightRequest = 0;
+        _scrollOffset = 0;
+        _tree.SetEndPadding(0);
         _rows.Clear();
         _local = local;
         var row = new TreeRow([root], null) { Expanded = true, Selected = true };
         _selected = row;
         _rows.Add(row);
-        InsertChildren(row, listing, 1);
+        _rows.AddRange(ExpandedRows(row, listing));
+        _tree.SetItems(_rows);
         _nested.IsChecked = false;
         _heading.Text = local ? "Медиатека" : "Импорт папки";
         _message.Text = listing is { Files.Count: 0, Children.Count: 0 } ? "Здесь пока нет MP3." : "";
+        if (_tree.ScrollY > 0) await _tree.ScrollToAsync(0, 0, animated: false);
     }
 
     private async Task SelectAsync(TreeRow row)
@@ -176,7 +170,7 @@ public sealed partial class TrackLibraryPanel : ContentView
                 int end = index + 1;
                 while (end < _rows.Count && _rows[end].Depth > row.Depth) end++;
                 KeepScrollOffset(_rows.Count - (end - index - 1));
-                for (int i = end - 1; i > index; i--) _rows.RemoveAt(i);
+                _rows.RemoveRange(index + 1, end - index - 1);
                 _expanded.Remove(folder.Id);
             }
             else
@@ -185,8 +179,8 @@ public sealed partial class TrackLibraryPanel : ContentView
                     _listings.Add(folder.Id, listing = await folder.ReadAsync(_token));
                 _token.ThrowIfCancellationRequested();
                 _expanded.Add(folder.Id);
-                InsertChildren(row, listing, index + 1);
-                if (_scrollSpacer.HeightRequest > 0) KeepScrollOffset(_rows.Count);
+                _rows.InsertRange(index + 1, ExpandedRows(row, listing));
+                if (_tree.EndPadding > 0) KeepScrollOffset(_rows.Count);
             }
             row.Expanded = !row.Expanded;
         }
@@ -198,29 +192,30 @@ public sealed partial class TrackLibraryPanel : ContentView
         _selected = row;
         row.Selected = true;
         row.Refresh();
+        if (row.File is null) _tree.SetItems(_rows);
         _message.Text = "";
     }
 
     private void KeepScrollOffset(int remainingRows)
     {
-        // A short list would otherwise clamp the offset and move the collapsed folder.
-        double space = _scrollOffset > 0 ? _scrollOffset + _tree.Height - (double)remainingRows * RowHeight : 0;
-        _scrollSpacer.HeightRequest = Math.Ceiling(Math.Max(0, space));
+        // Keep the collapsed folder in place even if there are too few rows left below it.
+        _tree.SetEndPadding(TrackListLayout.PaddingToKeepOffset(remainingRows, _scrollOffset, _tree.Height));
     }
 
-    private int InsertChildren(TreeRow row, TrackFolder listing, int index)
+    private IEnumerable<TreeRow> ExpandedRows(TreeRow row, TrackFolder listing)
     {
         foreach (var child in listing.Children)
         {
             if (row.Folders.Any(parent => parent.Id == child.Id)) continue;
             var visible = new TreeRow([.. row.Folders, child], null) { Expanded = _expanded.Contains(child.Id) };
-            _rows.Insert(index++, visible);
+            yield return visible;
             if (visible.Expanded && _listings.TryGetValue(child.Id, out var contents))
-                index = InsertChildren(visible, contents, index);
+            {
+                foreach (var descendant in ExpandedRows(visible, contents)) yield return descendant;
+            }
         }
         foreach (var file in listing.Files)
-            _rows.Insert(index++, new TreeRow(row.Folders, file));
-        return index;
+            yield return new TreeRow(row.Folders, file);
     }
 
     private TrackLibrarySelection? Selection => _selected is { } row
