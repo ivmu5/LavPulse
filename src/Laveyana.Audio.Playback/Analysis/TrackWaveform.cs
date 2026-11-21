@@ -1,3 +1,5 @@
+using System.Numerics;
+
 namespace Laveyana.Audio.Playback;
 
 public readonly record struct WaveformPoint(float Peak, float Low, float Mid, float High)
@@ -23,7 +25,8 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         var right = new BandFilter();
         var pcm = new float[4096 * channels];
         var points = new List<WaveformPoint>();
-        WaveformPoint point = default;
+        Vector4 leftPeak = Vector4.Zero;
+        Vector4 rightPeak = Vector4.Zero;
         int framesInPoint = 0;
         long totalFrames = 0;
 
@@ -37,33 +40,37 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
             }
 
             totalFrames += frames;
-            for (int frame = 0; frame < frames; frame++)
+            int offset = 0;
+            while (offset < frames)
             {
-                int sample = frame * channels;
-                point = point.Combine(left.Process(pcm[sample], bass, treble))
-                    .Combine(right.Process(pcm[sample + 1], bass, treble));
-                if (++framesInPoint == framesPerPoint)
+                int count = Math.Min(frames - offset, framesPerPoint - framesInPoint);
+                int end = (offset + count) * channels;
+                for (int sample = offset * channels; sample < end; sample += channels)
                 {
-                    points.Add(point);
-                    point = default;
-                    framesInPoint = 0;
-                    if (points.Count == maxPoints)
-                    {
-                        for (int i = 0; i < maxPoints / 2; i++)
-                        {
-                            points[i] = points[2 * i].Combine(points[2 * i + 1]);
-                        }
-
-                        points.RemoveRange(maxPoints / 2, maxPoints / 2);
-                        framesPerPoint = checked(framesPerPoint * 2);
-                    }
+                    leftPeak = Vector4.Max(leftPeak, left.Process(pcm[sample], bass, treble));
+                    rightPeak = Vector4.Max(rightPeak, right.Process(pcm[sample + 1], bass, treble));
                 }
+                offset += count;
+                framesInPoint += count;
+                if (framesInPoint != framesPerPoint) continue;
+
+                points.Add(ToPoint(Vector4.Max(leftPeak, rightPeak)));
+                leftPeak = rightPeak = Vector4.Zero;
+                framesInPoint = 0;
+                if (points.Count != maxPoints) continue;
+
+                for (int i = 0; i < maxPoints / 2; i++)
+                {
+                    points[i] = points[2 * i].Combine(points[2 * i + 1]);
+                }
+                points.RemoveRange(maxPoints / 2, maxPoints / 2);
+                framesPerPoint = checked(framesPerPoint * 2);
             }
         }
 
         if (framesInPoint > 0)
         {
-            points.Add(point);
+            points.Add(ToPoint(Vector4.Max(leftPeak, rightPeak)));
         }
 
         if (totalFrames == 0)
@@ -73,6 +80,8 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
 
         return new TrackWaveform(points.AsReadOnly(), totalFrames, framesPerPoint);
     }
+
+    private static WaveformPoint ToPoint(Vector4 peak) => new(peak.X, peak.Y, peak.Z, peak.W);
 
     /// <summary>Computes the smoothing coefficient for a one-pole frequency split.</summary>
     private static float FilterCoefficient(int sampleRate, int cutoffHz)
@@ -84,12 +93,11 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         private float _lowAndMid;
 
         /// <summary>Updates the filter state and returns the signal and band amplitudes.</summary>
-        public WaveformPoint Process(float sample, float bass, float treble)
+        public Vector4 Process(float sample, float bass, float treble)
         {
             _low += bass * (sample - _low);
             _lowAndMid += treble * (sample - _lowAndMid);
-            return new WaveformPoint(Math.Abs(sample), Math.Abs(_low),
-                Math.Abs(_lowAndMid - _low), Math.Abs(sample - _lowAndMid));
+            return Vector4.Abs(new Vector4(sample, _low, _lowAndMid - _low, sample - _lowAndMid));
         }
     }
 }

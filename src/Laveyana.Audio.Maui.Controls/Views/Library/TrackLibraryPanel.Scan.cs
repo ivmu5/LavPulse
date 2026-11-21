@@ -97,6 +97,7 @@ public sealed partial class TrackLibraryPanel
             _scanBatch = null;
             if (!_token.IsCancellationRequested && completed.Count > 0)
             {
+                _metadataCache.Invalidate(completed);
                 foreach (var row in _rows)
                 {
                     if (row.File?.LocalPath is { } path && completed.Contains(path)) row.RefreshMetadata();

@@ -66,11 +66,33 @@ internal static class LocalTrackStoreChecks
         await CheckScanOrderAsync(tracks);
         await CheckFolderLibraryAsync(directory);
         await CheckLegacyQueueAsync(directory, first);
+        CheckMetadataCache();
         Console.WriteLine("OK: durable track copies, queue restore, saved waveform reuse and ordered analysis.");
         Console.WriteLine("OK: track storage sizes, including analysis and PCM cache eviction.");
 
         long AnalysisBytes(TrackFile file) => new FileInfo(Path.Combine(root, "analysis-v1",
             Path.GetFileNameWithoutExtension(file.LocalPath) + ".json")).Length;
+    }
+
+    private static void CheckMetadataCache()
+    {
+        var cache = new TrackMetadataCache();
+        var first = TrackFile.FromPath("first.mp3");
+        var second = TrackFile.FromPath("second.mp3");
+        var thumbnail = new TrackMetadata("Title", "Artist", new byte[3 * 1024 * 1024]);
+        cache.Store(first, thumbnail);
+        Require(ReferenceEquals(cache.Get(first), thumbnail), "A recycled row could not reuse its metadata.");
+        cache.Store(second, thumbnail);
+        Require(cache.Get(first) is null && ReferenceEquals(cache.Get(second), thumbnail),
+            "The library metadata cache exceeded its artwork budget.");
+        cache.Invalidate(new HashSet<string> { second.LocalPath! });
+        Require(cache.Get(second) is null, "A rescan did not discard the cached thumbnail.");
+
+        var textOnly = thumbnail with { Artwork = default };
+        cache.Store(first, textOnly);
+        for (int i = 0; i < 96; i++) cache.Store(TrackFile.FromPath($"track-{i}.mp3"), textOnly);
+        Require(cache.Get(first) is null, "Track tags without artwork bypassed the cache's entry limit.");
+        Console.WriteLine("OK: bounded library metadata reuse and rescan invalidation.");
     }
 
     private static async Task CheckFolderLibraryAsync(string directory)
@@ -130,8 +152,12 @@ internal static class LocalTrackStoreChecks
         Require(restored.Tracks.Length == 1, "Library-only tracks were returned to the playback queue.");
         var libraryRoot = reopened.OpenLibrary(reopened.LibrarySnapshot());
         var library = await libraryRoot.ReadAsync(default);
+        Require(ReferenceEquals(library, await libraryRoot.ReadAsync(default)),
+            "The same catalog snapshot rebuilt its sorted list of folders.");
         var albumFolder = library.Children.Single(folder => folder.Name == "Album");
         var album = await albumFolder.ReadAsync(default);
+        Require(ReferenceEquals(album, await albumFolder.ReadAsync(default)),
+            "Reopening a folder rebuilt its sorted tracks.");
         var nested = await album.Children.Single().ReadAsync(default);
         Require(nested.Files.Single().LocalPath == queued[^1].LocalPath &&
             album.Files.Select(file => file.Name).SequenceEqual(["a.mp3", "b.MP3"]),
