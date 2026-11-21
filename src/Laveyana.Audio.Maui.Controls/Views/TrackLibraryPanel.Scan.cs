@@ -14,6 +14,26 @@ public sealed partial class TrackLibraryPanel
     private readonly Button _skipScan = MixerStyle.Button("Пропустить", icon: "player_next.png");
     private readonly Button _stopScan = MixerStyle.Button("Остановить", icon: "player_cancel.png");
     private TrackScanBatch? _scanBatch;
+    private double? _scanPulseStart;
+
+    internal event Action? ScanAnimationChanged;
+    internal bool NeedsScanFrames => _scanPreview.IsVisible;
+
+    internal void DrawScanFrame(double time)
+    {
+        if (!NeedsScanFrames) return;
+        _scanPulseStart ??= time;
+        _scanPreview.DrawLoadingPulse(time - _scanPulseStart.Value);
+    }
+
+    private void SetScanPreviewVisible(bool visible)
+    {
+        if (_scanPreview.IsVisible == visible) return;
+        _scanPreview.IsVisible = visible;
+        _scanPreview.Opacity = 1;
+        _scanPulseStart = null;
+        ScanAnimationChanged?.Invoke();
+    }
 
     private View CreateScanPanel()
     {
@@ -46,7 +66,7 @@ public sealed partial class TrackLibraryPanel
         _scanBatch = batch;
         _scanButton.IsVisible = false;
         _scanPanel.IsVisible = true;
-        _scanPreview.IsVisible = false;
+        SetScanPreviewVisible(false);
         _skipScan.IsEnabled = false;
         _stopScan.IsEnabled = true;
         _scanPosition.Text = "Подготовка к сканированию…";
@@ -70,6 +90,7 @@ public sealed partial class TrackLibraryPanel
         }
         finally
         {
+            SetScanPreviewVisible(false);
             _scanPreview.Bind(null);
             _scanPanel.IsVisible = false;
             _scanBatch = null;
@@ -88,8 +109,8 @@ public sealed partial class TrackLibraryPanel
         _scanPosition.Text = $"Сканируется {index} / {total}";
         _scanProgress.Progress = (double)(index - 1) / total;
         SemanticProperties.SetDescription(_scanProgress, _scanPosition.Text);
-        _scanPreview.IsVisible = true;
         _scanPreview.Bind(new TreeRow([], file));
+        SetScanPreviewVisible(true);
         _skipScan.IsEnabled = true;
     }
 }

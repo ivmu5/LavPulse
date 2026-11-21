@@ -6,7 +6,7 @@ namespace Laveyana.Audio.Maui.Controls;
 public sealed record TrackLibrarySelection(IReadOnlyList<TrackFolderSource> Folders, TrackFile? File,
     bool Local);
 
-/// <summary>Browses saved imports or a selected source without opening collapsed directories.</summary>
+/// <summary>Browses saved imports or a selected source and displays the tracks in expanded folders.</summary>
 public sealed partial class TrackLibraryPanel : ContentView
 {
     private readonly TrackListView<TreeRow, LibraryTreeItem> _tree;
@@ -82,7 +82,7 @@ public sealed partial class TrackLibraryPanel : ContentView
         };
         footer.Add(_message);
         footer.Add(_scanButton, row: 1);
-        _scanPreview = new LibraryTreeItem(this, previewOnly: true);
+        _scanPreview = new LibraryTreeItem(this, previewOnly: true) { IsVisible = false };
         _scanPanel = CreateScanPanel();
         footer.Add(_scanPanel, row: 1);
 
@@ -156,7 +156,9 @@ public sealed partial class TrackLibraryPanel : ContentView
         if (_closed) return;
         _closed = true;
         _session.Cancel();
+        ResetFolderSizes();
         ResetEditing();
+        SetScanPreviewVisible(false);
         _scanPreview.Bind(null);
         _tree.SetItems([]);
         _session.Dispose();
@@ -193,6 +195,7 @@ public sealed partial class TrackLibraryPanel : ContentView
         }
 
         _token.ThrowIfCancellationRequested();
+        ResetFolderSizes();
         _rows.Clear();
         _local = local;
         var row = new TreeRow([root], null) { Expanded = _expanded.Contains(root.Id) };
@@ -202,6 +205,7 @@ public sealed partial class TrackLibraryPanel : ContentView
         _selected.Selected = true;
         if (preservePosition) KeepScrollOffset(_rows.Count);
         _tree.SetItems(_rows);
+        _ = ReadFolderSizesAsync(root, listing);
         _heading.Text = local ? "Медиатека" : "Импорт папки";
         _message.Text = listing is { Files.Count: 0, Children.Count: 0 } ? "Здесь пока нет MP3." : "";
         if (!preservePosition && _tree.ScrollY > 0) await _tree.ScrollToAsync(0, 0, animated: false);
@@ -289,11 +293,9 @@ public sealed partial class TrackLibraryPanel : ContentView
 
     private TrackLibrarySelection SelectionFor(TreeRow row) => new(row.Folders, row.File, _local);
 
-    private bool ShowImportActions(TreeRow row) => !_local || row.File is null || row.Selected || _editing;
-
     private Task ImportItemAsync(TreeRow row, bool addToQueue)
     {
-        if (!ShowImportActions(row) || (!addToQueue && _local)) return Task.CompletedTask;
+        if (!addToQueue && _local) return Task.CompletedTask;
         return RunAsync(async () =>
         {
             var selection = SelectionFor(row);

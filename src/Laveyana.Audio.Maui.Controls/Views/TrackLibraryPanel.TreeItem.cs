@@ -14,8 +14,8 @@ public sealed partial class TrackLibraryPanel
         private readonly Label _chevron = MixerStyle.Label("", 14, MixerColor.Accent);
         private readonly Label _title = TrackLabel(MixerStyle.PhoneFont(13, 12), MixerColor.Text, bold: true);
         private readonly Label _details = TrackLabel(MixerStyle.PhoneFont(11, 10), MixerColor.Muted);
+        private readonly Label _size = TrackLabel(MixerStyle.PhoneFont(11, 10), MixerColor.Muted);
         private readonly HorizontalStackLayout _folder;
-        private readonly HorizontalStackLayout _actions;
         private readonly ImageButton _add = MixerStyle.IconButton("player_queue_add.png", 36);
         private readonly ImageButton _import = MixerStyle.IconButton("player_import.png", 36);
         private TreeRow? _row;
@@ -45,11 +45,14 @@ public sealed partial class TrackLibraryPanel
             {
                 if (_row is { } row) await _panel.ImportItemAsync(row, addToQueue: false);
             };
-            _actions = new HorizontalStackLayout
+            _size.VerticalOptions = LayoutOptions.Center;
+            _size.HorizontalTextAlignment = TextAlignment.End;
+            _add.IsVisible = !previewOnly;
+            SetActions(new HorizontalStackLayout
             {
-                Spacing = 3, VerticalOptions = LayoutOptions.Center, Children = { _add, _import }
-            };
-            SetActions(_actions);
+                Spacing = 4, VerticalOptions = LayoutOptions.Center, Children = { _size, _add, _import }
+            });
+            SetActionWidth(GridLength.Auto);
             if (previewOnly) return;
             EnableDelete();
             DeleteRequested += async () =>
@@ -93,6 +96,7 @@ public sealed partial class TrackLibraryPanel
             _details.Text = "";
             _details.IsVisible = false;
             _title.Text = folder ? row.Folders[^1].Name : Path.GetFileNameWithoutExtension(row.File!.Name);
+            UpdateSize();
             UpdateRow();
             LoadMetadata();
         }
@@ -101,12 +105,9 @@ public sealed partial class TrackLibraryPanel
         {
             if (_row is not { } row) return;
             _chevron.Text = row.Expanded ? "▾" : "▸";
-            bool showActions = !_previewOnly && _panel.ShowImportActions(row);
-            _actions.IsVisible = showActions;
-            SetActionWidth(showActions ? GridLength.Auto : new GridLength(0));
             SetInlineDelete(!_previewOnly && _panel._editing && _panel.CanRemove(row));
             SetDeleteEnabled(!_panel._busy);
-            _import.IsVisible = !_panel._local;
+            _import.IsVisible = !_previewOnly && !_panel._local;
             _add.IsEnabled = _import.IsEnabled = !_panel._busy;
             bool folder = row.File is null;
             string add = folder ? "Добавить папку в очередь" : "Добавить трек в очередь";
@@ -117,6 +118,11 @@ public sealed partial class TrackLibraryPanel
             ToolTipProperties.SetText(_add, add);
             ToolTipProperties.SetText(_import, import);
             MixerStyle.UseColor(this, BackgroundColorProperty, row.Selected ? MixerColor.Selected : MixerColor.Button);
+        }
+
+        public void UpdateSize()
+        {
+            if (_row is { } row) _size.Text = _panel.SizeText(row);
         }
 
         private void LoadMetadata()

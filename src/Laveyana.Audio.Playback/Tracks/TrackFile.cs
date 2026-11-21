@@ -2,6 +2,8 @@ namespace Laveyana.Audio.Playback;
 
 public sealed record TrackFile(string Name, Func<Stream, CancellationToken, Task> CopyToAsync, string? LocalPath = null)
 {
+    /// <summary>The compressed file size in bytes when supplied by the track source.</summary>
+    public long? SizeBytes { get; init; }
     internal Func<Task<Stream>>? OpenReadAsync { get; init; }
 
     /// <summary>Checks the extension without opening a file or depending on case.</summary>

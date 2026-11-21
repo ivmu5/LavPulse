@@ -183,14 +183,22 @@ internal sealed partial class TrackQueueView : Grid
             else OpenEditor();
         };
         _recommendationsTab.Clicked += (_, _) => SelectRecommendations(true);
-        var library = MixerStyle.IconButton("player_folder.png", 33);
-        library.VerticalOptions = LayoutOptions.Center;
+        var library = MixerStyle.IconButton("player_folder.png", 52);
+        library.WidthRequest = -1;
+        library.CornerRadius = _queueTab.CornerRadius;
         SemanticProperties.SetDescription(library, "Открыть медиатеку");
         library.Clicked += (_, _) => LibraryRequested?.Invoke();
-        var segments = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star), new(GridLength.Auto)] };
+        var segments = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star), new(GridLength.Star)] };
         segments.Add(_recommendationsTab);
         segments.Add(_queueTab, 1);
         segments.Add(library, 2);
+        segments.SizeChanged += (_, _) =>
+        {
+            if (segments.Width <= 0) return;
+            double side = segments.Width / 3;
+            library.HeightRequest = side;
+            library.Padding = Math.Max(0, (side - MixerStyle.ButtonIconSize) / 2);
+        };
         var selector = new Border
         {
             StrokeThickness = 1,

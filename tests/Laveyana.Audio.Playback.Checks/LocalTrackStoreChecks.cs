@@ -1,3 +1,4 @@
+using Laveyana.Audio.Maui.Controls;
 using Laveyana.Audio.Maui.Tracks;
 using Laveyana.Audio.Playback;
 
@@ -58,14 +59,23 @@ internal static class LocalTrackStoreChecks
         string source = Path.Combine(directory, "source-folder");
         string child = Path.Combine(source, "Disc 2");
         Directory.CreateDirectory(child);
-        await File.WriteAllBytesAsync(Path.Combine(source, "b.MP3"), [2]);
+        await File.WriteAllBytesAsync(Path.Combine(source, "b.MP3"), [2, 2]);
         await File.WriteAllBytesAsync(Path.Combine(source, "a.mp3"), [1]);
         await File.WriteAllBytesAsync(Path.Combine(source, "notes.txt"), [0]);
-        await File.WriteAllBytesAsync(Path.Combine(child, "c.mp3"), [3]);
+        await File.WriteAllBytesAsync(Path.Combine(child, "c.mp3"), [3, 3, 3]);
 
         var folder = TrackFolderReader.FromDirectory(source, "Album", TrackFile.FromPath);
         var rootListing = await folder.ReadAsync(default);
         Require(rootListing.Children.Count == 1, "The browser did not expose a nested directory.");
+        var folderSizes = await TrackFolderSizes.ReadAsync(folder, rootListing, default);
+        Require(rootListing.Files.Select(file => file.SizeBytes).SequenceEqual([1L, 2L]) &&
+            folderSizes[folder.Id] == 6 && folderSizes[rootListing.Children.Single().Id] == 3,
+            "Folder totals did not include nested MP3 sizes or included another file type.");
+        var partial = TrackFolder.FromFiles(rootListing.Name, [rootListing.Files[0] with { SizeBytes = null }])
+            with { Children = rootListing.Children };
+        var partialSizes = await TrackFolderSizes.ReadAsync(folder, partial, default);
+        Require(partialSizes[folder.Id] is null && partialSizes[rootListing.Children.Single().Id] == 3,
+            "Unknown sizes hid the size of a readable subfolder or produced an incomplete total.");
         var selectedSubfolder = await TrackFolderReader.ReadTracksAsync(rootListing.Children.Single(), default, [folder]);
         Require(selectedSubfolder.Select(item => item.File.Name).SequenceEqual(["c.mp3"]) &&
             selectedSubfolder[0].Folders.Select(item => item.Name).SequenceEqual(["Album", "Disc 2"]),
@@ -93,13 +103,18 @@ internal static class LocalTrackStoreChecks
         var reopened = new LocalTrackStore(libraryPath);
         var restored = await reopened.ReadQueueAsync(default);
         Require(restored.Tracks.Length == 1, "Library-only tracks were returned to the playback queue.");
-        var library = await reopened.OpenLibrary(reopened.LibrarySnapshot()).ReadAsync(default);
+        var libraryRoot = reopened.OpenLibrary(reopened.LibrarySnapshot());
+        var library = await libraryRoot.ReadAsync(default);
         var albumFolder = library.Children.Single(folder => folder.Name == "Album");
         var album = await albumFolder.ReadAsync(default);
         var nested = await album.Children.Single().ReadAsync(default);
         Require(nested.Files.Single().LocalPath == queued[^1].LocalPath &&
             album.Files.Select(file => file.Name).SequenceEqual(["a.mp3", "b.MP3"]),
             "The saved hierarchy failed to reopen after the source directory was deleted.");
+        var savedSizes = await TrackFolderSizes.ReadAsync(libraryRoot, library, default);
+        Require(nested.Files.Single().SizeBytes == 3 && savedSizes[libraryRoot.Id] == 9 &&
+            savedSizes[albumFolder.Id] == 6 && savedSizes[album.Children.Single().Id] == 3,
+            "Saved tracks and folder totals did not recover their file sizes after restart.");
         Require(library.Children.Single(folder => folder.Name == "Disc 2").Id != album.Children.Single().Id,
             "Different tree branches cannot share expansion state.");
 
