@@ -42,6 +42,14 @@ internal sealed class PlaybackQueue
     }
     public bool Contains(TrackFile file) => _members.Contains(file);
 
+    /// <summary>Removes every row while keeping the active track detached from the queue.</summary>
+    public void Clear()
+    {
+        _tracks.Clear();
+        _members.Clear();
+        _detachedIndex = Current is null ? null : 0;
+    }
+
     public void Remove(TrackFile file)
     {
         int index = _tracks.IndexOf(file);
@@ -53,7 +61,8 @@ internal sealed class PlaybackQueue
     public void SetCurrent(TrackFile file)
     {
         Current = file;
-        _detachedIndex = null;
+        // A mix started before clearing can still finish and promote its incoming track.
+        _detachedIndex = _members.Contains(file) ? null : _detachedIndex ?? 0;
     }
 
     public bool IsBeforeCurrent(TrackFile file)

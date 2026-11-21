@@ -25,6 +25,35 @@ internal static partial class Program
         Console.WriteLine("OK: queue edits during preparation and replacing a removed selection.");
     }
 
+    private static void CheckQueueClear()
+    {
+        var files = Enumerable.Range(0, 3).Select(i => TrackFile.FromPath($"clear-{i}.mp3")).ToArray();
+        var queue = new PlaybackQueue();
+        queue.AddRange(files);
+        queue.SetCurrent(files[0]);
+        queue.Clear();
+        Require(queue.Tracks.Count == 0 && files.All(file => !queue.Contains(file)) &&
+            queue.Current == files[0] && queue.Next is null && queue.Previous is null && queue.GetUpcoming(10).Length == 0,
+            "Clearing the queue left rows or lost the active track.");
+
+        queue.AddRange([files[2]]);
+        queue.SetCurrent(files[1]); // A mix that was already playing finishes after clear.
+        Require(queue.Current == files[1] && !queue.Contains(files[1]) &&
+            queue.Next == files[2] && queue.GetUpcoming(10).SequenceEqual(files[2..]),
+            "Completing a mix after clear skipped the first newly queued track.");
+        queue.AddRange([files[1]]);
+        Require(queue.Tracks.SequenceEqual([files[1], files[2]]) && queue.Next == files[2],
+            "A detached track could not be added back before its successor.");
+
+        var unloaded = new PlaybackQueue();
+        unloaded.AddRange(files);
+        unloaded.Clear();
+        unloaded.AddRange(files);
+        Require(unloaded.Current is null && unloaded.Next == files[0] && unloaded.Tracks.SequenceEqual(files),
+            "Clearing before playback left an invalid boundary or stale membership.");
+        Console.WriteLine("OK: queue clear, detached playback boundary, and adding tracks again.");
+    }
+
     private static async Task CheckInterruptedQueueAnalysis()
     {
         var file = TrackFile.FromPath("interrupted.mp3");

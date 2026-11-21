@@ -16,6 +16,7 @@ internal sealed partial class TrackQueueView : Grid
     private readonly Grid _right;
     private readonly Grid _editorHeader;
     private readonly Label _editorHint = MixerStyle.Label("", 11, MixerColor.Muted);
+    private readonly Button _clearQueue = MixerStyle.Button("Очистить");
     private readonly Button _deleteMode = MixerStyle.Button("Удаление", icon: "player_delete.png");
     private readonly Button _queueTab = MixerStyle.Button("Очередь", icon: "player_queue.png", stacked: true);
     private readonly Button _recommendationsTab = MixerStyle.Button("Рекомендации", icon: "player_recommendations.png", stacked: true);
@@ -78,6 +79,14 @@ internal sealed partial class TrackQueueView : Grid
         MixerStyle.SetListEditButton(done, editing: true);
         done.HorizontalOptions = LayoutOptions.Start;
         done.Clicked += (_, _) => CloseEditor();
+        _clearQueue.HorizontalOptions = LayoutOptions.End;
+        _clearQueue.IsEnabled = false;
+        SemanticProperties.SetDescription(_clearQueue, "Очистить очередь");
+        _clearQueue.Clicked += (_, _) =>
+        {
+            if (IsEditing && CanEditRows && _dragging is null && _tracks.Count > 0)
+                ClearRequested?.Invoke();
+        };
         _deleteMode.HorizontalOptions = LayoutOptions.End;
         _deleteMode.Clicked += (_, _) => SetDeleteMode(!_deletingTracks);
         UpdateEditorActions();
@@ -86,14 +95,14 @@ internal sealed partial class TrackQueueView : Grid
         SemanticProperties.SetHeadingLevel(title, SemanticHeadingLevel.Level1);
         _editorHeader = new Grid
         {
-            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)],
+            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)],
             RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)],
             ColumnSpacing = 6,
             RowSpacing = 4,
             IsVisible = false
         };
         _editorHeader.Add(title);
-        Grid.SetColumnSpan(title, 2);
+        _editorHeader.Add(_clearQueue, column: 1);
         _editorHeader.Add(done, row: 1);
         _editorHeader.Add(_deleteMode, column: 1, row: 1);
         _editorHint.IsVisible = false;
@@ -149,6 +158,8 @@ internal sealed partial class TrackQueueView : Grid
 
     public event Action<TrackFile>? TrackRequested;
     public event Action<TrackFile>? HistoryRequested;
+    public event Action<TrackFile>? PlayRequested;
+    public event Action? ClearRequested;
     public event Action<TrackFile, TrackFile, bool>? MoveRequested;
     public event Action<TrackFile>? RemoveRequested;
     public event Action<bool>? RecommendationsSelected;
@@ -244,6 +255,7 @@ internal sealed partial class TrackQueueView : Grid
         if (!ReferenceEquals(_currentTrack, current))
             _followingTrack = current is not null && ((_switchingViewport && IsEditing) || CanFollowTrack);
         _tracks = tracks;
+        _clearQueue.IsEnabled = tracks.Count > 0;
         _currentTrack = current;
         _playedCount = playedCount;
         _readRow = read;
@@ -311,7 +323,7 @@ internal sealed partial class TrackQueueView : Grid
         MixerStyle.UseColor(_deleteMode, BackgroundColorProperty, _deletingTracks ? MixerColor.Selected : MixerColor.Button);
         _editorHint.Text = _deletingTracks
             ? "Нажми корзину рядом с треком, чтобы убрать его из очереди."
-            : "Перетаскивай треки за три полоски справа.";
+            : "Нажми на трек для воспроизведения или перетащи его за полоски справа.";
     }
 
     private void SetEditing(bool editing)

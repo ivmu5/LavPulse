@@ -13,6 +13,7 @@ internal static partial class Program
         {
             CheckQueuePreservesOrderOnDirectSelection();
             CheckQueueChangesDuringPreparation();
+            CheckQueueClear();
             CheckQueueViewport();
             CheckTrackListLayout();
             await CheckManualScanControlsAsync();
@@ -37,6 +38,7 @@ internal static partial class Program
             await CheckStartupAndRate(first, second);
             await CheckFeedSelection(first, second);
             await CheckReplaceSuccessor(first, second);
+            await CheckClearingPlaybackSuccessor(first, second);
             await CheckRepeatOne(first, second);
             await CheckMasterEqualizer(directory);
             SpectrumFrameClockChecks.Run();

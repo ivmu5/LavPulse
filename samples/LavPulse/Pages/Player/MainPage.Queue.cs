@@ -4,6 +4,9 @@ namespace Laveyana.LavPulse;
 
 public sealed partial class MainPage
 {
+    private bool _autoPlayFirst;
+    private bool _confirmingQueueClear;
+
     /// <summary>Uses the first queued track as the default transition target.</summary>
     private Task SelectDefaultAsync()
     {
@@ -13,7 +16,7 @@ public sealed partial class MainPage
     }
 
     /// <summary>Switches directly to a tapped track without changing the order of the queue.</summary>
-    private async Task ChooseAsync(TrackFile file)
+    private async Task ChooseAsync(TrackFile file, bool autoPlay = false)
     {
         if (_closed || _recommendations || IsStopping || IsTransitioning(_playback.Snapshot) ||
             !_queue.Contains(file))
@@ -23,12 +26,15 @@ public sealed partial class MainPage
 
         if (_playback.Snapshot.Current is not { } current)
         {
-            await LoadFirstAsync(preferred: file);
+            await LoadFirstAsync(preferred: file, autoPlay: autoPlay);
             return;
         }
 
         if (ReferenceEquals(current.Track, _library.GetPrepared(file)))
+        {
+            if (autoPlay) await PlayAsync();
             return;
+        }
 
         // An unprepared selection is armed after decoding. A newer selection wins the race.
         if (!TrySetSelection(file, byUser: true))
@@ -111,6 +117,35 @@ public sealed partial class MainPage
         }
     }
 
+    private async Task ClearQueueAsync()
+    {
+        if (_closed || _confirmingQueueClear || _queue.Tracks.Count == 0) return;
+        _confirmingQueueClear = true;
+        try
+        {
+            bool confirmed = await DisplayAlertAsync("Очистить очередь?", "Треки останутся в медиатеке.",
+                "Очистить", "Отмена");
+            if (!confirmed || _closed || _queue.Tracks.Count == 0) return;
+
+            // An overlap already being rendered can finish, but no new mix should start.
+            _playback.SetNext(null);
+            SetSelection(null, null);
+            _queue.Clear();
+            var firstLoad = _firstLoad;
+            _firstLoad = null;
+            _firstLoadFile = null;
+            firstLoad?.Cancel();
+            if (_repeatOne) ToggleRepeatOne();
+            var save = SaveQueueAsync();
+            UpdateQueue();
+            await save;
+        }
+        finally
+        {
+            _confirmingQueueClear = false;
+        }
+    }
+
     /// <summary>Jumps back to the selected entry without rearranging the playlist.</summary>
     private async Task ReplayHistoryAsync(TrackFile file)
     {
@@ -159,6 +194,7 @@ public sealed partial class MainPage
         var file = preferred ?? _queue.Tracks.FirstOrDefault();
         if (IsLoadingFirst && file is not null && ReferenceEquals(file, _firstLoadFile))
         {
+            _autoPlayFirst |= autoPlay;
             return;
         }
 
@@ -166,6 +202,7 @@ public sealed partial class MainPage
         var previous = _firstLoad;
         _firstLoad = request;
         _firstLoadFile = file;
+        _autoPlayFirst = autoPlay;
         previous?.Cancel();
         var failed = new HashSet<TrackFile>();
         try
@@ -197,6 +234,7 @@ public sealed partial class MainPage
         {
             if (ReferenceEquals(_firstLoad, request))
             {
+                autoPlay = _autoPlayFirst;
                 _firstLoad = null;
                 _firstLoadFile = null;
             }
