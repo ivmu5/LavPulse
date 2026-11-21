@@ -9,7 +9,7 @@
     <LavPulseBuildDirectory>$(LavPulseBuildHost)/$(MSBuildProjectName)/$(LavPulseBuildProfile)</LavPulseBuildDirectory>
     <!-- Directory.Build.props runs before TargetFramework is read. Use the Android project names
          to shorten AAPT2 paths without sharing NuGet assets with the neighboring WinUI projects. -->
-    <LavPulseBuildDirectory Condition="'$(LavPulseBuildHost)' == 'windows' and ('$(MSBuildProjectName)' == 'Laveyana.Audio.Maui.Android' or '$(MSBuildProjectName)' == 'Laveyana.Audio.Maui.Controls.Android')">android</LavPulseBuildDirectory>
+    <LavPulseBuildDirectory Condition="'$(LavPulseBuildHost)' == 'windows' and ('$(MSBuildProjectName)' == 'LavPulse.Android' or '$(MSBuildProjectName)' == 'LavPulse.Controls.Android')">android</LavPulseBuildDirectory>
     <BaseIntermediateOutputPath>obj/$(LavPulseBuildDirectory)/</BaseIntermediateOutputPath>
     <BaseOutputPath>bin/$(LavPulseBuildDirectory)/</BaseOutputPath>
     <DefaultItemExcludes>$(DefaultItemExcludes);obj/**;bin/**</DefaultItemExcludes>

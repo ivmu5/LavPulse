@@ -22,23 +22,25 @@ The application decodes tracks into a seekable PCM cache, mixes them on a shared
 
 ## Build and run
 
-Open [`Laveyana.Audio.Maui.slnx`](Laveyana.Audio.Maui.slnx) in Visual Studio with the **.NET 10 SDK** and the **.NET MAUI** workload. Android requires the Android SDK and JDK 21. Windows requires WinUI/MAUI tooling, and iOS requires a Mac, compatible Xcode, and the `maui-ios` workload.
+Open [`LavPulse.slnx`](LavPulse.slnx) in Visual Studio with the **.NET 10 SDK** and the **.NET MAUI** workload. Android requires the Android SDK and JDK 21. Windows requires WinUI/MAUI tooling, and iOS requires a Mac, compatible Xcode, and the `maui-ios` workload.
 
 | Target | Project | Command |
 |---|---|---|
-| Windows | `Laveyana.Audio.Maui.csproj` | `dotnet build samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.csproj -c Debug` |
-| Android | `Laveyana.Audio.Maui.Android.csproj` | `dotnet build samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.Android.csproj -c Debug -p:AndroidPackageFormats=apk` |
+| Windows | `LavPulse.csproj` | `dotnet build samples/LavPulse/LavPulse.csproj -c Debug` |
+| Android | `LavPulse.Android.csproj` | `dotnet build samples/LavPulse/LavPulse.Android.csproj -c Debug -p:AndroidPackageFormats=apk` |
 
 On a Mac, build the iPhone simulator target as follows. The [iOS workflow](.github/workflows/ios.yml) pins a compatible SDK and Xcode. To build for an iPhone, select `ios-arm64` and configure Apple development signing.
 
 ```bash
 dotnet workload install maui-ios
-dotnet build samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.csproj -c Debug -p:LavPulsePlatform=ios -p:RuntimeIdentifier=iossimulator-arm64 -p:EnableCodeSigning=false
+dotnet build samples/LavPulse/LavPulse.csproj -c Debug -p:LavPulsePlatform=ios -p:RuntimeIdentifier=iossimulator-arm64 -p:EnableCodeSigning=false
 ```
 
-Before installing the simulator build with `simctl install`, locally sign the generated bundle with `codesign --force --deep --sign - path/to/Laveyana.Audio.Maui.app`.
+Before installing the simulator build with `simctl install`, locally sign the generated bundle with `codesign --force --deep --sign - path/to/Laveyana.LavPulse.app`.
 
-Run `dotnet restore Laveyana.Audio.Maui.slnx` after switching platforms or updating workloads. The solution keeps Windows and Android intermediate outputs separate (see [`Directory.Build.props`](Directory.Build.props)) to prevent mixed NuGet assets and long Android resource paths.
+Run `dotnet restore LavPulse.slnx` after switching platforms or updating workloads. The solution keeps Windows and Android intermediate outputs separate (see [`Directory.Build.props`](Directory.Build.props)) to prevent mixed NuGet assets and long Android resource paths.
+
+The application assembly is `Laveyana.LavPulse` and the Windows executable is `Laveyana.LavPulse.exe`. The package identifier stays the same so an installed copy can be updated while retaining its settings and library.
 
 Open the media library using the folder icon next to the **Queue** tab. The import browser shows import and queue buttons on each row. Saved tracks and folders always show the queue button. The size next to a saved track includes its MP3, saved analysis, and any PCM cache on disk. Folder sizes sum their track entries recursively. The import browser displays source MP3 sizes. Select a subfolder to import or rescan that branch. **Rescan** pulses the active track below the progress bar. **Skip** moves to the next track and **Stop** ends the pass. In the saved library, swipe left to reveal the trash button, or use **Edit** to show it on all eligible rows. The trash button in the library removes a catalog entry. Leaving the library exits edit mode.
 
@@ -77,15 +79,15 @@ flowchart TD
 |---|---|---|
 | Core DSP | Stereo mixing, common PCM contract, frequency analysis | [`IPcmSource`](src/Laveyana.Audio/Mixing/IPcmSource.cs), [`PcmMixer`](src/Laveyana.Audio/Mixing/PcmMixer.cs), [`MasterSpectrum`](src/Laveyana.Audio/Spectrum/MasterSpectrum.cs) |
 | Preparation and playback | Decode, caching, deck state, equalization, output abstraction | [`TrackPreparation`](src/Laveyana.Audio.Playback/Tracks/TrackPreparation.cs), [`QueuePlaybackSession`](src/Laveyana.Audio.Playback/Session/Queue/QueuePlaybackSession.cs), [`IAudioOutput`](src/Laveyana.Audio.Playback/Session/IAudioOutput.cs) |
-| Application | Library, ordered queue, commands, platform lifetime | [`MainPage`](samples/Laveyana.Audio.Maui/Pages/Player/MainPage.cs), [`PlayerLibrary`](samples/Laveyana.Audio.Maui/Tracks/Library/PlayerLibrary.cs), [`PlaybackQueue`](samples/Laveyana.Audio.Maui/Tracks/Queue/PlaybackQueue.cs) |
-| Views | C# MAUI controls and gestures | [`PlayerView`](src/Laveyana.Audio.Maui.Controls/Views/Player/PlayerView.cs), [`DeckView`](src/Laveyana.Audio.Maui.Controls/Views/Decks/DeckView.cs), [`TrackQueueView`](src/Laveyana.Audio.Maui.Controls/Views/Queue/TrackQueueView.cs) |
+| Application | Library, ordered queue, commands, platform lifetime | [`MainPage`](samples/LavPulse/Pages/Player/MainPage.cs), [`PlayerLibrary`](samples/LavPulse/Tracks/Library/PlayerLibrary.cs), [`PlaybackQueue`](samples/LavPulse/Tracks/Queue/PlaybackQueue.cs) |
+| Views | C# MAUI controls and gestures | [`PlayerView`](src/LavPulse.Controls/Views/Player/PlayerView.cs), [`DeckView`](src/LavPulse.Controls/Views/Decks/DeckView.cs), [`TrackQueueView`](src/LavPulse.Controls/Views/Queue/TrackQueueView.cs) |
 
 <details>
 <summary>Audio and queue internals</summary>
 
 [`QueueSource`](src/Laveyana.Audio.Playback/Session/Queue/QueueSource.cs) owns the current and prepared next PCM readers, provides seek and speed control, and promotes the incoming deck when a transition finishes. A manual transition is requested before the next render block. [`MasterEqualizerSource`](src/Laveyana.Audio.Playback/Session/Equalizer/MasterEqualizerSource.cs) filters that **combined** signal using ten peaking bands and a gain stage; configuration changes crossfade between filter banks. [`MixedPlayback`](src/Laveyana.Audio.Playback/Session/MixedPlayback.cs) renders blocks and publishes FFT results with the native playback-head position where available.
 
-[`PlayerLibrary`](samples/Laveyana.Audio.Maui/Tracks/Library/PlayerLibrary.cs) limits concurrent decoders, deduplicates preparation tasks, and protects the occupied decks and up to ten upcoming tracks from cache eviction. The app prepares that window in queue order and then saves compact analysis for the rest of the queue on the same worker. A directly selected track can use another decoding slot. The ordered [`PlaybackQueue`](samples/Laveyana.Audio.Maui/Tracks/Queue/PlaybackQueue.cs) does not reorder itself when the user selects a different track: the current position defines which entries are displayed as played.
+[`PlayerLibrary`](samples/LavPulse/Tracks/Library/PlayerLibrary.cs) limits concurrent decoders, deduplicates preparation tasks, and protects the occupied decks and up to ten upcoming tracks from cache eviction. The app prepares that window in queue order and then saves compact analysis for the rest of the queue on the same worker. A directly selected track can use another decoding slot. The ordered [`PlaybackQueue`](samples/LavPulse/Tracks/Queue/PlaybackQueue.cs) does not reorder itself when the user selects a different track: the current position defines which entries are displayed as played.
 
 </details>
 
@@ -94,12 +96,12 @@ flowchart TD
 ```text
 src/Laveyana.Audio/                 PCM mixing and FFT
 src/Laveyana.Audio.Playback/        MP3 preparation, cache, queue mixer, EQ
-src/Laveyana.Audio.Maui.Controls/   C# player UI and platform gestures
-samples/Laveyana.Audio.Maui/       MAUI host, media library, settings, output adapters
+src/LavPulse.Controls/             C# player UI and platform gestures
+samples/LavPulse/                  MAUI host, media library, settings, output adapters
 tests/Laveyana.Audio.Playback.Checks/  Executable regression checks
 ```
 
-[`MainPage`](samples/Laveyana.Audio.Maui/Pages/Player/MainPage.cs) owns the application's state and event bindings. The partial files in the same folder separate playback, navigation, importing, the library panel, and queue persistence. The queue's cover-card implementation lives in [`TrackQueueView.TrackCard.cs`](src/Laveyana.Audio.Maui.Controls/Views/Queue/TrackQueueView.TrackCard.cs).
+[`MainPage`](samples/LavPulse/Pages/Player/MainPage.cs) owns the application's state and event bindings. The partial files in the same folder separate playback, navigation, importing, the library panel, and queue persistence. The queue's cover-card implementation lives in [`TrackQueueView.TrackCard.cs`](src/LavPulse.Controls/Views/Queue/TrackQueueView.TrackCard.cs).
 
 The queue, its editor, and the library tree share a virtualized track list and row layout. They provide their own actions and artwork metadata.
 
@@ -166,9 +168,9 @@ The master mixer renders a single source straight into the output block, applies
 
 The ID3 reader rents a temporary buffer and copies the selected cover once. Queue and deck image streams reuse array-backed cover bytes. Spectrum paint allocates a color for a brightness step on its first use and reuses it until the corresponding colors or mode change.
 
-The platform adapters use AudioTrack, WaveOut and AVAudioEngine. [Android](samples/Laveyana.Audio.Maui/Platforms/Android/Playback/PlatformAudioOutput.cs) · [Windows](samples/Laveyana.Audio.Maui/Platforms/Windows/Playback/PlatformAudioOutput.cs) · [Apple](samples/Laveyana.Audio.Maui/Apple/PlatformAudioOutput.cs)
+The platform adapters use AudioTrack, WaveOut and AVAudioEngine. [Android](samples/LavPulse/Platforms/Android/Playback/PlatformAudioOutput.cs) · [Windows](samples/LavPulse/Platforms/Windows/Playback/PlatformAudioOutput.cs) · [Apple](samples/LavPulse/Apple/PlatformAudioOutput.cs)
 
-Android's [`AndroidMediaPlaybackService`](samples/Laveyana.Audio.Maui/Platforms/Android/Playback/AndroidMediaPlaybackService.cs) provides system controls, and [`WindowsMediaIdentity`](samples/Laveyana.Audio.Maui/Platforms/Windows/Playback/WindowsMediaIdentity.cs) registers the unpackaged desktop identity.
+Android's [`AndroidMediaPlaybackService`](samples/LavPulse/Platforms/Android/Playback/AndroidMediaPlaybackService.cs) provides system controls, and [`WindowsMediaIdentity`](samples/LavPulse/Platforms/Windows/Playback/WindowsMediaIdentity.cs) registers the unpackaged desktop identity.
 
 </details>
 
@@ -201,10 +203,10 @@ For a manual iOS check, import two MP3s from Files, exercise mixing, EQ and seek
 | Add a decoder or input source | [`IPcmSource`](src/Laveyana.Audio/Mixing/IPcmSource.cs), [`TrackPreparation`](src/Laveyana.Audio.Playback/Tracks/TrackPreparation.cs) |
 | Change crossfades, pause or deck speed | [`QueueSource`](src/Laveyana.Audio.Playback/Session/Queue/QueueSource.cs), [`TransportFadeSource`](src/Laveyana.Audio.Playback/Session/TransportFadeSource.cs) |
 | Change EQ or frequency analysis | [`MasterEqualizerSource`](src/Laveyana.Audio.Playback/Session/Equalizer/MasterEqualizerSource.cs), [`MasterSpectrum`](src/Laveyana.Audio/Spectrum/MasterSpectrum.cs) |
-| Change queue, history or background preparation | [`MainPage.Queue.cs`](samples/Laveyana.Audio.Maui/Pages/Player/MainPage.Queue.cs), [`MainPage.Analysis.cs`](samples/Laveyana.Audio.Maui/Pages/Player/MainPage.Analysis.cs), [`PlaybackQueue`](samples/Laveyana.Audio.Maui/Tracks/Queue/PlaybackQueue.cs) |
-| Change gestures, waveforms or player layout | [`DeckView`](src/Laveyana.Audio.Maui.Controls/Views/Decks/DeckView.cs), [`TrackQueueView`](src/Laveyana.Audio.Maui.Controls/Views/Queue/TrackQueueView.cs), [`WaveformDrawable`](src/Laveyana.Audio.Maui.Controls/Views/Decks/WaveformDrawable.cs) |
-| Add a native output or media integration | [`IAudioOutput`](src/Laveyana.Audio.Playback/Session/IAudioOutput.cs), [`SystemPlaybackIntegration`](samples/Laveyana.Audio.Maui/Playback/SystemPlaybackIntegration.cs) |
+| Change queue, history or background preparation | [`MainPage.Queue.cs`](samples/LavPulse/Pages/Player/MainPage.Queue.cs), [`MainPage.Analysis.cs`](samples/LavPulse/Pages/Player/MainPage.Analysis.cs), [`PlaybackQueue`](samples/LavPulse/Tracks/Queue/PlaybackQueue.cs) |
+| Change gestures, waveforms or player layout | [`DeckView`](src/LavPulse.Controls/Views/Decks/DeckView.cs), [`TrackQueueView`](src/LavPulse.Controls/Views/Queue/TrackQueueView.cs), [`WaveformDrawable`](src/LavPulse.Controls/Views/Decks/WaveformDrawable.cs) |
+| Add a native output or media integration | [`IAudioOutput`](src/Laveyana.Audio.Playback/Session/IAudioOutput.cs), [`SystemPlaybackIntegration`](samples/LavPulse/Playback/SystemPlaybackIntegration.cs) |
 
 ## Dependencies and license
 
-LavPulse is licensed under [MIT](LICENSE). Main external dependencies are [NLayer 3.0.1](https://www.nuget.org/packages/NLayer/3.0.1) (MP3 decoding, MIT), [NAudio.WinMM 2.2.1](https://www.nuget.org/packages/NAudio.WinMM/2.2.1) (Windows WaveOut, MIT), and [Microsoft.Maui.Controls](https://github.com/dotnet/maui) (cross-platform UI, MIT). The bundled Inter font uses the SIL Open Font License, with its text at [`Inter-OFL.txt`](samples/Laveyana.Audio.Maui/Resources/Fonts/Inter-OFL.txt). Retain third-party copyright/license notices when redistributing dependencies or fonts.
+LavPulse is licensed under [MIT](LICENSE). Main external dependencies are [NLayer 3.0.1](https://www.nuget.org/packages/NLayer/3.0.1) (MP3 decoding, MIT), [NAudio.WinMM 2.2.1](https://www.nuget.org/packages/NAudio.WinMM/2.2.1) (Windows WaveOut, MIT), and [Microsoft.Maui.Controls](https://github.com/dotnet/maui) (cross-platform UI, MIT). The bundled Inter font uses the SIL Open Font License, with its text at [`Inter-OFL.txt`](samples/LavPulse/Resources/Fonts/Inter-OFL.txt). Retain third-party copyright/license notices when redistributing dependencies or fonts.

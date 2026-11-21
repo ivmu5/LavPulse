@@ -21,7 +21,7 @@ jobs:
       - name: Install the Windows MAUI workload
         run: dotnet workload install maui-windows
       - name: Build the Windows app
-        run: dotnet build samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.csproj -c Debug
+        run: dotnet build samples/LavPulse/LavPulse.csproj -c Debug
 
   android:
     name: Android and playback checks
@@ -44,14 +44,14 @@ jobs:
         run: dotnet workload install maui-android
       - name: Install the Android SDK components
         run: >-
-          dotnet build samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.Android.csproj
+          dotnet build samples/LavPulse/LavPulse.Android.csproj
           -t:InstallAndroidDependencies
           -p:AndroidSdkDirectory="$ANDROID_HOME"
           -p:JavaSdkDirectory="$JAVA_HOME"
           -p:AcceptAndroidSDKLicenses=true
       - name: Build the Android app
         run: >-
-          dotnet build samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.Android.csproj
+          dotnet build samples/LavPulse/LavPulse.Android.csproj
           -c Debug
           -p:AndroidSdkDirectory="$ANDROID_HOME"
           -p:JavaSdkDirectory="$JAVA_HOME"

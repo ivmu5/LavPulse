@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Laveyana.Audio/Laveyana.Audio.csproj" />
+    <Project Path="src/Laveyana.Audio.Playback/Laveyana.Audio.Playback.csproj" />
+    <Project Path="src/LavPulse.Controls/LavPulse.Controls.csproj" />
+    <Project Path="src/LavPulse.Controls/LavPulse.Controls.Android.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/LavPulse/LavPulse.csproj" />
+    <Project Path="samples/LavPulse/LavPulse.Android.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Laveyana.Audio.Playback.Checks/Laveyana.Audio.Playback.Checks.csproj" />
+  </Folder>
+</Solution>

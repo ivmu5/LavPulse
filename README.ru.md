@@ -22,23 +22,25 @@ LavPulse — локальный MP3-проигрыватель с двухдек
 
 ## Сборка и запуск
 
-Открой [`Laveyana.Audio.Maui.slnx`](Laveyana.Audio.Maui.slnx) в Visual Studio с установленными **.NET 10 SDK** и workload **.NET MAUI**. Для Android нужны Android SDK и JDK 21. Для Windows нужны инструменты WinUI/MAUI, для iOS — Mac, совместимый Xcode и нагрузка `maui-ios`.
+Открой [`LavPulse.slnx`](LavPulse.slnx) в Visual Studio с установленными **.NET 10 SDK** и workload **.NET MAUI**. Для Android нужны Android SDK и JDK 21. Для Windows нужны инструменты WinUI/MAUI, для iOS — Mac, совместимый Xcode и нагрузка `maui-ios`.
 
 | Цель | Проект | Команда |
 |---|---|---|
-| Windows | `Laveyana.Audio.Maui.csproj` | `dotnet build samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.csproj -c Debug` |
-| Android | `Laveyana.Audio.Maui.Android.csproj` | `dotnet build samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.Android.csproj -c Debug -p:AndroidPackageFormats=apk` |
+| Windows | `LavPulse.csproj` | `dotnet build samples/LavPulse/LavPulse.csproj -c Debug` |
+| Android | `LavPulse.Android.csproj` | `dotnet build samples/LavPulse/LavPulse.Android.csproj -c Debug -p:AndroidPackageFormats=apk` |
 
 На Mac собери версию для симулятора iPhone следующими командами. Версии SDK и Xcode для воспроизводимой сборки указаны в [проверке iOS](.github/workflows/ios.yml). Для физического устройства выбери `ios-arm64` и настрой подпись команды разработчика Apple.
 
 ```bash
 dotnet workload install maui-ios
-dotnet build samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.csproj -c Debug -p:LavPulsePlatform=ios -p:RuntimeIdentifier=iossimulator-arm64 -p:EnableCodeSigning=false
+dotnet build samples/LavPulse/LavPulse.csproj -c Debug -p:LavPulsePlatform=ios -p:RuntimeIdentifier=iossimulator-arm64 -p:EnableCodeSigning=false
 ```
 
-Перед установкой в симулятор через `simctl install` подпиши созданный пакет командой `codesign --force --deep --sign - path/to/Laveyana.Audio.Maui.app`.
+Перед установкой в симулятор через `simctl install` подпиши созданный пакет командой `codesign --force --deep --sign - path/to/Laveyana.LavPulse.app`.
 
-После смены платформы или обновления workload выполни `dotnet restore Laveyana.Audio.Maui.slnx`. Решение разделяет промежуточные каталоги Windows и Android (см. [`Directory.Build.props`](Directory.Build.props)), чтобы не смешивать NuGet-ресурсы и не получать слишком длинные пути Android.
+После смены платформы или обновления workload выполни `dotnet restore LavPulse.slnx`. Решение разделяет промежуточные каталоги Windows и Android (см. [`Directory.Build.props`](Directory.Build.props)), чтобы не смешивать NuGet-ресурсы и не получать слишком длинные пути Android.
+
+Сборка приложения называется `Laveyana.LavPulse`, исполняемый файл Windows — `Laveyana.LavPulse.exe`. Идентификатор пакета сохраняется для обновления установленной версии с её настройками и медиатекой.
 
 Значок папки рядом с вкладкой **Очередь** открывает медиатеку. В окне импорта кнопки добавления в очередь и в медиатеку сразу видны в каждой строке. У сохранённых треков и папок постоянно видна кнопка добавления в очередь. Рядом с сохранённым треком указан общий размер MP3, сохранённого анализа и PCM-кэша, если он есть на диске. Размер папки складывается из размеров треков внутри неё и во вложенных папках. В окне импорта видны размеры исходных MP3. Выбери нужную ветку для импорта или пересканирования. При пересканировании карточка текущего трека мигает под полосой прогресса. **Пропустить** переходит к следующему треку, **Остановить** завершает проход. В сохранённой медиатеке свайп влево открывает корзину, а **Редактирование** показывает её у всех доступных для удаления строк. Корзина медиатеки убирает запись из каталога. При выходе из медиатеки режим редактирования сбрасывается.
 
@@ -77,15 +79,15 @@ flowchart TD
 |---|---|---|
 | Базовая DSP-логика | Стереосведение, PCM-контракт, частотный анализ | [`IPcmSource`](src/Laveyana.Audio/Mixing/IPcmSource.cs), [`PcmMixer`](src/Laveyana.Audio/Mixing/PcmMixer.cs), [`MasterSpectrum`](src/Laveyana.Audio/Spectrum/MasterSpectrum.cs) |
 | Подготовка и воспроизведение | Декодирование, кэш, деки, эквалайзер, интерфейс аудиовывода | [`TrackPreparation`](src/Laveyana.Audio.Playback/Tracks/TrackPreparation.cs), [`QueuePlaybackSession`](src/Laveyana.Audio.Playback/Session/Queue/QueuePlaybackSession.cs), [`IAudioOutput`](src/Laveyana.Audio.Playback/Session/IAudioOutput.cs) |
-| Приложение | Медиатека, порядок очереди, команды, жизненный цикл платформы | [`MainPage`](samples/Laveyana.Audio.Maui/Pages/Player/MainPage.cs), [`PlayerLibrary`](samples/Laveyana.Audio.Maui/Tracks/Library/PlayerLibrary.cs), [`PlaybackQueue`](samples/Laveyana.Audio.Maui/Tracks/Queue/PlaybackQueue.cs) |
-| Представления | MAUI-компоненты на C# и обработка жестов | [`PlayerView`](src/Laveyana.Audio.Maui.Controls/Views/Player/PlayerView.cs), [`DeckView`](src/Laveyana.Audio.Maui.Controls/Views/Decks/DeckView.cs), [`TrackQueueView`](src/Laveyana.Audio.Maui.Controls/Views/Queue/TrackQueueView.cs) |
+| Приложение | Медиатека, порядок очереди, команды, жизненный цикл платформы | [`MainPage`](samples/LavPulse/Pages/Player/MainPage.cs), [`PlayerLibrary`](samples/LavPulse/Tracks/Library/PlayerLibrary.cs), [`PlaybackQueue`](samples/LavPulse/Tracks/Queue/PlaybackQueue.cs) |
+| Представления | MAUI-компоненты на C# и обработка жестов | [`PlayerView`](src/LavPulse.Controls/Views/Player/PlayerView.cs), [`DeckView`](src/LavPulse.Controls/Views/Decks/DeckView.cs), [`TrackQueueView`](src/LavPulse.Controls/Views/Queue/TrackQueueView.cs) |
 
 <details>
 <summary>Подробности аудиоядра и очереди</summary>
 
 [`QueueSource`](src/Laveyana.Audio.Playback/Session/Queue/QueueSource.cs) владеет PCM-ридерами текущего и подготовленного следующего треков, управляет перемоткой и скоростью, после перехода переносит входящую деку в текущую. Ручной переход запрашивается до следующего аудиоблока. [`MasterEqualizerSource`](src/Laveyana.Audio.Playback/Session/Equalizer/MasterEqualizerSource.cs) фильтрует уже **сведённый** сигнал с помощью десяти полос пиковых фильтров и каскада усиления; при изменении настроек плавно переключаются состояния фильтров. [`MixedPlayback`](src/Laveyana.Audio.Playback/Session/MixedPlayback.cs) формирует блоки и публикует результаты FFT с учётом позиции фактического аудиовывода, когда платформа её предоставляет.
 
-[`PlayerLibrary`](samples/Laveyana.Audio.Maui/Tracks/Library/PlayerLibrary.cs) ограничивает количество параллельных декодирований, объединяет одинаковые запросы и защищает от вытеснения занятые деки и до десяти следующих треков. Фоновый поток готовит их по порядку, затем сохраняет компактный анализ остальных треков очереди. Выбранный пользователем трек может использовать ещё один слот декодирования. Упорядоченная [`PlaybackQueue`](samples/Laveyana.Audio.Maui/Tracks/Queue/PlaybackQueue.cs) не переставляет записи при выборе другого трека: текущая позиция определяет границу прослушанной истории.
+[`PlayerLibrary`](samples/LavPulse/Tracks/Library/PlayerLibrary.cs) ограничивает количество параллельных декодирований, объединяет одинаковые запросы и защищает от вытеснения занятые деки и до десяти следующих треков. Фоновый поток готовит их по порядку, затем сохраняет компактный анализ остальных треков очереди. Выбранный пользователем трек может использовать ещё один слот декодирования. Упорядоченная [`PlaybackQueue`](samples/LavPulse/Tracks/Queue/PlaybackQueue.cs) не переставляет записи при выборе другого трека: текущая позиция определяет границу прослушанной истории.
 
 </details>
 
@@ -94,12 +96,12 @@ flowchart TD
 ```text
 src/Laveyana.Audio/                 PCM mixing and FFT
 src/Laveyana.Audio.Playback/        MP3 preparation, cache, queue mixer, EQ
-src/Laveyana.Audio.Maui.Controls/   C# player UI and platform gestures
-samples/Laveyana.Audio.Maui/       MAUI host, media library, settings, output adapters
+src/LavPulse.Controls/             C# player UI and platform gestures
+samples/LavPulse/                  MAUI host, media library, settings, output adapters
 tests/Laveyana.Audio.Playback.Checks/  Executable regression checks
 ```
 
-[`MainPage`](samples/Laveyana.Audio.Maui/Pages/Player/MainPage.cs) владеет состоянием приложения и подписками UI. В той же папке частичные файлы разделяют воспроизведение, навигацию, импорт, панель медиатеки и сохранение очереди. Реализация карточки обложки очереди находится в [`TrackQueueView.TrackCard.cs`](src/Laveyana.Audio.Maui.Controls/Views/Queue/TrackQueueView.TrackCard.cs).
+[`MainPage`](samples/LavPulse/Pages/Player/MainPage.cs) владеет состоянием приложения и подписками UI. В той же папке частичные файлы разделяют воспроизведение, навигацию, импорт, панель медиатеки и сохранение очереди. Реализация карточки обложки очереди находится в [`TrackQueueView.TrackCard.cs`](src/LavPulse.Controls/Views/Queue/TrackQueueView.TrackCard.cs).
 
 Очередь, её редактор и дерево медиатеки используют общий виртуализированный список и разметку строк. Каждый экран задаёт свои действия и метаданные обложек.
 
@@ -166,9 +168,9 @@ static async Task PlayFileAsync(
 
 Разбор ID3 берёт временный буфер из пула и копирует только выбранную обложку. Очередь и деки читают обложки из уже выделенных массивов. В спектре оттенок заданной яркости создаётся при первом использовании и повторно используется до смены соответствующего цвета или режима.
 
-Платформенные адаптеры работают через AudioTrack, WaveOut и AVAudioEngine. [Android](samples/Laveyana.Audio.Maui/Platforms/Android/Playback/PlatformAudioOutput.cs) · [Windows](samples/Laveyana.Audio.Maui/Platforms/Windows/Playback/PlatformAudioOutput.cs) · [Apple](samples/Laveyana.Audio.Maui/Apple/PlatformAudioOutput.cs)
+Платформенные адаптеры работают через AudioTrack, WaveOut и AVAudioEngine. [Android](samples/LavPulse/Platforms/Android/Playback/PlatformAudioOutput.cs) · [Windows](samples/LavPulse/Platforms/Windows/Playback/PlatformAudioOutput.cs) · [Apple](samples/LavPulse/Apple/PlatformAudioOutput.cs)
 
-[`AndroidMediaPlaybackService`](samples/Laveyana.Audio.Maui/Platforms/Android/Playback/AndroidMediaPlaybackService.cs) предоставляет системные кнопки Android, а [`WindowsMediaIdentity`](samples/Laveyana.Audio.Maui/Platforms/Windows/Playback/WindowsMediaIdentity.cs) регистрирует идентификатор приложения Windows без MSIX.
+[`AndroidMediaPlaybackService`](samples/LavPulse/Platforms/Android/Playback/AndroidMediaPlaybackService.cs) предоставляет системные кнопки Android, а [`WindowsMediaIdentity`](samples/LavPulse/Platforms/Windows/Playback/WindowsMediaIdentity.cs) регистрирует идентификатор приложения Windows без MSIX.
 
 </details>
 
@@ -201,10 +203,10 @@ dotnet run --project tests/Laveyana.Audio.Playback.Checks -c Release
 | Добавить декодер или новый источник данных | [`IPcmSource`](src/Laveyana.Audio/Mixing/IPcmSource.cs), [`TrackPreparation`](src/Laveyana.Audio.Playback/Tracks/TrackPreparation.cs) |
 | Изменить сведение, паузу или скорость дек | [`QueueSource`](src/Laveyana.Audio.Playback/Session/Queue/QueueSource.cs), [`TransportFadeSource`](src/Laveyana.Audio.Playback/Session/TransportFadeSource.cs) |
 | Изменить эквалайзер или спектральный анализ | [`MasterEqualizerSource`](src/Laveyana.Audio.Playback/Session/Equalizer/MasterEqualizerSource.cs), [`MasterSpectrum`](src/Laveyana.Audio/Spectrum/MasterSpectrum.cs) |
-| Изменить очередь, историю или фоновую подготовку | [`MainPage.Queue.cs`](samples/Laveyana.Audio.Maui/Pages/Player/MainPage.Queue.cs), [`MainPage.Analysis.cs`](samples/Laveyana.Audio.Maui/Pages/Player/MainPage.Analysis.cs), [`PlaybackQueue`](samples/Laveyana.Audio.Maui/Tracks/Queue/PlaybackQueue.cs) |
-| Изменить жесты, волны или компоновку плеера | [`DeckView`](src/Laveyana.Audio.Maui.Controls/Views/Decks/DeckView.cs), [`TrackQueueView`](src/Laveyana.Audio.Maui.Controls/Views/Queue/TrackQueueView.cs), [`WaveformDrawable`](src/Laveyana.Audio.Maui.Controls/Views/Decks/WaveformDrawable.cs) |
-| Добавить нативный выход или системную медиасессию | [`IAudioOutput`](src/Laveyana.Audio.Playback/Session/IAudioOutput.cs), [`SystemPlaybackIntegration`](samples/Laveyana.Audio.Maui/Playback/SystemPlaybackIntegration.cs) |
+| Изменить очередь, историю или фоновую подготовку | [`MainPage.Queue.cs`](samples/LavPulse/Pages/Player/MainPage.Queue.cs), [`MainPage.Analysis.cs`](samples/LavPulse/Pages/Player/MainPage.Analysis.cs), [`PlaybackQueue`](samples/LavPulse/Tracks/Queue/PlaybackQueue.cs) |
+| Изменить жесты, волны или компоновку плеера | [`DeckView`](src/LavPulse.Controls/Views/Decks/DeckView.cs), [`TrackQueueView`](src/LavPulse.Controls/Views/Queue/TrackQueueView.cs), [`WaveformDrawable`](src/LavPulse.Controls/Views/Decks/WaveformDrawable.cs) |
+| Добавить нативный выход или системную медиасессию | [`IAudioOutput`](src/Laveyana.Audio.Playback/Session/IAudioOutput.cs), [`SystemPlaybackIntegration`](samples/LavPulse/Playback/SystemPlaybackIntegration.cs) |
 
 ## Зависимости и лицензия
 
-LavPulse распространяется под лицензией [MIT](LICENSE). Основные внешние зависимости: [NLayer 3.0.1](https://www.nuget.org/packages/NLayer/3.0.1) (декодирование MP3, MIT), [NAudio.WinMM 2.2.1](https://www.nuget.org/packages/NAudio.WinMM/2.2.1) (Windows WaveOut, MIT) и [Microsoft.Maui.Controls](https://github.com/dotnet/maui) (кроссплатформенный UI, MIT). Встроенный шрифт Inter распространяется по SIL Open Font License; текст лицензии включён в [`Inter-OFL.txt`](samples/Laveyana.Audio.Maui/Resources/Fonts/Inter-OFL.txt). При распространении зависимостей или шрифтов необходимо сохранять соответствующие уведомления об авторских правах и лицензиях.
+LavPulse распространяется под лицензией [MIT](LICENSE). Основные внешние зависимости: [NLayer 3.0.1](https://www.nuget.org/packages/NLayer/3.0.1) (декодирование MP3, MIT), [NAudio.WinMM 2.2.1](https://www.nuget.org/packages/NAudio.WinMM/2.2.1) (Windows WaveOut, MIT) и [Microsoft.Maui.Controls](https://github.com/dotnet/maui) (кроссплатформенный UI, MIT). Встроенный шрифт Inter распространяется по SIL Open Font License; текст лицензии включён в [`Inter-OFL.txt`](samples/LavPulse/Resources/Fonts/Inter-OFL.txt). При распространении зависимостей или шрифтов необходимо сохранять соответствующие уведомления об авторских правах и лицензиях.

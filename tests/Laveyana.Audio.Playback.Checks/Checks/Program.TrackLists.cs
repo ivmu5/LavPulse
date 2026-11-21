@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using Laveyana.Audio.Maui.Controls;
+using Laveyana.LavPulse.Controls;
 using Laveyana.Audio.Playback;
 
 internal static partial class Program

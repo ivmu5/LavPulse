@@ -1,4 +1,4 @@
-using Laveyana.Audio.Maui.Controls;
+using Laveyana.LavPulse.Controls;
 
 internal static class SpectrumFrameClockChecks
 {
