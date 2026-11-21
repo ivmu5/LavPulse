@@ -5,6 +5,8 @@ public sealed record TrackFile(string Name, Func<Stream, CancellationToken, Task
     /// <summary>The compressed file size in bytes when supplied by the track source.</summary>
     public long? SizeBytes { get; init; }
     internal Func<Task<Stream>>? OpenReadAsync { get; init; }
+    private Func<Stream, CancellationToken, Task>? StreamingCopy { get; init; }
+    internal Func<Task<Stream>>? OpenCopySource => CopyToAsync == StreamingCopy ? OpenReadAsync : null;
 
     /// <summary>Checks the extension without opening a file or depending on case.</summary>
     public static bool IsMp3(string name)
@@ -12,14 +14,20 @@ public sealed record TrackFile(string Name, Func<Stream, CancellationToken, Task
 
     /// <summary>Creates a selection whose backing stream can be opened lazily.</summary>
     public static TrackFile FromStream(string name, Func<Task<Stream>> open)
-        => new TrackFile(name, async (destination, token) =>
+    {
+        async Task CopyAsync(Stream destination, CancellationToken token)
         {
             await using Stream source = await open().ConfigureAwait(false);
             await source.CopyToAsync(destination, token).ConfigureAwait(false);
-        })
+        }
+
+        Func<Stream, CancellationToken, Task> copy = CopyAsync;
+        return new TrackFile(name, copy)
         {
-            OpenReadAsync = open
+            OpenReadAsync = open,
+            StreamingCopy = copy
         };
+    }
 
     /// <summary>Creates a selection for a local path usable by playback and desktop drag.</summary>
     public static TrackFile FromPath(string path)

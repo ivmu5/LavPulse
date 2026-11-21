@@ -174,6 +174,26 @@ internal static partial class Program
             Require(samples[i] == pcm[i] / 32768f, "PCM16 conversion changed a sample.");
         }
         Require(samples[^1] == 2f, "PCM16 conversion wrote past the decoded samples.");
+
+        // Exercise rounding midpoints, normalized extremes, non-finite samples and a partial vector.
+        var input = new float[3 * pcm.Length + 5];
+        for (int i = 0; i < pcm.Length; i++)
+        {
+            float midpoint = (pcm[i] + .5f) / short.MaxValue;
+            input[i * 3] = MathF.BitDecrement(midpoint);
+            input[i * 3 + 1] = midpoint;
+            input[i * 3 + 2] = MathF.BitIncrement(midpoint);
+        }
+        new[] { -1f, 1f, float.NaN, float.NegativeInfinity, float.PositiveInfinity }.CopyTo(input, 128);
+        var encoded = new short[input.Length + 1];
+        encoded[^1] = 123;
+        Pcm16.Encode(input, encoded);
+        for (int i = 0; i < input.Length; i++)
+        {
+            short expected = input[i] <= -1f ? short.MinValue : (short)MathF.Round(input[i] * short.MaxValue);
+            Require(encoded[i] == expected, "PCM16 encoding changed the scalar rounding or clipping rule.");
+        }
+        Require(encoded[^1] == 123, "PCM16 encoding wrote past the input samples.");
     }
 
     /// <summary>Checks the audible buffer and verifies that neither deck was reset or read past the fade.</summary>

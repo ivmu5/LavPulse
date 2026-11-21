@@ -12,6 +12,7 @@ internal static class LocalTrackStoreChecks
         var second = await store.CopyAsync(Source("second.mp3", 2), default);
         var duplicate = await store.CopyAsync(Source("copy.mp3", 1), default);
         Require(first.LocalPath == duplicate.LocalPath, "Identical imports duplicated local media.");
+        await CheckStreamedCopyAsync(store);
         long mediaBytes = new FileInfo(first.LocalPath!).Length;
         Require(await store.ReadTrackStorageSizeAsync(first, default) == mediaBytes,
             "A track without cached data did not report its MP3 size.");
@@ -232,5 +233,34 @@ internal static class LocalTrackStoreChecks
     private static void Require(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
+    }
+
+    private static async Task CheckStreamedCopyAsync(LocalTrackStore store)
+    {
+        var bytes = new byte[280_027];
+        new Random(19).NextBytes(bytes);
+        var streamed = TrackFile.FromStream("streamed.mp3", () => Task.FromResult<Stream>(new MemoryStream(bytes)));
+        var saved = await store.CopyAsync(streamed, default);
+        string expectedId = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes));
+        Require(Path.GetFileNameWithoutExtension(saved.LocalPath) == expectedId &&
+            (await File.ReadAllBytesAsync(saved.LocalPath!)).SequenceEqual(bytes),
+            "Hashing while importing changed the media bytes or durable content ID.");
+
+        var custom = streamed with
+        {
+            CopyToAsync = async (destination, token) =>
+            {
+                await destination.WriteAsync(bytes, token);
+                destination.Position = 0;
+                await destination.WriteAsync(new byte[] { (byte)~bytes[0] }, token);
+            }
+        };
+        var customized = await store.CopyAsync(custom, default);
+        bytes[0] = (byte)~bytes[0];
+        Require(customized.LocalPath != saved.LocalPath &&
+            (await File.ReadAllBytesAsync(customized.LocalPath!)).SequenceEqual(bytes),
+            "A custom seekable import was replaced by its original stream factory.");
+        File.Delete(saved.LocalPath!);
+        File.Delete(customized.LocalPath!);
     }
 }

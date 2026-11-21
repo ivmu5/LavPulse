@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -28,9 +29,7 @@ internal sealed partial class LocalTrackStore(string root)
             await using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.ReadWrite,
                 FileShare.None, 64 * 1024, FileOptions.Asynchronous))
             {
-                await file.CopyToAsync(stream, token).ConfigureAwait(false);
-                stream.Position = 0;
-                id = Convert.ToHexString(await SHA256.HashDataAsync(stream, token).ConfigureAwait(false));
+                id = Convert.ToHexString(await CopyAndHashAsync(file, stream, token).ConfigureAwait(false));
             }
 
             token.ThrowIfCancellationRequested();
@@ -46,6 +45,32 @@ internal sealed partial class LocalTrackStore(string root)
         {
             CachedTrack.DeleteCacheFile(temp);
         }
+    }
+
+    private static async Task<byte[]> CopyAndHashAsync(TrackFile file, FileStream output, CancellationToken token)
+    {
+        // Custom copy delegates still get a seekable destination and are hashed after writing.
+        if (file.OpenCopySource is not { } open)
+        {
+            await file.CopyToAsync(output, token).ConfigureAwait(false);
+            output.Position = 0;
+            return await SHA256.HashDataAsync(output, token).ConfigureAwait(false);
+        }
+
+        await using var source = await open().ConfigureAwait(false);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(128 * 1024);
+        try
+        {
+            int read;
+            while ((read = await source.ReadAsync(buffer.AsMemory(), token).ConfigureAwait(false)) != 0)
+            {
+                await output.WriteAsync(buffer.AsMemory(0, read), token).ConfigureAwait(false);
+                hash.AppendData(buffer, 0, read);
+            }
+            return hash.GetHashAndReset();
+        }
+        finally { ArrayPool<byte>.Shared.Return(buffer); }
     }
 
     public async Task<(TrackFile[] Tracks, TrackFile? Current)> ReadQueueAsync(CancellationToken token)
