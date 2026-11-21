@@ -18,12 +18,14 @@ public sealed partial class PlayerView : Grid
     private readonly ImageButton _equalizer = MixerStyle.IconButton("player_equalizer.png", 44);
     private readonly Switch _equalizerToggle = new()
     {
-        WidthRequest = 48, VerticalOptions = LayoutOptions.Center
+        WidthRequest = 48,
+        VerticalOptions = LayoutOptions.Center
     };
     private readonly Border _equalizerGroup = new()
     {
         StrokeThickness = 0,
-        HeightRequest = 44, VerticalOptions = LayoutOptions.Center,
+        HeightRequest = 44,
+        VerticalOptions = LayoutOptions.Center,
         StrokeShape = new RoundRectangle { CornerRadius = 9 }
     };
     private readonly Button _settings = MixerStyle.Button("Настройки", icon: "player_settings.png", stacked: true);
@@ -197,7 +199,8 @@ public sealed partial class PlayerView : Grid
         var controls = new Grid
         {
             ColumnDefinitions = [new(GridLength.Star), new(0), new(GridLength.Star)],
-            RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)], RowSpacing = 4
+            RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)],
+            RowSpacing = 4
         };
 #if IOS
         // Let the two groups take their natural widths on small iPhones, with flexible space between.
@@ -228,12 +231,26 @@ public sealed partial class PlayerView : Grid
         {
             Children = { _equalizer, _equalizerToggle }
         };
-        var left = new HorizontalStackLayout { HorizontalOptions = LayoutOptions.Start, VerticalOptions = LayoutOptions.Center,
-            Spacing = 4, Children = { _automix, _repeatOne } };
-        var right = new HorizontalStackLayout { HorizontalOptions = LayoutOptions.End, VerticalOptions = LayoutOptions.Center,
-            Spacing = 4, Children = { _equalizerGroup, _settings } };
-        var primary = new HorizontalStackLayout { HorizontalOptions = LayoutOptions.Center,
-            Spacing = 4, Children = { _previous, _play, _next } };
+        var left = new HorizontalStackLayout
+        {
+            HorizontalOptions = LayoutOptions.Start,
+            VerticalOptions = LayoutOptions.Center,
+            Spacing = 4,
+            Children = { _automix, _repeatOne }
+        };
+        var right = new HorizontalStackLayout
+        {
+            HorizontalOptions = LayoutOptions.End,
+            VerticalOptions = LayoutOptions.Center,
+            Spacing = 4,
+            Children = { _equalizerGroup, _settings }
+        };
+        var primary = new HorizontalStackLayout
+        {
+            HorizontalOptions = LayoutOptions.Center,
+            Spacing = 4,
+            Children = { _previous, _play, _next }
+        };
         controls.Add(left);
         controls.Add(right, 2);
         controls.Add(primary, row: 1);

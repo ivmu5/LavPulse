@@ -31,14 +31,19 @@ internal class TrackListRow : Border
         StrokeShape = new RoundRectangle { CornerRadius = 8 };
         _cover = new Border
         {
-            WidthRequest = CoverSize, HeightRequest = CoverSize, VerticalOptions = LayoutOptions.Center,
-            StrokeThickness = 0, StrokeShape = new RoundRectangle { CornerRadius = 5 }, Content = _art
+            WidthRequest = CoverSize,
+            HeightRequest = CoverSize,
+            VerticalOptions = LayoutOptions.Center,
+            StrokeThickness = 0,
+            StrokeShape = new RoundRectangle { CornerRadius = 5 },
+            Content = _art
         };
         _leading = new Grid { Children = { _cover } };
         Body = new Grid
         {
             BackgroundColor = Colors.Transparent,
-            ColumnSpacing = 6, ColumnDefinitions = [new(CoverSize), new(GridLength.Star)]
+            ColumnSpacing = 6,
+            ColumnDefinitions = [new(CoverSize), new(GridLength.Star)]
         };
         Body.Add(_leading);
         _content = new Grid { ColumnDefinitions = [new(GridLength.Star), new(0), new(0)] };

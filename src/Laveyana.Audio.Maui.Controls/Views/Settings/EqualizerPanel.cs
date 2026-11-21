@@ -95,7 +95,9 @@ public sealed class EqualizerPanel : ContentView
 #endif
         var layout = new Grid
         {
-            Padding = new Thickness(16, topInset, 16, 16), RowSpacing = 12, HorizontalOptions = LayoutOptions.Center,
+            Padding = new Thickness(16, topInset, 16, 16),
+            RowSpacing = 12,
+            HorizontalOptions = LayoutOptions.Center,
             RowDefinitions = [new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)]
         };
         layout.Add(header);

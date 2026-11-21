@@ -27,8 +27,14 @@ internal sealed class QueueTrackRow : TrackListRow
     {
         _graphics = new GraphicsView { Drawable = _text, InputTransparent = true };
         _text.OverflowChanged += () => AnimationStateChanged?.Invoke();
-        DragHandle = new Image { WidthRequest = 24, HeightRequest = 36,
-            VerticalOptions = LayoutOptions.Center, Aspect = Aspect.AspectFit, IsVisible = false };
+        DragHandle = new Image
+        {
+            WidthRequest = 24,
+            HeightRequest = 36,
+            VerticalOptions = LayoutOptions.Center,
+            Aspect = Aspect.AspectFit,
+            IsVisible = false
+        };
         MixerStyle.UseIcon(DragHandle, Image.SourceProperty, "player_reorder.png");
         SemanticProperties.SetDescription(DragHandle, "Перетащить трек");
         SetDetails(_graphics);

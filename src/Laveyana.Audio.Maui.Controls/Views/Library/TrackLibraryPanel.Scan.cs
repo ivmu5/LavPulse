@@ -54,7 +54,8 @@ public sealed partial class TrackLibraryPanel
         controls.Add(_stopScan, 1);
         return new VerticalStackLayout
         {
-            IsVisible = false, Spacing = 6,
+            IsVisible = false,
+            Spacing = 6,
             Children = { _scanPosition, _scanProgress, _scanPreview, controls }
         };
     }

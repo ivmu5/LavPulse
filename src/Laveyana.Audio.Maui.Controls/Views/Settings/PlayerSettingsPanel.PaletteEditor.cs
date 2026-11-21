@@ -46,7 +46,10 @@ public sealed partial class PlayerSettingsPanel
         private readonly PaletteColorPicker _picker = new();
         private readonly Entry _hex = new()
         {
-            Placeholder = "#RRGGBB", MaxLength = 7, FontFamily = "Inter", MinimumWidthRequest = 110
+            Placeholder = "#RRGGBB",
+            MaxLength = 7,
+            FontFamily = "Inter",
+            MinimumWidthRequest = 110
         };
         private readonly Label _validation = MixerStyle.Label("Введите цвет в формате #RRGGBB.", 12, MixerColor.Preview);
         private readonly Button _apply = MixerStyle.Button("Применить", primary: true);

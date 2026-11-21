@@ -210,7 +210,9 @@ internal sealed class QueueSource : IPcmSource, IDisposable
     private void PublishSnapshot()
     {
         var snapshot = new QueueSnapshot(_current?.Snapshot, _fadeLength != 0 ? _next?.Snapshot : null)
-            { MixPending = _manual };
+        {
+            MixPending = _manual
+        };
         lock (_snapshotGate) _snapshot = snapshot;
     }
 

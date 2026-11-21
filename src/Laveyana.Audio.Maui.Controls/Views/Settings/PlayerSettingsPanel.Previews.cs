@@ -55,8 +55,11 @@ public sealed partial class PlayerSettingsPanel
 
             var choice = new RadioButton
             {
-                Content = content, ControlTemplate = PreviewChoiceTemplate, Padding = 0,
-                HorizontalOptions = LayoutOptions.Fill, VerticalOptions = LayoutOptions.Fill
+                Content = content,
+                ControlTemplate = PreviewChoiceTemplate,
+                Padding = 0,
+                HorizontalOptions = LayoutOptions.Fill,
+                VerticalOptions = LayoutOptions.Fill
             };
             SemanticProperties.SetDescription(choice, $"{name}. {label}");
             grid.Add(choice, index % columns, row);
@@ -80,7 +83,9 @@ public sealed partial class PlayerSettingsPanel
             StrokeShape = new RoundRectangle { CornerRadius = 8 },
             Content = new ContentPresenter
             {
-                InputTransparent = true, HorizontalOptions = LayoutOptions.Fill, VerticalOptions = LayoutOptions.Fill
+                InputTransparent = true,
+                HorizontalOptions = LayoutOptions.Fill,
+                VerticalOptions = LayoutOptions.Fill
             }
         };
         // The native presenter can measure the template at its desired width. Match the assigned column instead.
@@ -168,8 +173,12 @@ public sealed partial class PlayerSettingsPanel
 
     private static PlayerSettings SpectrumPreviewSettings(PlayerSettings settings, SpectrumColorMode mode) => settings with
     {
-        SpectrumColors = mode, ShowSpectrum = true, ShowPeaks = false, SpectrumWidthPercent = 42,
-        SpectrumTopPaddingRows = 0, SpectrumBottomPaddingRows = 0
+        SpectrumColors = mode,
+        ShowSpectrum = true,
+        ShowPeaks = false,
+        SpectrumWidthPercent = 42,
+        SpectrumTopPaddingRows = 0,
+        SpectrumBottomPaddingRows = 0
     };
 
     private View CreateTimelinePreview(bool waveform)

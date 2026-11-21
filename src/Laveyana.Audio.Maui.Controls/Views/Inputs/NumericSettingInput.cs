@@ -23,8 +23,11 @@ internal sealed class NumericSettingInput : Grid
         ColumnSpacing = showSlider ? 6 : 3;
         _entry = new Entry
         {
-            Keyboard = Keyboard.Numeric, ReturnType = ReturnType.Done, HorizontalTextAlignment = TextAlignment.End,
-            FontFamily = "Inter", FontSize = vertical ? 12 : showSlider ? 14 : MixerStyle.PhoneFont(12, 11),
+            Keyboard = Keyboard.Numeric,
+            ReturnType = ReturnType.Done,
+            HorizontalTextAlignment = TextAlignment.End,
+            FontFamily = "Inter",
+            FontSize = vertical ? 12 : showSlider ? 14 : MixerStyle.PhoneFont(12, 11),
             WidthRequest = vertical ? 48 : showSlider ? 76 : 66
         };
         MixerStyle.StyleEntry(_entry);
@@ -50,7 +53,9 @@ internal sealed class NumericSettingInput : Grid
         {
             _slider = new Slider
             {
-                Maximum = range.Maximum, Minimum = range.Minimum, VerticalOptions = LayoutOptions.Center
+                Maximum = range.Maximum,
+                Minimum = range.Minimum,
+                VerticalOptions = LayoutOptions.Center
             };
             MixerStyle.StyleSlider(_slider);
             SemanticProperties.SetDescription(_slider, $"{name}, {unit}. Двойное нажатие сбрасывает значение.");

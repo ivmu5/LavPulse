@@ -103,8 +103,12 @@ public sealed partial class MainPage
     {
         _appearanceDraft = _settings with
         {
-            Theme = draft.Theme, DarkBackground = draft.DarkBackground, HideStatusBar = draft.HideStatusBar,
-            Palette = draft.Palette, CustomColors = draft.CustomColors, SpectrumColors = draft.SpectrumColors,
+            Theme = draft.Theme,
+            DarkBackground = draft.DarkBackground,
+            HideStatusBar = draft.HideStatusBar,
+            Palette = draft.Palette,
+            CustomColors = draft.CustomColors,
+            SpectrumColors = draft.SpectrumColors,
             SpectrumFrameRate = draft.SpectrumFrameRate
         };
         RefreshAppearance();

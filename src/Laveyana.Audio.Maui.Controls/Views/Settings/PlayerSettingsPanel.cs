@@ -153,7 +153,8 @@ public sealed partial class PlayerSettingsPanel : ContentView
         {
             ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)],
             RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)],
-            ColumnSpacing = 12, RowSpacing = 8
+            ColumnSpacing = 12,
+            RowSpacing = 8
         };
         pair.Add(first);
         pair.Add(second, row: 1);

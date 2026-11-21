@@ -83,7 +83,9 @@ internal static partial class MixerStyle
     {
         var label = new Label
         {
-            Text = text, FontFamily = "Inter", FontSize = size,
+            Text = text,
+            FontFamily = "Inter",
+            FontSize = size,
             FontAttributes = bold ? FontAttributes.Bold : FontAttributes.None
         };
         UseColor(label, Microsoft.Maui.Controls.Label.TextColorProperty, color);
@@ -95,8 +97,12 @@ internal static partial class MixerStyle
     {
         var button = new Button
         {
-            Text = text, FontFamily = "Inter", FontSize = ButtonFontSize, CornerRadius = 9,
-            Padding = stacked ? new Thickness(2, 4) : new Thickness(8, 8), MinimumHeightRequest = stacked ? 52 : 44,
+            Text = text,
+            FontFamily = "Inter",
+            FontSize = ButtonFontSize,
+            CornerRadius = 9,
+            Padding = stacked ? new Thickness(2, 4) : new Thickness(8, 8),
+            MinimumHeightRequest = stacked ? 52 : 44,
             FontAttributes = primary ? FontAttributes.Bold : FontAttributes.None
         };
         UseColor(button, VisualElement.BackgroundColorProperty, primary ? MixerColor.Primary : MixerColor.Button);
@@ -129,8 +135,11 @@ internal static partial class MixerStyle
     {
         var button = new ImageButton
         {
-            Aspect = Aspect.AspectFit, Padding = (size - ButtonIconSize) / 2,
-            WidthRequest = size, HeightRequest = size, CornerRadius = size / 2,
+            Aspect = Aspect.AspectFit,
+            Padding = (size - ButtonIconSize) / 2,
+            WidthRequest = size,
+            HeightRequest = size,
+            CornerRadius = size / 2,
             VerticalOptions = LayoutOptions.Center
         };
         UseColor(button, VisualElement.BackgroundColorProperty, primary ? MixerColor.Primary : MixerColor.Button);

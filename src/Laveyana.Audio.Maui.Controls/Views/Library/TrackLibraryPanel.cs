@@ -107,8 +107,10 @@ public sealed partial class TrackLibraryPanel : ContentView
 #endif
         var layout = new Grid
         {
-            Padding = new Thickness(16, top, 16, 16), RowSpacing = 8,
-            HorizontalOptions = LayoutOptions.Center, MaximumWidthRequest = 660,
+            Padding = new Thickness(16, top, 16, 16),
+            RowSpacing = 8,
+            HorizontalOptions = LayoutOptions.Center,
+            MaximumWidthRequest = 660,
             RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)]
         };
         layout.Add(header);

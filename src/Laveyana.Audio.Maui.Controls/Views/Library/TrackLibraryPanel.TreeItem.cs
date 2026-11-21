@@ -35,7 +35,9 @@ public sealed partial class TrackLibraryPanel
             AddLeading(_folder);
             SetDetails(new VerticalStackLayout
             {
-                VerticalOptions = LayoutOptions.Center, Spacing = 2, Children = { _title, _details }
+                VerticalOptions = LayoutOptions.Center,
+                Spacing = 2,
+                Children = { _title, _details }
             });
             _add.Clicked += async (_, _) =>
             {
@@ -50,7 +52,9 @@ public sealed partial class TrackLibraryPanel
             _add.IsVisible = !previewOnly;
             SetActions(new HorizontalStackLayout
             {
-                Spacing = 4, VerticalOptions = LayoutOptions.Center, Children = { _size, _add, _import }
+                Spacing = 4,
+                VerticalOptions = LayoutOptions.Center,
+                Children = { _size, _add, _import }
             });
             SetActionWidth(GridLength.Auto);
             if (previewOnly) return;

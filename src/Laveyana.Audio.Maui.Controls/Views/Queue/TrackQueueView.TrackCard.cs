@@ -24,7 +24,8 @@ internal sealed partial class TrackQueueView
             bool right = align == TextAlignment.End;
             _cover = new Border
             {
-                WidthRequest = 116, HeightRequest = 116,
+                WidthRequest = 116,
+                HeightRequest = 116,
                 HorizontalOptions = right ? LayoutOptions.End : LayoutOptions.Start,
                 StrokeThickness = 0,
                 StrokeShape = new RoundRectangle { CornerRadius = 10 },

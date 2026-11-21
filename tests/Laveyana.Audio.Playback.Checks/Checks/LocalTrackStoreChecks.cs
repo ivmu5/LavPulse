@@ -94,8 +94,10 @@ internal static class LocalTrackStoreChecks
             (file, _) => ValueTask.FromResult(file.SizeBytes + 10));
         Require(storedSizes[folder.Id] == 36 && storedSizes[rootListing.Children.Single().Id] == 13,
             "Folder totals did not use the provided storage size.");
-        var partial = TrackFolder.FromFiles(rootListing.Name, [rootListing.Files[0] with { SizeBytes = null }])
-            with { Children = rootListing.Children };
+        var partial = TrackFolder.FromFiles(rootListing.Name, [rootListing.Files[0] with { SizeBytes = null }]) with
+        {
+            Children = rootListing.Children
+        };
         var partialSizes = await TrackFolderSizes.ReadAsync(folder, partial, default);
         Require(partialSizes[folder.Id] is null && partialSizes[rootListing.Children.Single().Id] == 3,
             "Unknown sizes hid the size of a readable subfolder or produced an incomplete total.");

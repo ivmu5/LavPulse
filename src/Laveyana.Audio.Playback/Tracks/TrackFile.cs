@@ -16,7 +16,10 @@ public sealed record TrackFile(string Name, Func<Stream, CancellationToken, Task
         {
             await using Stream source = await open().ConfigureAwait(false);
             await source.CopyToAsync(destination, token).ConfigureAwait(false);
-        }) { OpenReadAsync = open };
+        })
+        {
+            OpenReadAsync = open
+        };
 
     /// <summary>Creates a selection for a local path usable by playback and desktop drag.</summary>
     public static TrackFile FromPath(string path)

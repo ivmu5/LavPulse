@@ -69,8 +69,10 @@ internal static class PlatformTrackFolder
             {
                 long? size = sizeColumn >= 0 && !cursor.IsNull(sizeColumn) ? cursor.GetLong(sizeColumn) : null;
                 files.Add(TrackFile.FromStream(name, () => Task.FromResult(
-                    resolver.OpenInputStream(uri) ?? throw new IOException($"Android не открыл {name}.")))
-                    with { SizeBytes = size is >= 0 ? size : null });
+                    resolver.OpenInputStream(uri) ?? throw new IOException($"Android не открыл {name}."))) with
+                {
+                    SizeBytes = size is >= 0 ? size : null
+                });
             }
         }
 

@@ -203,12 +203,15 @@ public sealed partial class WindowsWindowChrome
         brand.Children.Add(new NativeImage
         {
             Source = new BitmapImage(new Uri("ms-appx:///lavpulse_mark.png")),
-            Width = 44, Height = 26,
+            Width = 44,
+            Height = 26,
             Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform
         });
         text = new NativeText
         {
-            Text = title ?? "LavPulse", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Text = title ?? "LavPulse",
+            FontSize = 16,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center
         };
         brand.Children.Add(text);

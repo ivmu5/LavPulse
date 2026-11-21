@@ -45,7 +45,8 @@ internal sealed partial class TrackQueueView : Grid
         };
         _recommendations = new TrackListView<TrackFile, QueueTrackRow>(CreateRow, BindRow, ReleaseRow)
         {
-            HeightRequest = TrackListLayout.RowHeight, IsVisible = false
+            HeightRequest = TrackListLayout.RowHeight,
+            IsVisible = false
         };
         _recommendations.SetItems([], "В разработке");
         Loaded += (_, _) =>
@@ -79,14 +80,17 @@ internal sealed partial class TrackQueueView : Grid
         SemanticProperties.SetHeadingLevel(title, SemanticHeadingLevel.Level1);
         _editorHeader = new Grid
         {
-            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 6, IsVisible = false
+            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)],
+            ColumnSpacing = 6,
+            IsVisible = false
         };
         _editorHeader.Add(title);
         _editorHeader.Add(done, 1);
         _editorHint.IsVisible = false;
         _queue = new VerticalStackLayout
         {
-            Spacing = 7, Children = { _feedSelector, _editorHeader, _editorHint, _queueScroll, _recommendations }
+            Spacing = 7,
+            Children = { _feedSelector, _editorHeader, _editorHint, _queueScroll, _recommendations }
         };
         _editorHeader.SizeChanged += (_, _) => UpdateQueueViewport();
         _editorHint.SizeChanged += (_, _) => UpdateQueueViewport();
