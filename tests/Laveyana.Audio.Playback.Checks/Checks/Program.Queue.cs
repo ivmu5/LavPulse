@@ -116,5 +116,37 @@ internal static partial class Program
             "Replaying history did not restore the proper gray/upcoming boundary.");
     }
 
-    /// <summary>Checks that disabling FFT preserves playback timing and discards pre-toggle windows.</summary>
+    private static async Task CheckCompactAnalysisPassAsync()
+    {
+        var queue = Enumerable.Range(0, 515).Select(i => TrackFile.FromPath($"compact-{i}.mp3")).ToArray();
+        var analyzed = queue[..512].ToHashSet();
+        var order = new List<TrackFile>();
+        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        int checks = 0;
+        var analysis = new QueueTrackAnalysis(_ => false, _ => Task.CompletedTask, () => { }, stop.Token,
+            file =>
+            {
+                checks++;
+                return analyzed.Contains(file);
+            },
+            file =>
+            {
+                order.Add(file);
+                analyzed.Add(file);
+                return Task.CompletedTask;
+            });
+
+        await analysis.Update([], allowed: true, queue)!.WaitAsync(stop.Token);
+        analysis.Finish();
+        int firstPassChecks = checks;
+        Require(order.SequenceEqual(queue[^3..]) && firstPassChecks <= queue.Length + 10,
+            "The compact scan repeatedly traversed the already analyzed tracks.");
+
+        // A saved file can be stale or removed after the previous pass.
+        analyzed.Remove(queue[0]);
+        await analysis.Update([], allowed: true, queue)!.WaitAsync(stop.Token);
+        analysis.Finish();
+        Require(ReferenceEquals(order[^1], queue[0]), "A fresh pass skipped invalidated analysis.");
+        Console.WriteLine($"OK: compact analysis ({firstPassChecks} status checks across {queue.Length} tracks).");
+    }
 }

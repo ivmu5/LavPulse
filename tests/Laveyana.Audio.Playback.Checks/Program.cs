@@ -18,6 +18,7 @@ internal static partial class Program
             await CheckManualScanControlsAsync();
             await CheckInterruptedQueueAnalysis();
             await CheckQueueAnalysisLookahead();
+            await CheckCompactAnalysisPassAsync();
             CheckMp3AudioInfo();
             await TrackPreparationChecks.RunAsync(directory);
             await LocalTrackStoreChecks.RunAsync(directory);

@@ -20,6 +20,7 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
 
     private int _offset;
     private int _available;
+    private bool _decoderEnded;
     private int _phase;
     private bool _initialized;
     private bool _hasCurrent;
@@ -48,6 +49,8 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
     /// <summary>Interpolates decoded frames onto the mixer format with no per-block allocation.</summary>
     public int Read(Span<float> destination)
     {
+        if (_sourceRate == SampleRate) return ReadAtNativeRate(destination);
+
         if (!_initialized)
         {
             _hasCurrent = ReadFrame(out _current);
@@ -78,23 +81,39 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
         return frames;
     }
 
+    /// <summary>Copies complete blocks directly when the decoder already matches the mixer rate.</summary>
+    private int ReadAtNativeRate(Span<float> destination)
+    {
+        int frames = 0;
+        int capacity = destination.Length / PcmMixer.ChannelCount;
+        while (frames < capacity && (_offset != _available || RefillSamples()))
+        {
+            int count = Math.Min(capacity - frames, (_available - _offset) / _channels);
+            var samples = _samples.AsSpan(_offset, count * _channels);
+            var output = destination.Slice(frames * 2, count * 2);
+            if (_channels == 2)
+            {
+                for (int i = 0; i < output.Length; i++)
+                    output[i] = Math.Clamp(samples[i], -1f, 1f);
+            }
+            else
+            {
+                for (int i = 0; i < count; i++)
+                    output[i * 2] = output[i * 2 + 1] = Math.Clamp(samples[i], -1f, 1f);
+            }
+            _offset += samples.Length;
+            frames += count;
+        }
+        return frames;
+    }
+
     /// <summary>Refills the decoder buffer when it runs out and returns one normalized stereo frame.</summary>
     private bool ReadFrame(out StereoFrame frame)
     {
-        if (_offset == _available)
+        if (_offset == _available && !RefillSamples())
         {
-            _available = _decoder.ReadSamples(_samples);
-            _offset = 0;
-            if (_available == 0)
-            {
-                frame = default;
-                return false;
-            }
-
-            if ((uint)_available > (uint)_samples.Length || _available % _channels != 0)
-            {
-                throw new InvalidDataException("Декодер вернул неполный аудиокадр.");
-            }
+            frame = default;
+            return false;
         }
 
         float left = Math.Clamp(_samples[_offset], -1f, 1f);
@@ -102,6 +121,18 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
         _offset += _channels;
         frame = new StereoFrame(left, right);
         return true;
+    }
+
+    private bool RefillSamples()
+    {
+        if (_decoderEnded) return false;
+        _available = _decoder.ReadSamples(_samples);
+        _offset = 0;
+        if ((uint)_available > (uint)_samples.Length || _available % _channels != 0)
+            throw new InvalidDataException("Декодер вернул неполный аудиокадр.");
+
+        _decoderEnded = _available == 0;
+        return !_decoderEnded;
     }
 
     /// <summary>Releases the decoder. The importer owns the input stream.</summary>
