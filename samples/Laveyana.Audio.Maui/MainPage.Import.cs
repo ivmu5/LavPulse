@@ -78,25 +78,20 @@ public sealed partial class MainPage
         }
     }
 
-    private async Task OpenTrackLibraryAsync()
+    private bool OpenTrackLibrary()
     {
-        if (_closed || _view.Panel is not null || _pickerOpen) return;
-        var library = new TrackLibraryPanel(
+        if (_pickerOpen) return false;
+        var library = OpenPanel(() => new TrackLibraryPanel(
             () => Window is { } window ? WithPickerAsync(() => PlatformTrackFolder.PickAsync(window, _lifetime.Token))
                 : Task.FromResult<TrackFolderSource?>(null),
             OpenSavedLibraryAsync, ImportLibrarySelectionAsync, _library.ReadLibraryMetadataAsync,
-            ListLibraryScanTracksAsync, RescanLibraryTrackAsync, RemoveLibrarySelectionAsync, CloseTrackLibrary, _lifetime.Token);
-        _view.ShowPanel(library);
-        _view.SuspendPlayerAnimations();
-        UpdatePositionRefreshInterval();
-        await library.InitializeAsync();
-    }
-
-    private void CloseTrackLibrary()
-    {
-        if (_view.Panel is not TrackLibraryPanel library) return;
-        library.Cancel();
-        ClosePanel();
+            ListLibraryScanTracksAsync, RescanLibraryTrackAsync, RemoveLibrarySelectionAsync, ClosePanel, _lifetime.Token));
+        if (library is null) return false;
+        library.ImportFolderOpened += RecordOpeningScreen;
+        library.ImportFolderClosed += root =>
+            _forwardNavigation.Push(() => _view.Panel is TrackLibraryPanel panel && panel.TryReopenImportFolder(root));
+        _ = library.InitializeAsync();
+        return true;
     }
 
     private async Task<TrackFolderSource> OpenSavedLibraryAsync()

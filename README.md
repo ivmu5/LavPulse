@@ -40,9 +40,11 @@ Before installing the simulator build with `simctl install`, locally sign the ge
 
 Run `dotnet restore Laveyana.Audio.Maui.slnx` after switching platforms or updating workloads. The solution keeps Windows and Android intermediate outputs separate (see [`Directory.Build.props`](Directory.Build.props)) to prevent mixed NuGet assets and long Android resource paths.
 
-Open the media library using the folder icon beside the queue. Select a folder or track to show its import and queue actions. Folder import and rescanning include nested folders. Select a subfolder to work on its subtree. **Rescan** shows the active track and progress. **Skip** moves to the next track and **Stop** ends the pass. In the saved library, swipe left to reveal the trash button, or use **Edit** to show the row actions together. The trash button in the library removes a catalog entry.
+Open the media library using the folder icon next to the **Queue** tab. The import browser shows import and queue buttons on each row. Saved folders always show the queue button. Folder import and rescanning include nested folders. Select a subfolder to work on its subtree. **Rescan** shows the active track and progress. **Skip** moves to the next track and **Stop** ends the pass. In the saved library, swipe left to reveal the trash button, or use **Edit** to show the row actions together. The trash button in the library removes a catalog entry. Leaving the library exits edit mode.
 
-The player queue includes played tracks. When the track changes after ten seconds without queue interaction, the current track scrolls to the top of the viewport. Tap the active **Queue** tab again or choose **Edit** to open the editor. The editor centers the current track where the list allows it and shows the drag handles and trash buttons. In the ordinary queue, swipe left to reveal a single trash button. **Done** closes editing.
+The player queue includes played tracks. When the track changes after ten seconds without queue interaction, the current track scrolls to the top of the viewport. Tap the active **Queue** tab again to open the editor. The editor centers the current track where the list allows it and shows the drag handles and trash buttons. In the ordinary queue, swipe left to reveal a single trash button. **Done** returns to the player.
+
+On Windows, the mouse **Back** and **Forward** buttons navigate between the player and its panels and editors. Opening another screen clears forward history.
 
 Use **▾** beside the deck speed for presets from **0.75× to 1.25×** in steps of **0.05×**. The field accepts manual input, and a Windows mouse wheel step changes speed by **0.01×**.
 

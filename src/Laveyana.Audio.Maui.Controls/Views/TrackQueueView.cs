@@ -11,7 +11,6 @@ internal sealed partial class TrackQueueView : Grid
     private const int ViewportHeight = 236;
     private const int CoverInfoGap = 8;
     private readonly TrackCard _current = new(TextAlignment.Start, showAudioInfo: true);
-    private readonly Button _editQueue = MixerStyle.Button("Редактирование", icon: "player_edit.png");
     private readonly TrackCard _incoming = new(TextAlignment.End);
     private readonly VerticalStackLayout _queue;
     private readonly View _feedSelector;
@@ -188,9 +187,10 @@ internal sealed partial class TrackQueueView : Grid
         library.VerticalOptions = LayoutOptions.Center;
         SemanticProperties.SetDescription(library, "Открыть медиатеку");
         library.Clicked += (_, _) => LibraryRequested?.Invoke();
-        var segments = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)] };
+        var segments = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star), new(GridLength.Auto)] };
         segments.Add(_recommendationsTab);
         segments.Add(_queueTab, 1);
+        segments.Add(library, 2);
         var selector = new Border
         {
             StrokeThickness = 1,
@@ -200,15 +200,7 @@ internal sealed partial class TrackQueueView : Grid
         };
         MixerStyle.UseColor(selector, BackgroundColorProperty, MixerColor.Surface);
         MixerStyle.UseBrush(selector, Border.StrokeProperty, MixerColor.Border);
-        MixerStyle.SetListEditButton(_editQueue, editing: false);
-        _editQueue.MinimumHeightRequest = 33;
-        _editQueue.Padding = new Thickness(3, 3);
-        _editQueue.FontSize = MixerStyle.PhoneFont(12, 10);
-        _editQueue.Clicked += (_, _) => OpenEditor();
-        var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 4 };
-        actions.Add(_editQueue);
-        actions.Add(library, 1);
-        return new VerticalStackLayout { Spacing = 4, Children = { selector, actions } };
+        return selector;
     }
 
     /// <summary>Switches the visible feed and tells playback which source to use.</summary>
@@ -223,7 +215,6 @@ internal sealed partial class TrackQueueView : Grid
         _showRecommendations = show;
         _queueScroll.IsVisible = !show;
         _recommendations.IsVisible = show;
-        _editQueue.IsVisible = !show;
         SetTabColors();
         if (!show)
         {
@@ -288,11 +279,12 @@ internal sealed partial class TrackQueueView : Grid
         if (_queueScroll.IsInViewport(row.Index)) row.InvalidateSpectrum();
     }
 
-    private void OpenEditor()
+    internal bool OpenEditor()
     {
-        if (IsEditing || !_rowAnimationsEnabled || !_queueTab.IsVisible || _queue.InputTransparent) return;
+        if (IsEditing || !_rowAnimationsEnabled || !_queueTab.IsVisible || _queue.InputTransparent) return false;
         SelectRecommendations(false);
         SetEditing(true);
+        return true;
     }
 
     internal bool CloseEditor()
