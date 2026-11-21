@@ -26,7 +26,8 @@ internal sealed partial class TrackQueueView
         row.AnimationStateChanged += SyncRowClock;
         row.DeleteRequested += () =>
         {
-            if ((!IsEditing && !ReferenceEquals(row, _swipeRow)) || row.File is not { } file) return;
+            bool canDelete = IsEditing ? _deletingTracks : ReferenceEquals(row, _swipeRow);
+            if (!CanEditRows || !canDelete || _dragging is not null || row.File is not { } file) return;
             RecordQueueInteraction();
             DismissDeleteAction();
             Dispatcher.Dispatch(() => RemoveRequested?.Invoke(file));
@@ -53,7 +54,7 @@ internal sealed partial class TrackQueueView
         var drag = new DragGestureRecognizer { CanDrag = true };
         drag.DragStarting += (_, args) =>
         {
-            if (!IsEditing || _queue.InputTransparent || _showRecommendations || row.File is not { } file)
+            if (!CanDragRows || row.File is not { } file)
             {
                 args.Cancel = true;
                 return;
@@ -111,7 +112,7 @@ internal sealed partial class TrackQueueView
         row.GestureRecognizers.Add(drop);
         return row;
 
-        bool CanReorder() => !_queue.InputTransparent && !_showRecommendations && _dragging is { } source &&
+        bool CanReorder() => CanDragRows && _dragging is { } source &&
             row.File is { } file && !ReferenceEquals(source, file) && _queueScroll.FindRow(source) is not null;
     }
 
@@ -153,7 +154,9 @@ internal sealed partial class TrackQueueView
         }
     }
 
-    private bool CanSwipe => !IsEditing && !_showRecommendations && !_queue.InputTransparent && _rowAnimationsEnabled;
+    private bool CanEditRows => !_showRecommendations && !_queue.InputTransparent && _rowAnimationsEnabled;
+    private bool CanDragRows => IsEditing && !_deletingTracks && CanEditRows;
+    private bool CanSwipe => !IsEditing && CanEditRows;
 
     private void OnWindowDeactivated(object? sender, EventArgs args) => DismissDeleteAction();
 

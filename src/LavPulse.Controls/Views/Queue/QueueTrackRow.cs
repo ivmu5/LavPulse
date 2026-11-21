@@ -51,12 +51,14 @@ internal sealed class QueueTrackRow : TrackListRow
     public int Index { get; private set; }
     public event Action? AnimationStateChanged;
 
-    public void SetEditing(bool editing)
+    public void SetEditorActions(bool reorder, bool delete)
     {
-        if (DragHandle.IsVisible == editing) return;
-        DragHandle.IsVisible = editing;
-        SetInlineDelete(editing);
-        SetActionWidth(new GridLength(editing ? 30 : 0));
+        if (DragHandle.IsVisible != reorder)
+        {
+            DragHandle.IsVisible = reorder;
+            SetActionWidth(new GridLength(reorder ? 30 : 0));
+        }
+        SetInlineDelete(delete);
     }
 
     public void Bind(TrackFile file, int index)

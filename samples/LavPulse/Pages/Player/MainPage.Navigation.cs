@@ -20,7 +20,7 @@ public sealed partial class MainPage
     internal bool TryNavigateBack()
     {
         if (_closed) return false;
-        if (_view.Panel is null) return _view.TryCloseQueueEditor();
+        if (_view.Panel is null) return _view.TryNavigateQueueBack();
         if (_view.Panel is TrackLibraryPanel library && (library.TryCloseEditing() || library.TryReturnToSavedLibrary()))
             return true;
         if (_view.Panel is PlayerSettingsPanel settings && settings.TryClosePaletteEditor()) return true;

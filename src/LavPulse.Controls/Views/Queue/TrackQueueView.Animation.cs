@@ -209,8 +209,10 @@ internal sealed partial class TrackQueueView
     public void Reset()
     {
         _rowAnimationsEnabled = false;
+        // A temporary unload or loss of visibility is not an editor navigation action.
         DismissDeleteAction();
-        CloseEditor();
+        EndDrag();
+        ExitDeleteMode();
         CancelTransition();
         RequestFrames(false);
         _animation++;
@@ -220,7 +222,6 @@ internal sealed partial class TrackQueueView
         _queue.TranslationX = 0;
         _queue.InputTransparent = false;
         _handoff = false;
-        EndDrag();
     }
 
     public void ResumeAnimations()
