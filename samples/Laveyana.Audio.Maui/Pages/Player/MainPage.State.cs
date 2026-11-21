@@ -1,12 +1,8 @@
-using Laveyana.Audio.Maui.AudioOutput;
 using Laveyana.Audio.Maui.Controls;
-using Laveyana.Audio.Maui.Tracks;
-using Laveyana.Audio.Maui.Settings;
 using Laveyana.Audio.Playback;
 
 namespace Laveyana.Audio.Maui;
 
-/// <summary>Partial player coordinator: state workflow.</summary>
 public sealed partial class MainPage
 {
     private void UpdateQueue()

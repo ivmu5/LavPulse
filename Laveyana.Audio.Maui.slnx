@@ -9,4 +9,7 @@
     <Project Path="samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.csproj" />
     <Project Path="samples/Laveyana.Audio.Maui/Laveyana.Audio.Maui.Android.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Laveyana.Audio.Playback.Checks/Laveyana.Audio.Playback.Checks.csproj" />
+  </Folder>
 </Solution>

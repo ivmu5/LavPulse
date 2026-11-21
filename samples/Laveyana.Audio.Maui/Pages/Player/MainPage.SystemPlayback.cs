@@ -1,12 +1,7 @@
-using Laveyana.Audio.Maui.AudioOutput;
-using Laveyana.Audio.Maui.Controls;
-using Laveyana.Audio.Maui.Tracks;
-using Laveyana.Audio.Maui.Settings;
 using Laveyana.Audio.Playback;
 
 namespace Laveyana.Audio.Maui;
 
-/// <summary>Partial player coordinator: systemplayback workflow.</summary>
 public sealed partial class MainPage
 {
     /// <summary>Dispatches OS transport buttons to the same commands used by the player.</summary>

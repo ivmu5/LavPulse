@@ -1,12 +1,7 @@
-using Laveyana.Audio.Maui.AudioOutput;
-using Laveyana.Audio.Maui.Controls;
-using Laveyana.Audio.Maui.Tracks;
-using Laveyana.Audio.Maui.Settings;
 using Laveyana.Audio.Playback;
 
 namespace Laveyana.Audio.Maui;
 
-/// <summary>Partial player coordinator: queue workflow.</summary>
 public sealed partial class MainPage
 {
     /// <summary>Uses the first queued track as the default transition target.</summary>
@@ -156,5 +151,62 @@ public sealed partial class MainPage
             UpdateQueue();
         }
         return true;
+    }
+
+    /// <summary>Attempts the first playable file and keeps later candidates available.</summary>
+    private async Task LoadFirstAsync(TrackFile? preferred = null, bool autoPlay = false)
+    {
+        var file = preferred ?? _queue.Tracks.FirstOrDefault();
+        if (IsLoadingFirst && file is not null && ReferenceEquals(file, _firstLoadFile))
+        {
+            return;
+        }
+
+        using var request = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        var previous = _firstLoad;
+        _firstLoad = request;
+        _firstLoadFile = file;
+        previous?.Cancel();
+        var failed = new HashSet<TrackFile>();
+        try
+        {
+            while (file is not null && !request.IsCancellationRequested)
+            {
+                _firstLoadFile = file;
+                var track = await PrepareAsync(file, request.Token);
+                if (_closed || request.IsCancellationRequested)
+                {
+                    return;
+                }
+                if (_queue.Contains(file))
+                {
+                    if (track is not null)
+                    {
+                        _playback.SetFirst(track);
+                        _queue.SetCurrent(file);
+                        _ = SaveQueueAsync();
+                        ShowCurrent(_playback.Snapshot.Current!.Value);
+                        break;
+                    }
+                    failed.Add(file);
+                }
+                file = _queue.Tracks.FirstOrDefault(candidate => !failed.Contains(candidate));
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(_firstLoad, request))
+            {
+                _firstLoad = null;
+                _firstLoadFile = null;
+            }
+        }
+
+        if (!_closed && !request.IsCancellationRequested)
+        {
+            if (autoPlay) _ = PlayAsync();
+            await SelectDefaultAsync();
+            ProcessSystemTrackRequests();
+        }
     }
 }

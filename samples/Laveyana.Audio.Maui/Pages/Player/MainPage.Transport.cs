@@ -1,12 +1,7 @@
-using Laveyana.Audio.Maui.AudioOutput;
-using Laveyana.Audio.Maui.Controls;
-using Laveyana.Audio.Maui.Tracks;
-using Laveyana.Audio.Maui.Settings;
 using Laveyana.Audio.Playback;
 
 namespace Laveyana.Audio.Maui;
 
-/// <summary>Partial player coordinator: transport workflow.</summary>
 public sealed partial class MainPage
 {
     /// <summary>Requests the pending mix and starts the output if the player was paused.</summary>

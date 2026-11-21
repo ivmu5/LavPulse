@@ -4,7 +4,7 @@ using System.Collections.Concurrent;
 namespace Laveyana.Audio.Maui.Tracks;
 
 /// <summary>Holds the window's file selection and deduplicates background preparation requests.</summary>
-internal sealed class PlayerLibrary(TrackPreparation preparation, LocalTrackStore store, CancellationToken lifetime)
+internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalTrackStore store, CancellationToken lifetime)
 {
     private const long ArtworkBudgetBytes = 32L * 1024 * 1024;
     private const long ThumbnailBudgetBytes = 24L * 1024 * 1024;
@@ -101,78 +101,6 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, LocalTrackStor
         }
     }
 
-    public bool HasQueueMetadataRequest(TrackFile file) => _queueMetadata.ContainsKey(file);
-
-    public Task<TrackMetadata> ReadQueueMetadataAsync(TrackFile file)
-    {
-        if (!_queueMetadata.TryGetValue(file, out var task))
-        {
-            _queueMetadata[file] = task = BuildQueueMetadataAsync(ReadMetadataAsync(file));
-        }
-        return task;
-    }
-
-    private async Task<TrackMetadata> BuildQueueMetadataAsync(Task<TrackMetadata> metadata)
-    {
-        var info = await metadata.ConfigureAwait(false);
-        return await CreateThumbnailAsync(info, lifetime).ConfigureAwait(false);
-    }
-
-    private async Task<TrackMetadata> CreateThumbnailAsync(TrackMetadata info, CancellationToken token)
-    {
-        if (info.Artwork.IsEmpty) return info;
-
-        await _thumbnailSlots.WaitAsync(token).ConfigureAwait(false);
-        try
-        {
-            var thumbnail = await ArtworkThumbnail.CreateAsync(info.Artwork, token).ConfigureAwait(false);
-            return info with { Artwork = thumbnail };
-        }
-        finally
-        {
-            _thumbnailSlots.Release();
-        }
-    }
-
-    /// <summary>Reads queue tags in parallel without making playback wait for the rest of a folder.</summary>
-    public Task<TrackMetadata> ReadMetadataAsync(TrackFile file)
-    {
-        lock (_cacheGate)
-        {
-            _tagAccess[file] = ++_access;
-            if (!_metadata.TryGetValue(file, out var task) || task.IsFaulted || task.IsCanceled)
-            {
-                _metadata[file] = task = _prepared.TryGetValue(file, out var pending) && !pending.Work.IsFaulted && !pending.Work.IsCanceled
-                    ? ReadPreparedMetadataAsync(file, pending.Work)
-                    : ReadTagsAsync(file);
-            }
-            return task;
-        }
-    }
-
-    private async Task<TrackMetadata> ReadPreparedMetadataAsync(TrackFile file, Task<CachedTrack> pending)
-    {
-        try
-        {
-            var track = await pending.ConfigureAwait(false);
-            return new(track.Title, track.Artist, track.Artwork) { Album = track.Album };
-        }
-        catch (OperationCanceledException) when (!lifetime.IsCancellationRequested)
-        {
-            return await ReadTagsAsync(file).ConfigureAwait(false);
-        }
-    }
-
-    public TrackMetadata? GetMetadata(TrackFile file)
-    {
-        lock (_cacheGate)
-        {
-            if (!_queueMetadata.TryGetValue(file, out var task) || !task.IsCompletedSuccessfully) return null;
-            _thumbnailAccess[file] = ++_access;
-            return task.Result;
-        }
-    }
-
     public bool IsPreparing(TrackFile file)
     {
         lock (_cacheGate)
@@ -186,12 +114,6 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, LocalTrackStor
 
     public Task RescanAsync(TrackFile file, CancellationToken token) =>
         TrackLibraryWork(ScanAsync(file, replaceAnalysis: true, token));
-
-    public Task<TrackMetadata> ReadLibraryMetadataAsync(TrackFile file, CancellationToken token) =>
-        TrackLibraryWork(ReadLibraryThumbnailAsync(file, token));
-
-    private async Task<TrackMetadata> ReadLibraryThumbnailAsync(TrackFile file, CancellationToken token) =>
-        await CreateThumbnailAsync(await ReadTagsAsync(file, token).ConfigureAwait(false), token).ConfigureAwait(false);
 
     private T TrackLibraryWork<T>(T work) where T : Task
     {
@@ -237,21 +159,6 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, LocalTrackStor
                 }
             }
             _decodeSlots.Release();
-        }
-    }
-
-    private Task<TrackMetadata> ReadTagsAsync(TrackFile file) => ReadTagsAsync(file, lifetime);
-
-    private async Task<TrackMetadata> ReadTagsAsync(TrackFile file, CancellationToken token)
-    {
-        await _metadataSlots.WaitAsync(token).ConfigureAwait(false);
-        try
-        {
-            return await preparation.ReadMetadataAsync(file, token).ConfigureAwait(false);
-        }
-        finally
-        {
-            _metadataSlots.Release();
         }
     }
 
@@ -310,72 +217,6 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, LocalTrackStor
             _decodeSlots.Release();
         }
     }
-
-    /// <summary>Evicts older entries. The occupied decks and upcoming tracks remain cached for playback.</summary>
-    public void Trim(CachedTrack? current, CachedTrack? incoming, TrackFile? selected, TrackFile? armed,
-        IReadOnlyCollection<TrackFile> upcoming)
-    {
-        lock (_cacheGate) TrimCache(current, incoming, selected, armed, upcoming);
-    }
-
-    private void TrimCache(CachedTrack? current, CachedTrack? incoming, TrackFile? selected, TrackFile? armed,
-        IReadOnlyCollection<TrackFile> upcoming)
-    {
-        long totalBytes = 0;
-        long coverBytes = 0;
-        foreach (var entry in _prepared.Values)
-        {
-            var task = entry.Work;
-            if (!task.IsCompletedSuccessfully) continue;
-            totalBytes += task.Result.PcmSizeBytes;
-            coverBytes += task.Result.Artwork.Length;
-        }
-        if (totalBytes > LocalTrackStore.PcmBudgetBytes || coverBytes > ArtworkBudgetBytes)
-        {
-            var evicted = new List<(TrackFile File, CachedTrack Track)>();
-            foreach (var file in _pcmAccess.OrderBy(entry => entry.Value).Select(entry => entry.Key).ToArray())
-            {
-                if (totalBytes <= LocalTrackStore.PcmBudgetBytes && coverBytes <= ArtworkBudgetBytes) break;
-                if (file == selected || file == armed || upcoming.Contains(file) || GetPrepared(file) is not { } track ||
-                    ReferenceEquals(track, current) || ReferenceEquals(track, incoming)) continue;
-
-                _prepared.Remove(file);
-                _pcmAccess.Remove(file);
-                _decodedFiles.TryRemove(track, out _);
-                totalBytes -= track.PcmSizeBytes;
-                coverBytes -= track.Artwork.Length;
-                evicted.Add((file, track));
-            }
-            if (evicted.Count != 0) _cacheCleanup = DeleteAsync(_cacheCleanup, evicted);
-        }
-
-        TrimArtwork(_metadata, _tagAccess, ArtworkBudgetBytes);
-        TrimArtwork(_queueMetadata, _thumbnailAccess, ThumbnailBudgetBytes);
-    }
-
-    private static void TrimArtwork(Dictionary<TrackFile, Task<TrackMetadata>> metadata,
-        Dictionary<TrackFile, long> access, long budget)
-    {
-        long total = metadata.Values.Where(task => task.IsCompletedSuccessfully).Sum(task => (long)task.Result.Artwork.Length);
-        if (total <= budget) return;
-
-        foreach (var file in metadata.Keys.OrderBy(file => access.GetValueOrDefault(file)).ToArray())
-        {
-            if (total <= budget) break;
-            var tags = metadata[file];
-            if (!tags.IsCompletedSuccessfully || tags.Result.Artwork.IsEmpty) continue;
-
-            total -= tags.Result.Artwork.Length;
-            metadata.Remove(file);
-            access.Remove(file);
-        }
-    }
-
-    private Task DeleteAsync(Task previous, List<(TrackFile File, CachedTrack Track)> tracks) => Task.Run(async () =>
-    {
-        await previous.ConfigureAwait(false);
-        foreach (var (file, track) in tracks) store.EvictPcm(file, track);
-    });
 
     /// <summary>Waits for pending imports and leaves complete PCM caches available for the next launch.</summary>
     public async Task CloseAsync()
