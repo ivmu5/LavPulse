@@ -332,7 +332,7 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, LocalTrackStor
         }
         if (totalBytes > LocalTrackStore.PcmBudgetBytes || coverBytes > ArtworkBudgetBytes)
         {
-            var evicted = new List<CachedTrack>();
+            var evicted = new List<(TrackFile File, CachedTrack Track)>();
             foreach (var file in _pcmAccess.OrderBy(entry => entry.Value).Select(entry => entry.Key).ToArray())
             {
                 if (totalBytes <= LocalTrackStore.PcmBudgetBytes && coverBytes <= ArtworkBudgetBytes) break;
@@ -344,7 +344,7 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, LocalTrackStor
                 _decodedFiles.TryRemove(track, out _);
                 totalBytes -= track.PcmSizeBytes;
                 coverBytes -= track.Artwork.Length;
-                evicted.Add(track);
+                evicted.Add((file, track));
             }
             if (evicted.Count != 0) _cacheCleanup = DeleteAsync(_cacheCleanup, evicted);
         }
@@ -371,10 +371,10 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, LocalTrackStor
         }
     }
 
-    private static Task DeleteAsync(Task previous, List<CachedTrack> tracks) => Task.Run(async () =>
+    private Task DeleteAsync(Task previous, List<(TrackFile File, CachedTrack Track)> tracks) => Task.Run(async () =>
     {
         await previous.ConfigureAwait(false);
-        foreach (var track in tracks) track.Delete();
+        foreach (var (file, track) in tracks) store.EvictPcm(file, track);
     });
 
     /// <summary>Waits for pending imports and leaves complete PCM caches available for the next launch.</summary>

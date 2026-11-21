@@ -12,6 +12,9 @@ internal static class LocalTrackStoreChecks
         var second = await store.CopyAsync(Source("second.mp3", 2), default);
         var duplicate = await store.CopyAsync(Source("copy.mp3", 1), default);
         Require(first.LocalPath == duplicate.LocalPath, "Identical imports duplicated local media.");
+        long mediaBytes = new FileInfo(first.LocalPath!).Length;
+        Require(await store.ReadTrackStorageSizeAsync(first, default) == mediaBytes,
+            "A track without cached data did not report its MP3 size.");
         await store.SaveQueueAsync(store.Snapshot([second, first], first));
 
         var preparation = new TrackPreparation(store.PcmDirectory);
@@ -30,10 +33,17 @@ internal static class LocalTrackStoreChecks
         var cached = await reopened.ReadAnalysisAsync(tracks[1], default);
         Require(cached is not null && reopened.FindPcm(cached) == ready.Path,
             "Completed PCM was lost or replaced by a compact scan.");
+        Require(await reopened.ReadTrackStorageSizeAsync(tracks[0], default) ==
+                tracks[0].SizeBytes + AnalysisBytes(tracks[0]) &&
+            await reopened.ReadTrackStorageSizeAsync(tracks[1], default) ==
+                mediaBytes + AnalysisBytes(tracks[1]) + new FileInfo(ready.Path).Length,
+            "Track storage did not include exactly the cache files that exist after reopening.");
 
         var points = ready.Waveform.Points.ToArray();
         points[0] = points[0] with { Peak = 0.193f };
         var rescanned = new TrackWaveform(points, ready.Waveform.TotalFrames, ready.Waveform.FramesPerPoint);
+        var changes = new List<string>();
+        reopened.TrackStorageChanged += changes.Add;
         await reopened.SaveAnalysisAsync(tracks[1], rescanned, ready.AudioInfo, null, default, replaceAnalysis: true);
         cached = await reopened.ReadAnalysisAsync(tracks[1], default);
         Require(cached is not null && cached.Points[0] == points[0] && reopened.FindPcm(cached) == ready.Path,
@@ -42,7 +52,12 @@ internal static class LocalTrackStoreChecks
         // After PCM eviction the saved waveform remains usable when rebuilding the playback cache.
         await File.WriteAllBytesAsync(ready.Path, [1, 2]);
         Require(reopened.FindPcm(cached!) is null, "An incomplete cache was treated as playable.");
-        ready.Delete();
+        Require(await reopened.ReadTrackStorageSizeAsync(tracks[1], default) == mediaBytes + AnalysisBytes(tracks[1]) + 2,
+            "Track storage used estimated PCM size instead of its actual length.");
+        reopened.EvictPcm(tracks[1], ready);
+        Require(await reopened.ReadTrackStorageSizeAsync(tracks[1], default) == mediaBytes + AnalysisBytes(tracks[1]) &&
+            changes.SequenceEqual([tracks[1].LocalPath, tracks[1].LocalPath]),
+            "Cache changes did not update the media and analysis total or notify the library.");
         var waveform = cached!.Waveform;
         var rebuilt = await preparation.ImportAsync(tracks[1], null, (waveform, cached.AudioInfo), default);
         Require(ReferenceEquals(rebuilt.Waveform, waveform), "Rebuilding PCM recomputed a valid waveform.");
@@ -52,6 +67,10 @@ internal static class LocalTrackStoreChecks
         await CheckFolderLibraryAsync(directory);
         await CheckLegacyQueueAsync(directory, first);
         Console.WriteLine("OK: durable track copies, queue restore, saved waveform reuse and ordered analysis.");
+        Console.WriteLine("OK: track storage sizes, including analysis and PCM cache eviction.");
+
+        long AnalysisBytes(TrackFile file) => new FileInfo(Path.Combine(root, "analysis-v1",
+            Path.GetFileNameWithoutExtension(file.LocalPath) + ".json")).Length;
     }
 
     private static async Task CheckFolderLibraryAsync(string directory)
@@ -71,6 +90,10 @@ internal static class LocalTrackStoreChecks
         Require(rootListing.Files.Select(file => file.SizeBytes).SequenceEqual([1L, 2L]) &&
             folderSizes[folder.Id] == 6 && folderSizes[rootListing.Children.Single().Id] == 3,
             "Folder totals did not include nested MP3 sizes or included another file type.");
+        var storedSizes = await TrackFolderSizes.ReadAsync(folder, rootListing, default,
+            (file, _) => ValueTask.FromResult(file.SizeBytes + 10));
+        Require(storedSizes[folder.Id] == 36 && storedSizes[rootListing.Children.Single().Id] == 13,
+            "Folder totals did not use the provided storage size.");
         var partial = TrackFolder.FromFiles(rootListing.Name, [rootListing.Files[0] with { SizeBytes = null }])
             with { Children = rootListing.Children };
         var partialSizes = await TrackFolderSizes.ReadAsync(folder, partial, default);

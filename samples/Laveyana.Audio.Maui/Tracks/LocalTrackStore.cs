@@ -10,6 +10,7 @@ internal sealed record StoredTrack(string Id, string Name);
 internal sealed record StoredFolder(string Id, string Name);
 internal sealed record StoredLibraryTrack(StoredTrack Track, StoredFolder[] Folders);
 internal sealed record StoredQueue(StoredTrack[] Tracks, string? Current, StoredLibraryTrack[]? Library = null);
+internal sealed record StoredPcmReference(string? PcmFile);
 internal sealed record StoredAnalysis(long TotalFrames, int FramesPerPoint, WaveformPoint[] Points,
     TrackAudioInfo? AudioInfo, string? PcmFile)
 {
@@ -19,6 +20,7 @@ internal sealed record StoredAnalysis(long TotalFrames, int FramesPerPoint, Wave
 
 [JsonSerializable(typeof(StoredQueue))]
 [JsonSerializable(typeof(StoredAnalysis))]
+[JsonSerializable(typeof(StoredPcmReference))]
 internal sealed partial class TrackStoreJson : JsonSerializerContext;
 
 /// <summary>Owns the imported MP3 copies, queue manifest and versioned analysis data.</summary>
@@ -32,6 +34,7 @@ internal sealed class LocalTrackStore(string root)
     private string AnalysisDirectory => Path.Combine(root, "analysis-v1");
     private string QueuePath => Path.Combine(root, "queue.json");
     public string PcmDirectory => Path.Combine(root, "pcm-v1");
+    public event Action<string>? TrackStorageChanged;
 
     public async Task<TrackFile> CopyAsync(TrackFile file, CancellationToken token)
     {
@@ -192,13 +195,47 @@ internal sealed class LocalTrackStore(string root)
 
     public string? FindPcm(StoredAnalysis analysis)
     {
-        if (analysis.PcmFile is not { } name || name != Path.GetFileName(name) ||
-            !name.StartsWith("lavpulse-", StringComparison.Ordinal) || !name.EndsWith(".pcm", StringComparison.Ordinal))
-            return null;
-
-        string path = Path.Combine(PcmDirectory, name);
+        if (PcmPath(analysis.PcmFile) is not { } path) return null;
         var pcm = new FileInfo(path);
         return pcm.Exists && pcm.Length == analysis.TotalFrames * PlaybackFormat.Pcm16FrameBytes ? path : null;
+    }
+
+    private string? PcmPath(string? name) => name is not null && name == Path.GetFileName(name) &&
+        name.StartsWith("lavpulse-", StringComparison.Ordinal) && name.EndsWith(".pcm", StringComparison.Ordinal)
+        ? Path.Combine(PcmDirectory, name) : null;
+
+    /// <summary>Measures the saved MP3, analysis manifest and any associated PCM on disk.</summary>
+    public async ValueTask<long?> ReadTrackStorageSizeAsync(TrackFile file, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (file.LocalPath is not { } media || FileSize(media) is not { } total) return null;
+        string analysisPath = AnalysisPath(file);
+        if (!File.Exists(analysisPath)) return total;
+        try
+        {
+            // Read only the cache reference. The waveform array is skipped by the deserializer.
+            await using var stream = new FileStream(analysisPath, FileMode.Open, FileAccess.Read,
+                FileShare.Read | FileShare.Delete, 16 * 1024, FileOptions.Asynchronous);
+            total += stream.Length;
+            var reference = await JsonSerializer.DeserializeAsync(stream, TrackStoreJson.Default.StoredPcmReference, token)
+                .ConfigureAwait(false);
+            if (PcmPath(reference?.PcmFile) is { } pcm) total += FileSize(pcm) ?? 0;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException or JsonException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+        return total;
+    }
+
+    private static long? FileSize(string path)
+    {
+        var info = new FileInfo(path);
+        return info.Exists ? info.Length : null;
+    }
+
+    public void EvictPcm(TrackFile file, CachedTrack track)
+    {
+        track.Delete();
+        TrackStorageChanged?.Invoke(file.LocalPath!);
     }
 
     public async Task SaveAnalysisAsync(TrackFile file, TrackWaveform waveform, TrackAudioInfo? info,
@@ -222,6 +259,7 @@ internal sealed class LocalTrackStore(string root)
             _analyzed[file.LocalPath!] = 0;
         }
         finally { _analysisWrites.Release(); }
+        TrackStorageChanged?.Invoke(file.LocalPath!);
     }
 
     private void PrunePcm(string? activePcm, CancellationToken token)

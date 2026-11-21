@@ -60,6 +60,7 @@ public sealed partial class MainPage : ContentPage
         var preparation = new TrackPreparation(_trackStore.PcmDirectory);
 #endif
         _library = new PlayerLibrary(preparation, _trackStore, _lifetime.Token);
+        _trackStore.TrackStorageChanged += OnTrackStorageChanged;
         _queueAnalysis = new QueueTrackAnalysis(file => _library.GetPrepared(file) is not null,
             _library.PrepareAsync, OnQueueAnalysisProgress, _lifetime.Token, _library.HasAnalysis, _library.AnalyzeAsync);
 #if IOS
