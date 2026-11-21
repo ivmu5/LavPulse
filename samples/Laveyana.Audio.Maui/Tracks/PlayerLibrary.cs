@@ -20,7 +20,8 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, LocalTrackStor
     private long _access;
     private Task _cacheCleanup = Task.CompletedTask;
     private readonly Dictionary<TrackFile, Preparation> _prepared = new();
-    private readonly HashSet<TrackFile> _analyzing = [];
+    private readonly Dictionary<TrackFile, int> _analyzing = new();
+    private readonly HashSet<Task> _libraryWork = [];
     private readonly Dictionary<TrackFile, Task<TrackMetadata>> _metadata = new();
     private readonly Dictionary<TrackFile, Task<TrackMetadata>> _queueMetadata = new();
     private readonly SemaphoreSlim _thumbnailSlots = new(2);
@@ -114,12 +115,17 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, LocalTrackStor
     private async Task<TrackMetadata> BuildQueueMetadataAsync(Task<TrackMetadata> metadata)
     {
         var info = await metadata.ConfigureAwait(false);
+        return await CreateThumbnailAsync(info, lifetime).ConfigureAwait(false);
+    }
+
+    private async Task<TrackMetadata> CreateThumbnailAsync(TrackMetadata info, CancellationToken token)
+    {
         if (info.Artwork.IsEmpty) return info;
 
-        await _thumbnailSlots.WaitAsync(lifetime).ConfigureAwait(false);
+        await _thumbnailSlots.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            var thumbnail = await ArtworkThumbnail.CreateAsync(info.Artwork, lifetime).ConfigureAwait(false);
+            var thumbnail = await ArtworkThumbnail.CreateAsync(info.Artwork, token).ConfigureAwait(false);
             return info with { Artwork = thumbnail };
         }
         finally
@@ -149,7 +155,7 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, LocalTrackStor
         try
         {
             var track = await pending.ConfigureAwait(false);
-            return new(track.Title, track.Artist, track.Artwork);
+            return new(track.Title, track.Artist, track.Artwork) { Album = track.Album };
         }
         catch (OperationCanceledException) when (!lifetime.IsCancellationRequested)
         {
@@ -170,35 +176,78 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, LocalTrackStor
     public bool IsPreparing(TrackFile file)
     {
         lock (_cacheGate)
-            return _analyzing.Contains(file) ||
+            return _analyzing.ContainsKey(file) ||
                 (_prepared.TryGetValue(file, out var pending) && !pending.Token.IsCancellationRequested && !pending.Work.IsCompleted);
     }
 
     public bool HasAnalysis(TrackFile file) => store.HasAnalysis(file);
 
-    public async Task AnalyzeAsync(TrackFile file)
+    public Task AnalyzeAsync(TrackFile file) => ScanAsync(file, replaceAnalysis: false, lifetime);
+
+    public Task RescanAsync(TrackFile file, CancellationToken token) =>
+        TrackLibraryWork(ScanAsync(file, replaceAnalysis: true, token));
+
+    public Task<TrackMetadata> ReadLibraryMetadataAsync(TrackFile file, CancellationToken token) =>
+        TrackLibraryWork(ReadLibraryThumbnailAsync(file, token));
+
+    private async Task<TrackMetadata> ReadLibraryThumbnailAsync(TrackFile file, CancellationToken token) =>
+        await CreateThumbnailAsync(await ReadTagsAsync(file, token).ConfigureAwait(false), token).ConfigureAwait(false);
+
+    private T TrackLibraryWork<T>(T work) where T : Task
     {
-        await _decodeSlots.WaitAsync(lifetime).ConfigureAwait(false);
+        if (!work.IsCompleted)
+        {
+            lock (_cacheGate) _libraryWork.Add(work);
+            _ = ForgetLibraryWorkAsync(work);
+        }
+        return work;
+    }
+
+    private async Task ForgetLibraryWorkAsync(Task work)
+    {
+        try { await work.ConfigureAwait(false); }
+        catch (Exception)
+        {
+            // The caller of the original task handles cancellations and errors.
+        }
+        finally { lock (_cacheGate) _libraryWork.Remove(work); }
+    }
+
+    private async Task ScanAsync(TrackFile file, bool replaceAnalysis, CancellationToken token)
+    {
+        await _decodeSlots.WaitAsync(token).ConfigureAwait(false);
+        bool scanning = false;
         try
         {
-            if (store.HasAnalysis(file)) return;
-            lock (_cacheGate) _analyzing.Add(file);
-            var analysis = await preparation.AnalyzeAsync(file.LocalPath!, lifetime).ConfigureAwait(false);
-            await store.SaveAnalysisAsync(file, analysis.Waveform, analysis.Info, null, lifetime).ConfigureAwait(false);
+            if (!replaceAnalysis && store.HasAnalysis(file)) return;
+            lock (_cacheGate) _analyzing[file] = _analyzing.GetValueOrDefault(file) + 1;
+            scanning = true;
+            var analysis = await preparation.AnalyzeAsync(file.LocalPath!, token).ConfigureAwait(false);
+            await store.SaveAnalysisAsync(file, analysis.Waveform, analysis.Info, null, token, replaceAnalysis)
+                .ConfigureAwait(false);
         }
         finally
         {
-            lock (_cacheGate) _analyzing.Remove(file);
+            if (scanning)
+            {
+                lock (_cacheGate)
+                {
+                    if (_analyzing[file] == 1) _analyzing.Remove(file);
+                    else _analyzing[file]--;
+                }
+            }
             _decodeSlots.Release();
         }
     }
 
-    private async Task<TrackMetadata> ReadTagsAsync(TrackFile file)
+    private Task<TrackMetadata> ReadTagsAsync(TrackFile file) => ReadTagsAsync(file, lifetime);
+
+    private async Task<TrackMetadata> ReadTagsAsync(TrackFile file, CancellationToken token)
     {
-        await _metadataSlots.WaitAsync(lifetime);
+        await _metadataSlots.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            return await preparation.ReadMetadataAsync(file, lifetime);
+            return await preparation.ReadMetadataAsync(file, token).ConfigureAwait(false);
         }
         finally
         {
@@ -331,10 +380,15 @@ internal sealed class PlayerLibrary(TrackPreparation preparation, LocalTrackStor
     /// <summary>Waits for pending imports and leaves complete PCM caches available for the next launch.</summary>
     public async Task CloseAsync()
     {
-        var tasks = _prepared.Values.Select(entry => entry.Work).ToArray();
+        Task[] tasks;
+        lock (_cacheGate)
+        {
+            tasks = _prepared.Values.Select(entry => (Task)entry.Work).Concat(_metadata.Values)
+                .Concat(_queueMetadata.Values).Concat(_libraryWork).Append(_cacheCleanup).ToArray();
+        }
         try
         {
-            await Task.WhenAll(tasks.Cast<Task>().Concat(_metadata.Values).Concat(_queueMetadata.Values).Append(_cacheCleanup));
+            await Task.WhenAll(tasks);
         }
         catch (Exception)
         {

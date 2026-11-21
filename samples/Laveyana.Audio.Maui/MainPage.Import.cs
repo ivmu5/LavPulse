@@ -19,7 +19,6 @@ public sealed partial class MainPage
     private Task? _restoreQueue;
     private Task _saveQueue = Task.CompletedTask;
     private TrackFile[] _analysisQueue = [];
-    private View? _libraryReturnPanel;
     private readonly SemaphoreSlim _importGate = new(1);
 
     internal void ActivateSystemTrackRequests()
@@ -79,37 +78,33 @@ public sealed partial class MainPage
         }
     }
 
-    /// <summary>Imports MP3s selected using the system file picker.</summary>
-    private async Task PickFilesAsync()
+    private async Task<int?> PickFilesAsync()
     {
-        if (await WithPickerAsync(Mp3FilePicker.PickMultipleAsync) is { Count: > 0 } files)
-        {
-            await AddFilesAsync(files);
-        }
+        if (await WithPickerAsync(Mp3FilePicker.PickMultipleAsync) is not { Count: > 0 } files) return null;
+        var (_, updated) = await ImportLocalTracksAsync(files, loadFirst: true);
+        if (!_closed && !IsLoadingFirst) await SelectDefaultAsync();
+        return updated;
     }
 
-    private async Task OpenTrackLibraryAsync(bool pickSource = false)
+    private async Task OpenTrackLibraryAsync()
     {
-        if (_closed || _view.Panel is TrackLibraryPanel || _pickerOpen) return;
-        _libraryReturnPanel = _view.Panel;
+        if (_closed || _view.Panel is not null || _pickerOpen) return;
         var library = new TrackLibraryPanel(
             () => Window is { } window ? WithPickerAsync(() => PlatformTrackFolder.PickAsync(window, _lifetime.Token))
                 : Task.FromResult<TrackFolderSource?>(null),
-            OpenSavedLibraryAsync, AddLibrarySelectionAsync, CloseTrackLibrary, _lifetime.Token);
+            PickFilesAsync, OpenSavedLibraryAsync, AddLibrarySelectionAsync, _library.ReadLibraryMetadataAsync,
+            ScanLibrarySelectionAsync, CloseTrackLibrary, _lifetime.Token);
         _view.ShowPanel(library);
         _view.SuspendPlayerAnimations();
         UpdatePositionRefreshInterval();
-        await library.InitializeAsync(pickSource);
+        await library.InitializeAsync();
     }
 
     private void CloseTrackLibrary()
     {
-        if (_view.Panel is not TrackLibraryPanel) return;
-        if (_libraryReturnPanel is { } settings)
-            _view.ShowPanel(settings);
-        else
-            ClosePanel();
-        _libraryReturnPanel = null;
+        if (_view.Panel is not TrackLibraryPanel library) return;
+        library.Cancel();
+        ClosePanel();
     }
 
     private async Task<TrackFolderSource> OpenSavedLibraryAsync()
@@ -129,6 +124,33 @@ public sealed partial class MainPage
         var (_, updated) = await ImportLocalTracksAsync(files, loadFirst: true, alreadyLocal: selection.Local);
         if (!_closed && !IsLoadingFirst) await SelectDefaultAsync();
         return updated;
+    }
+
+    private async Task<(int Scanned, int Failed)> ScanLibrarySelectionAsync(TrackLibrarySelection selection,
+        Action<int, int> progress, CancellationToken token)
+    {
+        TrackFile[] files = selection.File is { } file ? [file] :
+            (await TrackFolderReader.ReadTracksAsync(selection.Folders[^1], selection.IncludeChildren, token))
+            .Select(item => item.File).DistinctBy(track => track.LocalPath).ToArray();
+        int scanned = 0;
+        int failed = 0;
+        foreach (var source in files)
+        {
+            token.ThrowIfCancellationRequested();
+            progress(scanned + failed + 1, files.Length);
+            try
+            {
+                var canonical = _library.Add([source], [])[0];
+                await _library.RescanAsync(canonical, token);
+                scanned++;
+            }
+            catch (Exception ex) when (!token.IsCancellationRequested)
+            {
+                failed++;
+                Debug.WriteLine(ex);
+            }
+        }
+        return (scanned, failed);
     }
 
     /// <summary>Serializes native picker launches and reports a picker error in the player.</summary>

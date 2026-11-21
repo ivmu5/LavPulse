@@ -186,7 +186,7 @@ public sealed class PlayerView : Grid
     public event Action? SettingsRequested;
     public event Action? LibraryRequested;
 
-    public bool TryCloseQueueEditor() => _queue.CloseEditor();
+    public bool TryCloseQueueEditor() => _queue.DismissDeleteAction() || _queue.CloseEditor();
     public event Action<bool>? RecommendationsSelected
     {
         add => _queue.RecommendationsSelected += value;

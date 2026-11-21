@@ -30,6 +30,14 @@ internal static class LocalTrackStoreChecks
         Require(cached is not null && reopened.FindPcm(cached) == ready.Path,
             "Completed PCM was lost or replaced by a compact scan.");
 
+        var points = ready.Waveform.Points.ToArray();
+        points[0] = points[0] with { Peak = 0.193f };
+        var rescanned = new TrackWaveform(points, ready.Waveform.TotalFrames, ready.Waveform.FramesPerPoint);
+        await reopened.SaveAnalysisAsync(tracks[1], rescanned, ready.AudioInfo, null, default, replaceAnalysis: true);
+        cached = await reopened.ReadAnalysisAsync(tracks[1], default);
+        Require(cached is not null && cached.Points[0] == points[0] && reopened.FindPcm(cached) == ready.Path,
+            "Forced analysis did not replace the waveform while keeping compatible PCM.");
+
         // After PCM eviction the saved waveform remains usable when rebuilding the playback cache.
         await File.WriteAllBytesAsync(ready.Path, [1, 2]);
         Require(reopened.FindPcm(cached!) is null, "An incomplete cache was treated as playable.");

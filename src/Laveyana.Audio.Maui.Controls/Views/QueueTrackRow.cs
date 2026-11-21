@@ -15,11 +15,15 @@ public readonly record struct QueueTrackItem(string Title, string? Artist, ReadO
 internal sealed class QueueTrackRow : Border
 {
     public const int RowHeight = 54;
+    private const int DeleteSize = 44;
+    private const int DeleteRevealWidth = DeleteSize + 5;
 
     private readonly Image _art = new() { Aspect = Aspect.AspectFill };
     private readonly Border _cover;
     private readonly QueueText _text = new();
     private readonly GraphicsView _graphics;
+    private readonly Grid _foreground;
+    private readonly ImageButton _delete;
     private readonly GraphicsView _spectrum = new() { InputTransparent = true, IsVisible = false };
     private QueueTrackItem? _shown;
     private bool _played;
@@ -56,7 +60,15 @@ internal sealed class QueueTrackRow : Border
         var content = new Grid { ColumnSpacing = 6, ColumnDefinitions = [new(GridLength.Star), new(30)] };
         content.Add(body);
         content.Add(DragHandle, 1);
-        Content = new Grid { IsClippedToBounds = true, Children = { _spectrum, content } };
+        _foreground = new Grid { Children = { _spectrum, content } };
+        _delete = MixerStyle.IconButton("player_delete.png", DeleteSize);
+        _delete.HorizontalOptions = LayoutOptions.End;
+        MixerStyle.UseColor(_delete, BackgroundColorProperty, MixerColor.Selected);
+        SemanticProperties.SetDescription(_delete, "Убрать трек из очереди");
+        _delete.Clicked += (_, _) => DeleteRequested?.Invoke();
+        _delete.Unfocused += (_, _) => DeleteUnfocused?.Invoke();
+        Content = new Grid { IsClippedToBounds = true, Children = { _delete, _foreground } };
+        SetDeleteReveal(0);
     }
 
     public View TrackBody { get; }
@@ -66,6 +78,17 @@ internal sealed class QueueTrackRow : Border
     public TrackFile? File { get; private set; }
     public int Index { get; private set; }
     public event Action? AnimationStateChanged;
+    public event Action? DeleteRequested;
+    public event Action? DeleteUnfocused;
+
+    public void SetDeleteReveal(double progress)
+    {
+        double offset = DeleteRevealWidth * progress;
+        _foreground.TranslationX = -offset;
+        _delete.TranslationX = DeleteRevealWidth - offset;
+        _delete.IsVisible = progress > 0;
+        _delete.InputTransparent = progress < 1;
+    }
 
     public void Bind(TrackFile file, int index)
     {
@@ -80,7 +103,7 @@ internal sealed class QueueTrackRow : Border
         _art.Source = null;
         _cover.Background = null;
         Scale = 1;
-        TranslationX = 0;
+        SetDeleteReveal(0);
         Opacity = 1;
     }
     public void SetSpectrum(IDrawable? drawable) => _spectrum.Drawable = drawable;

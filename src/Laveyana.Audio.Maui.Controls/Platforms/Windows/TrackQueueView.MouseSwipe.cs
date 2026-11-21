@@ -36,6 +36,8 @@ internal sealed partial class TrackQueueView
             double left = start.X - finish.X;
             if (ReferenceEquals(file, row.File) && left >= SwipeThreshold && left > Math.Abs(finish.Y - start.Y))
                 BeginSwipe(row);
+            else
+                DismissDeleteAction();
             args.Handled = true;
         }
 

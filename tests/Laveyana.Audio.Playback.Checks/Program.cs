@@ -230,6 +230,7 @@ static void CheckMp3ArtworkSelection()
     {
         using var body = new MemoryStream();
         WriteFrame("TIT2"u8, [1, 0xfe, 0xff, 0, (byte)'A']);
+        WriteFrame("TALB"u8, [3, .. "Album title"u8]);
         WriteFrame("APIC"u8, Picture(0, 11));
         WriteFrame("APIC"u8, Picture(3, 22));
         WriteFrame("APIC"u8, Picture(0, 33));
@@ -241,8 +242,8 @@ static void CheckMp3ArtworkSelection()
         body.WriteTo(stream);
         stream.Position = 0;
         var tags = Mp3Tags.Read(stream);
-        Require(tags.Title == "A" && tags.Artwork is { Length: 4 } image && image[^1] == 44,
-            "ID3 must keep the final valid front cover and decode big-endian text.");
+        Require(tags.Title == "A" && tags.Album == "Album title" && tags.Artwork is { Length: 4 } image && image[^1] == 44,
+            "ID3 must retain the album and final front cover, and decode big-endian text.");
         stream.SetLength(stream.Length - 1);
         stream.Position = 0;
         Require(Mp3Tags.Read(stream) == new Mp3Tags(), "A truncated tag published partial metadata.");

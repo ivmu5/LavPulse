@@ -4,10 +4,8 @@ namespace Laveyana.Audio.Maui.Controls;
 public sealed partial class PlayerSettingsPanel : ContentView
 {
     private readonly Action<PlayerSettings>? _previewAppearance;
-    private readonly Func<Task> _pickFiles;
-    private readonly Func<Task> _pickFolder;
-    private readonly ContentView[] _sectionHosts = new ContentView[7];
-    private readonly Button[] _sectionButtons = new Button[7];
+    private readonly ContentView[] _sectionHosts = new ContentView[6];
+    private readonly Button[] _sectionButtons = new Button[6];
     private readonly List<NumericSettingInput> _visibleNumbers = [];
     private readonly Grid _settingsLayout;
     private readonly ContentView _paletteEditorHost = new() { IsVisible = false };
@@ -15,13 +13,11 @@ public sealed partial class PlayerSettingsPanel : ContentView
     private int _activeSection = -1;
     private bool _loading;
 
-    public PlayerSettingsPanel(PlayerSettings settings, Action<PlayerSettings> apply, Func<Task> pickFiles,
-        Func<Task> pickFolder, Action dismiss, Action<PlayerSettings>? previewAppearance = null)
+    public PlayerSettingsPanel(PlayerSettings settings, Action<PlayerSettings> apply, Action dismiss,
+        Action<PlayerSettings>? previewAppearance = null)
     {
         _settings = settings;
         _previewAppearance = previewAppearance;
-        _pickFiles = pickFiles;
-        _pickFolder = pickFolder;
         var heading = MixerStyle.Label("Настройки", MixerStyle.PhoneFont(23, 20), bold: true);
         SemanticProperties.SetHeadingLevel(heading, SemanticHeadingLevel.Level1);
         var reset = MixerStyle.Button("Сбросить", icon: "player_reset.png");
@@ -36,7 +32,7 @@ public sealed partial class PlayerSettingsPanel : ContentView
         header.Add(reset, 1);
 
         var sections = new VerticalStackLayout { Spacing = 8 };
-        string[] names = ["Медиатека", "Воспроизведение", "Деки", "Цвета", "Интерфейс и FPS", "Мастер-спектр", "Яркость спектра"];
+        string[] names = ["Воспроизведение", "Деки", "Цвета", "Интерфейс и FPS", "Мастер-спектр", "Яркость спектра"];
         for (int index = 0; index < names.Length; index++)
         {
             int section = index;
@@ -86,7 +82,7 @@ public sealed partial class PlayerSettingsPanel : ContentView
         Content = host;
 
         // Initial UI creates only the playback controls. Other sections are opened on demand.
-        ShowSection(1, commit: false);
+        ShowSection(0, commit: false);
     }
 
     /// <summary>Changes the expanded section while keeping edits made in earlier sections.</summary>
@@ -101,12 +97,11 @@ public sealed partial class PlayerSettingsPanel : ContentView
         _activeSection = index;
         _sectionHosts[index].Content = index switch
         {
-            0 => CreateLibrarySection(_pickFiles, _pickFolder),
-            1 => CreatePlaybackSection(),
-            2 => CreateDeckSection(),
-            3 => CreateColorSection(),
-            4 => CreateFrameRateSection(),
-            5 => CreateSpectrumSection(),
+            0 => CreatePlaybackSection(),
+            1 => CreateDeckSection(),
+            2 => CreateColorSection(),
+            3 => CreateFrameRateSection(),
+            4 => CreateSpectrumSection(),
             _ => CreateBrightnessSection()
         };
         for (int section = 0; section < _sectionButtons.Length; section++)
@@ -354,25 +349,5 @@ public sealed partial class PlayerSettingsPanel : ContentView
         var section = new Border();
         MixerStyle.StyleCard(section, stack);
         return section;
-    }
-
-    /// <summary>Uses the existing file pickers from the library section.</summary>
-    private static Border CreateLibrarySection(Func<Task> pickFiles, Func<Task> pickFolder)
-    {
-        var files = MixerStyle.Button("Открыть файлы", icon: "player_file.png");
-        var folder = MixerStyle.Button("Открыть папку", icon: "player_folder.png");
-        files.Clicked += async (_, _) => await ImportAsync(pickFiles);
-        folder.Clicked += async (_, _) => await ImportAsync(pickFolder);
-        var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)], ColumnSpacing = 8 };
-        actions.Add(files);
-        actions.Add(folder, 1);
-        return Section("Медиатека", actions);
-
-        async Task ImportAsync(Func<Task> pick)
-        {
-            files.IsEnabled = folder.IsEnabled = false;
-            try { await pick(); }
-            finally { files.IsEnabled = folder.IsEnabled = true; }
-        }
     }
 }
