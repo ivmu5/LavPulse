@@ -48,15 +48,6 @@ public sealed partial class MainPage
         }
     }
 
-    private void SetTrackSpeed(CachedTrack track, double speed)
-    {
-        if (!_closed && !IsStopping && !IsTransitioning(_playback.Snapshot))
-        {
-            _playback.TrySetSpeed(track, speed);
-        }
-        UpdatePositions();
-    }
-
     private async Task TogglePlaybackAsync()
     {
         if (_worker is not null)

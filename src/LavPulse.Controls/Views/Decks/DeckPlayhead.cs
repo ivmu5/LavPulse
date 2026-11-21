@@ -16,6 +16,7 @@ internal struct DeckPlayhead
     private double _speed;
 
     public long DisplayPosition => (long)Math.Round(_position);
+    public double Speed => _speed;
 
     public static double Now => Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
 

@@ -107,13 +107,6 @@ internal sealed class NumericSettingInput : Grid
     public double DefaultValue => _range.DefaultValue;
     public event Action<double>? ValueChanged;
 
-    public void SelectValue(double value)
-    {
-        if (!IsEnabled) return;
-        _wheelRemainder = 0;
-        SetFromUser(value, moveSlider: true);
-    }
-
     /// <summary>Accepts either decimal separator and keeps the last valid value for incomplete input.</summary>
     public void CommitText()
     {
