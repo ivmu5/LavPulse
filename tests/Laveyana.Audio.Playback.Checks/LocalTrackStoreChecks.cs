@@ -66,20 +66,11 @@ internal static class LocalTrackStoreChecks
         var folder = TrackFolderReader.FromDirectory(source, "Album", TrackFile.FromPath);
         var rootListing = await folder.ReadAsync(default);
         Require(rootListing.Children.Count == 1, "The browser did not expose a nested directory.");
-        var guarded = folder with
-        {
-            ReadAsync = _ => Task.FromResult(rootListing with
-            {
-                Children = [rootListing.Children[0] with
-                {
-                    ReadAsync = _ => throw new InvalidOperationException("Flat scans must leave subfolders unopened.")
-                }]
-            })
-        };
-        var direct = await TrackFolderReader.ReadTracksAsync(guarded, false, default);
-        Require(direct.Select(item => item.File.Name).SequenceEqual(["a.mp3", "b.MP3"]),
-            "A flat scan did not preserve direct file order.");
-        var recursive = await TrackFolderReader.ReadTracksAsync(folder, true, default);
+        var selectedSubfolder = await TrackFolderReader.ReadTracksAsync(rootListing.Children.Single(), default, [folder]);
+        Require(selectedSubfolder.Select(item => item.File.Name).SequenceEqual(["c.mp3"]) &&
+            selectedSubfolder[0].Folders.Select(item => item.Name).SequenceEqual(["Album", "Disc 2"]),
+            "Selecting a subfolder included tracks outside its subtree or lost its ancestry.");
+        var recursive = await TrackFolderReader.ReadTracksAsync(folder, default);
         Require(recursive.Select(item => item.File.Name).SequenceEqual(["a.mp3", "b.MP3", "c.mp3"]) &&
             recursive[^1].Folders.Select(item => item.Name).SequenceEqual(["Album", "Disc 2"]),
             "Recursive imports lost order or folder ancestry.");
@@ -103,13 +94,29 @@ internal static class LocalTrackStoreChecks
         var restored = await reopened.ReadQueueAsync(default);
         Require(restored.Tracks.Length == 1, "Library-only tracks were returned to the playback queue.");
         var library = await reopened.OpenLibrary(reopened.LibrarySnapshot()).ReadAsync(default);
-        var album = await library.Children.Single(folder => folder.Name == "Album").ReadAsync(default);
+        var albumFolder = library.Children.Single(folder => folder.Name == "Album");
+        var album = await albumFolder.ReadAsync(default);
         var nested = await album.Children.Single().ReadAsync(default);
         Require(nested.Files.Single().LocalPath == queued[^1].LocalPath &&
             album.Files.Select(file => file.Name).SequenceEqual(["a.mp3", "b.MP3"]),
             "The saved hierarchy failed to reopen after the source directory was deleted.");
         Require(library.Children.Single(folder => folder.Name == "Disc 2").Id != album.Children.Single().Id,
             "Different tree branches cannot share expansion state.");
+
+        Require(reopened.ForgetLibraryItem("", null) == 0, "The library root could be removed by mistake.");
+        Require(reopened.ForgetLibraryItem(albumFolder.Id, album.Files[0]) == 1 &&
+            reopened.ForgetLibraryItem(albumFolder.Id, album.Files[0]) == 0,
+            "Deleting a library track removed the wrong membership.");
+        Require(reopened.ForgetLibraryItem(albumFolder.Id, null) == 2,
+            "Deleting a library folder did not include the remaining tracks in its subtree.");
+        await reopened.SaveQueueAsync(reopened.Snapshot(restored.Tracks, restored.Current));
+
+        var afterDelete = new LocalTrackStore(libraryPath);
+        var queue = await afterDelete.ReadQueueAsync(default);
+        var remaining = await afterDelete.OpenLibrary(afterDelete.LibrarySnapshot()).ReadAsync(default);
+        Require(queue.Tracks.Single().LocalPath == queued[0].LocalPath && File.Exists(queued[0].LocalPath) &&
+            remaining.Children.Single().Name == "Disc 2",
+            "Deleting a library branch removed a queued copy or another branch.");
     }
 
     private static async Task CheckLegacyQueueAsync(string directory, TrackFile source)

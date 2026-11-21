@@ -13,12 +13,8 @@ public readonly record struct QueueTrackItem(string Title, string? Artist, ReadO
 
 internal sealed class QueueTrackRow : TrackListRow
 {
-    private const int DeleteSize = 44;
-    private const int DeleteRevealWidth = DeleteSize + 5;
-
     private readonly QueueText _text = new();
     private readonly GraphicsView _graphics;
-    private readonly ImageButton _delete;
     private readonly GraphicsView _spectrum = new() { InputTransparent = true, IsVisible = false };
     private QueueTrackItem? _shown;
     private bool _played;
@@ -38,40 +34,23 @@ internal sealed class QueueTrackRow : TrackListRow
         SetDetails(_graphics);
         SetActions(DragHandle);
         Foreground.Children.Insert(0, _spectrum);
-        _delete = MixerStyle.IconButton("player_delete.png", DeleteSize);
-        _delete.HorizontalOptions = LayoutOptions.End;
-        MixerStyle.UseColor(_delete, BackgroundColorProperty, MixerColor.Selected);
-        SemanticProperties.SetDescription(_delete, "Убрать трек из очереди");
-        _delete.Clicked += (_, _) => DeleteRequested?.Invoke();
-        _delete.Unfocused += (_, _) => DeleteUnfocused?.Invoke();
-        Layers.Children.Insert(0, _delete);
-        SetDeleteReveal(0);
+        EnableDelete();
+        DescribeDelete("Убрать трек из очереди");
     }
 
-    public View TrackBody => Body;
     public View DragHandle { get; }
     public bool IsPlayed => _played;
     public bool NeedsAnimation => File is not null && (_loading || _text.IsOverflowing);
     public TrackFile? File { get; private set; }
     public int Index { get; private set; }
     public event Action? AnimationStateChanged;
-    public event Action? DeleteRequested;
-    public event Action? DeleteUnfocused;
 
     public void SetEditing(bool editing)
     {
         if (DragHandle.IsVisible == editing) return;
         DragHandle.IsVisible = editing;
+        SetInlineDelete(editing);
         SetActionWidth(new GridLength(editing ? 30 : 0));
-    }
-
-    public void SetDeleteReveal(double progress)
-    {
-        double offset = DeleteRevealWidth * progress;
-        Foreground.TranslationX = -offset;
-        _delete.TranslationX = DeleteRevealWidth - offset;
-        _delete.IsVisible = progress > 0;
-        _delete.InputTransparent = progress < 1;
     }
 
     public void Bind(TrackFile file, int index)

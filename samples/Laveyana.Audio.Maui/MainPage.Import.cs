@@ -85,7 +85,7 @@ public sealed partial class MainPage
             () => Window is { } window ? WithPickerAsync(() => PlatformTrackFolder.PickAsync(window, _lifetime.Token))
                 : Task.FromResult<TrackFolderSource?>(null),
             OpenSavedLibraryAsync, ImportLibrarySelectionAsync, _library.ReadLibraryMetadataAsync,
-            ScanLibrarySelectionAsync, CloseTrackLibrary, _lifetime.Token);
+            ListLibraryScanTracksAsync, RescanLibraryTrackAsync, RemoveLibrarySelectionAsync, CloseTrackLibrary, _lifetime.Token);
         _view.ShowPanel(library);
         _view.SuspendPlayerAnimations();
         UpdatePositionRefreshInterval();
@@ -111,7 +111,7 @@ public sealed partial class MainPage
         var folders = selection.Folders;
         var files = selection.File is { } file
             ? (IReadOnlyList<FolderTrack>)[new(file, folders.Select(folder => new StoredFolder(folder.Id, folder.Name)).ToArray())]
-            : await TrackFolderReader.ReadTracksAsync(folders[^1], selection.IncludeChildren, _lifetime.Token,
+            : await TrackFolderReader.ReadTracksAsync(folders[^1], _lifetime.Token,
                 folders.Take(folders.Count - 1).ToArray());
         var (_, updated) = await ImportLocalTracksAsync(files, loadFirst: addToQueue, alreadyLocal: selection.Local,
             addToQueue: addToQueue);
@@ -119,31 +119,28 @@ public sealed partial class MainPage
         return updated;
     }
 
-    private async Task<(int Scanned, int Failed)> ScanLibrarySelectionAsync(TrackLibrarySelection selection,
-        Action<int, int> progress, CancellationToken token)
+    private static async Task<IReadOnlyList<TrackFile>> ListLibraryScanTracksAsync(TrackLibrarySelection selection,
+        CancellationToken token) => selection.File is { } file ? [file] :
+        (await TrackFolderReader.ReadTracksAsync(selection.Folders[^1], token))
+        .Select(item => item.File).DistinctBy(track => track.LocalPath).ToArray();
+
+    private Task RescanLibraryTrackAsync(TrackFile file, CancellationToken token)
     {
-        TrackFile[] files = selection.File is { } file ? [file] :
-            (await TrackFolderReader.ReadTracksAsync(selection.Folders[^1], selection.IncludeChildren, token))
-            .Select(item => item.File).DistinctBy(track => track.LocalPath).ToArray();
-        int scanned = 0;
-        int failed = 0;
-        foreach (var source in files)
+        token.ThrowIfCancellationRequested();
+        return _library.RescanAsync(_library.Add([file], [])[0], token);
+    }
+
+    private async Task<int> RemoveLibrarySelectionAsync(TrackLibrarySelection selection)
+    {
+        if (_closed || !selection.Local) return 0;
+        await _importGate.WaitAsync(_lifetime.Token);
+        try
         {
-            token.ThrowIfCancellationRequested();
-            progress(scanned + failed + 1, files.Length);
-            try
-            {
-                var canonical = _library.Add([source], [])[0];
-                await _library.RescanAsync(canonical, token);
-                scanned++;
-            }
-            catch (Exception ex) when (!token.IsCancellationRequested)
-            {
-                failed++;
-                Debug.WriteLine(ex);
-            }
+            int removed = _trackStore.ForgetLibraryItem(selection.Folders[^1].Id, selection.File);
+            if (removed > 0) await SaveQueueAsync();
+            return removed;
         }
-        return (scanned, failed);
+        finally { _importGate.Release(); }
     }
 
     /// <summary>Serializes native picker launches and reports a picker error in the player.</summary>
