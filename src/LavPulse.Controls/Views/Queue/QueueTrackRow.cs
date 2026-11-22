@@ -15,7 +15,7 @@ internal sealed class QueueTrackRow : TrackListRow
 {
     private readonly QueueText _text = new();
     private readonly GraphicsView _graphics;
-    private readonly GraphicsView _spectrum = new() { InputTransparent = true, IsVisible = false };
+    private readonly GraphicsView _spectrum = new PlaybackGraphicsView { InputTransparent = true, IsVisible = false };
     private QueueTrackItem? _shown;
     private bool _played;
     private bool _current;

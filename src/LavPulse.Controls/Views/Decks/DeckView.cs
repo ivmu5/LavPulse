@@ -31,10 +31,10 @@ public sealed partial class DeckView : Border
 
     public DeckView()
     {
-        _detail = new GraphicsView { Drawable = _detailDrawable, HeightRequest = 64 };
+        _detail = new PlaybackGraphicsView { Drawable = _detailDrawable, HeightRequest = 64 };
         _overview = new GraphicsView { Drawable = _overviewDrawable, HeightRequest = 44 };
-        _detailCursor = new GraphicsView { Drawable = _detailDrawable.CreateCursor(), InputTransparent = true };
-        _overviewCursor = new GraphicsView { Drawable = _overviewDrawable.CreateCursor(), InputTransparent = true };
+        _detailCursor = new PlaybackGraphicsView { Drawable = _detailDrawable.CreateCursor(), InputTransparent = true };
+        _overviewCursor = new PlaybackGraphicsView { Drawable = _overviewDrawable.CreateCursor(), InputTransparent = true };
         _overviewLayer = new Grid { Children = { _overview, _overviewCursor } };
         SemanticProperties.SetDescription(_detail, "Детальная волна. Удерживай и веди в сторону. Жест вверх отменяет перемотку.");
         SemanticProperties.SetDescription(_overview, "Полоса прогресса. Нажми или перетащи к нужной позиции. Жест вверх отменяет перемотку.");

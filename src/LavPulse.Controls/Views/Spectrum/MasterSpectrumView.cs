@@ -20,7 +20,7 @@ public sealed partial class MasterSpectrumView : ContentView
     {
         InputTransparent = true;
         QueueDrawable = new QueueSpectrum(_drawable);
-        _graphics = new GraphicsView { Drawable = _drawable, InputTransparent = true };
+        _graphics = new PlaybackGraphicsView { Drawable = _drawable, InputTransparent = true };
         Content = _graphics;
         ObserveNativeGraphicsView();
     }

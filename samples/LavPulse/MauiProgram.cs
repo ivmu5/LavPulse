@@ -1,6 +1,8 @@
 using System.Diagnostics;
-#if WINDOWS
+#if ANDROID || WINDOWS
 using Laveyana.LavPulse.Controls;
+#endif
+#if WINDOWS
 using Microsoft.Maui.LifecycleEvents;
 #endif
 
@@ -16,6 +18,9 @@ public static class MauiProgram
             return MauiApp.CreateBuilder()
                 .UseMauiApp<App>()
                 .ConfigureFonts(fonts => fonts.AddFont("InterVariable.ttf", "Inter"))
+#if ANDROID
+                .ConfigureMauiHandlers(AndroidPlaybackGraphics.Register)
+#endif
 #if WINDOWS
                 .ConfigureLifecycleEvents(events => events.AddWindows(windows =>
                     windows.OnPlatformWindowSubclassed((window, _) => WindowsWindowChrome.PrepareNativeCaption(window))))
