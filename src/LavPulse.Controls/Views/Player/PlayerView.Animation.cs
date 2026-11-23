@@ -7,6 +7,7 @@ public sealed partial class PlayerView
     private DeckView? _leavingDeck;
     private DeckSlide? _deckEntrance;
     private DeckSlide? _deckExit;
+    private PlayingTrack? _waitingForOverviewCollapse;
     private bool _playheadsAnimating;
     private bool _queueAnimating;
     private bool _uiClockActive;
@@ -56,6 +57,7 @@ public sealed partial class PlayerView
         {
             TrackLibraryPanel library => library.NeedsScanFrames,
             null => _queueAnimating || _deckEntrance is not null || _deckExit is not null ||
+                _waitingForOverviewCollapse is not null ||
                 (!_queue.IsEditing && (_playheadsAnimating || CurrentDeck.IsScrubbing || IncomingDeck.IsScrubbing ||
                     CurrentDeck.IsOverviewAnimating || IncomingDeck.IsOverviewAnimating)),
             _ => false
@@ -83,6 +85,13 @@ public sealed partial class PlayerView
         {
             CurrentDeck.AdvanceOverview(time);
             IncomingDeck.AdvanceOverview(time);
+            // The second deck enters only after the active deck's lower waveform is fully collapsed.
+            if (_waitingForOverviewCollapse is { } waiting && CurrentDeck.IsOverviewCollapsed)
+            {
+                _waitingForOverviewCollapse = null;
+                if (_latestIncoming is { } expected && ReferenceEquals(expected.Track, waiting.Track))
+                    ShowEnteringDeck(expected);
+            }
             if (_playheadsAnimating)
             {
                 double now = DeckPlayhead.Now;
@@ -102,6 +111,8 @@ public sealed partial class PlayerView
         if (_queue.IsEditing) return;
         if (snapshot.Current is { } current && CurrentDeck.DisplayedTrack is { } previous && !ReferenceEquals(previous, current.Track))
         {
+            // A very short audio mix can complete before the collapse: never hide the new current track.
+            _waitingForOverviewCollapse = null;
             ShowEnteringDeck(current);
             (CurrentDeck, IncomingDeck) = (IncomingDeck, CurrentDeck);
             IncomingDeck.FreezeForExit();
@@ -114,11 +125,24 @@ public sealed partial class PlayerView
             animateOverview: true);
         if (snapshot.Incoming is { } incoming)
         {
-            ShowEnteringDeck(incoming);
+            if (_leavingDeck is null && !ReferenceEquals(IncomingDeck.DisplayedTrack, incoming.Track) &&
+                !CurrentDeck.IsOverviewCollapsed)
+            {
+                // Queue the next deck while the lower progress waveform folds away.
+                _waitingForOverviewCollapse = incoming;
+                IncomingDeck.Show(null, false, showOverview: false);
+                SyncUiFrames();
+            }
+            else
+            {
+                _waitingForOverviewCollapse = null;
+                ShowEnteringDeck(incoming);
+            }
         }
-        else if (_leavingDeck is null)
+        else
         {
-            IncomingDeck.Show(null, false, showOverview: false);
+            _waitingForOverviewCollapse = null;
+            if (_leavingDeck is null) IncomingDeck.Show(null, false, showOverview: false);
         }
     }
 
@@ -200,6 +224,7 @@ public sealed partial class PlayerView
 
     private void ResetDeckMotion()
     {
+        _waitingForOverviewCollapse = null;
         if (_leavingDeck is { } leaving) CompleteDeckExit(leaving);
         CurrentDeck.CancelScrub();
         IncomingDeck.CancelScrub();
@@ -221,6 +246,7 @@ public sealed partial class PlayerView
 
     private void ShowDecksAtRest()
     {
+        _waitingForOverviewCollapse = null;
         CurrentDeck.Show(_latestCurrent, _latestCanSeek, _latestOverview);
         IncomingDeck.Show(_latestIncoming, false, showOverview: false);
     }
