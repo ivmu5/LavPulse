@@ -1,0 +1,88 @@
+using System.Text.Json;
+
+namespace Laveyana.LavPulse.Tracks;
+
+/// <summary>
+/// Persists comments independently of the movable MP3/PCM library. Does not upload data.
+/// One atomic JSON replacement protects annotations if the app is terminated while saving.
+/// </summary>
+internal sealed class TrackReportStore(string filePath)
+{
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private List<TrackIssueReport>? _items;
+
+    public async Task<TrackIssueReport[]> ReadAllAsync(CancellationToken token)
+    {
+        await _gate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            await EnsureLoadedAsync(token).ConfigureAwait(false);
+            return _items!.Select(x => x with { Marks = [.. x.Marks] }).ToArray();
+        }
+        finally { _gate.Release(); }
+    }
+
+    public async Task AddAsync(string id, string fileName, string title, string? artist,
+        string analysis, TrackIssueMark mark, CancellationToken token)
+    {
+        if (id.Length != 64 || !id.All(char.IsAsciiHexDigitUpper))
+            throw new ArgumentException("Неверный идентификатор импортированного трека.", nameof(id));
+        if (mark.StartFrame < 0 || mark.EndFrame < mark.StartFrame ||
+            string.IsNullOrWhiteSpace(mark.Comment) || mark.Comment.Length > 3000)
+            throw new ArgumentException("Укажи корректный диапазон и комментарий.", nameof(mark));
+
+        await _gate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            await EnsureLoadedAsync(token).ConfigureAwait(false);
+            var existing = _items!.FindIndex(x => x.Id == id);
+            if (existing >= 0)
+            {
+                var item = _items[existing];
+                _items[existing] = item with
+                {
+                    FileName = fileName, Title = title, Artist = artist, Analysis = analysis,
+                    Marks = [.. item.Marks, mark]
+                };
+            }
+            else _items.Add(new(id, fileName, title, artist, analysis, [mark]));
+            await PersistAsync(token).ConfigureAwait(false);
+        }
+        finally { _gate.Release(); }
+    }
+
+    private async Task EnsureLoadedAsync(CancellationToken token)
+    {
+        if (_items is not null) return;
+        if (!File.Exists(filePath))
+        {
+            _items = [];
+            return;
+        }
+        await using var source = File.OpenRead(filePath);
+        _items = await JsonSerializer.DeserializeAsync<List<TrackIssueReport>>(source, cancellationToken: token)
+            .ConfigureAwait(false) ?? [];
+    }
+
+    private async Task PersistAsync(CancellationToken token)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+        string temporary = filePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            await using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write,
+                FileShare.None, 16 * 1024, FileOptions.Asynchronous))
+            {
+                await JsonSerializer.SerializeAsync(output, _items, cancellationToken: token).ConfigureAwait(false);
+                await output.FlushAsync(token).ConfigureAwait(false);
+            }
+            File.Move(temporary, filePath, overwrite: true);
+        }
+        finally
+        {
+            try { if (File.Exists(temporary)) File.Delete(temporary); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+}
