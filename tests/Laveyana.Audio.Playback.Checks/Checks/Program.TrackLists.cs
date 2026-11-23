@@ -50,6 +50,18 @@ internal static partial class Program
 
     private static async Task CheckManualScanControlsAsync()
     {
+        Require(TrackAnalysisParallelism.Resolve(8, processors: 2) == 1 &&
+            TrackAnalysisParallelism.Resolve(8, processors: 4) == 3 &&
+            TrackAnalysisParallelism.Resolve(8, processors: 64) == 8,
+            "A saved manual limit exceeded the app or CPU capacity.");
+        Require(TrackAnalysisParallelism.Resolve(0, processors: 1) == 1 &&
+            TrackAnalysisParallelism.Resolve(0, processors: 2) == 1 &&
+            TrackAnalysisParallelism.Resolve(0, processors: 4) == 2 &&
+            TrackAnalysisParallelism.Resolve(0, processors: 8) == 4 &&
+            TrackAnalysisParallelism.Resolve(0, processors: 64) == 8 &&
+            TrackAnalysisParallelism.Resolve(2, processors: 8) == 2,
+            "Automatic scans used the wrong CPU limit or overrode a valid manual selection.");
+
         TrackFile[] files = [TrackFile.FromPath("first.mp3"), TrackFile.FromPath("second.mp3"),
             TrackFile.FromPath("third.mp3"), TrackFile.FromPath("fourth.mp3")];
         using var skip = new TrackScanBatch(2, default);

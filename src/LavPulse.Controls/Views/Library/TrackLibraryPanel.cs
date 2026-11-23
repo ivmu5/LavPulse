@@ -48,8 +48,7 @@ public sealed partial class TrackLibraryPanel : ContentView
         _listScanTracks = listScanTracks;
         _scanTrack = scanTrack;
         _hasAnalysis = hasAnalysis;
-        _analysisParallelism = Math.Clamp(analysisParallelism, PlayerSettings.MinimumAnalysisParallelism,
-            PlayerSettings.MaximumAnalysisParallelism);
+        _analysisParallelism = PlayerSettings.ResolveAnalysisParallelism(analysisParallelism);
         _remove = remove;
         _session = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
         _token = _session.Token;

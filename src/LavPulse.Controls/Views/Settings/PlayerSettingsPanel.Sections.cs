@@ -4,11 +4,18 @@ public sealed partial class PlayerSettingsPanel
 {
     private View CreateAnalysisSection()
     {
-        var parallelism = Number("Потоки анализа", "",
-            new(PlayerSettings.MinimumAnalysisParallelism, PlayerSettings.MaximumAnalysisParallelism,
-                PlayerSettings.DefaultAnalysisParallelism, 1), _settings.AnalysisParallelism,
-            value => _settings = _settings with { AnalysisParallelism = value });
-        return Section("Параллельное сканирование", parallelism.Row);
+        int processors = Environment.ProcessorCount;
+        int maximum = TrackAnalysisParallelism.MaximumFor(processors);
+        int automatic = TrackAnalysisParallelism.Resolve(TrackAnalysisParallelism.Automatic, processors);
+        (int Value, string Label)[] options =
+        [
+            (TrackAnalysisParallelism.Automatic, $"Авто ({automatic})"),
+            .. Enumerable.Range(TrackAnalysisParallelism.Minimum, maximum).Select(count => (count, count.ToString()))
+        ];
+        int selected = Math.Clamp(_settings.AnalysisParallelism, TrackAnalysisParallelism.Automatic, maximum);
+        var parallelism = Select("Потоки анализа", options, selected, preview: null,
+            value => _settings = _settings with { AnalysisParallelism = value }, maxColumns: 4);
+        return Section("Параллельное сканирование", parallelism);
     }
 
     private View CreatePlaybackSection()

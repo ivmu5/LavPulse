@@ -41,14 +41,18 @@ public sealed record PlayerSettings
     public const int MaximumWaveformDetailSeconds = 60;
     public const int MaximumSpectrumPaddingRows = 28;
     public const int MaximumSpectrumWidthPercent = 45;
-    public const int MinimumAnalysisParallelism = 1;
-    public const int DefaultAnalysisParallelism = 2;
-    public const int MaximumAnalysisParallelism = 8;
+    public const int MinimumAnalysisParallelism = TrackAnalysisParallelism.Minimum;
+    public const int DefaultAnalysisParallelism = TrackAnalysisParallelism.Automatic;
+    public const int MaximumAnalysisParallelism = TrackAnalysisParallelism.MaximumSupported;
+
+    public static int ResolveAnalysisParallelism(int requested) =>
+        TrackAnalysisParallelism.Resolve(requested, Environment.ProcessorCount);
 
     public int FadeInMilliseconds { get; init; } = 300;
     public int FadeOutMilliseconds { get; init; } = 300;
     public int CrossfadeMilliseconds { get; init; } = 2500;
     public bool AutoMix { get; init; } = true;
+    /// <summary>Zero selects a limit automatically based on the processors available to the app.</summary>
     public int AnalysisParallelism { get; init; } = DefaultAnalysisParallelism;
     public bool ShowOnLockScreen { get; init; }
     public bool HideStatusBar { get; init; } = true;
