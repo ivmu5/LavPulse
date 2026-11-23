@@ -42,7 +42,8 @@ public sealed partial class MainPage
     {
         var settings = OpenPanel(() =>
             new PlayerSettingsPanel(_settings, value => ApplySettings(value), ClosePanel, PreviewAppearance,
-                GetStorageOptions(), PickStorageFolderAsync));
+                GetStorageOptions(), PickStorageFolderAsync,
+                CopyReportTextAsync, ExportReportZipAsync, ReportSummaryAsync, ClearReportsAsync));
         if (settings is null) return false;
         settings.PaletteEditingChanged += editing =>
         {

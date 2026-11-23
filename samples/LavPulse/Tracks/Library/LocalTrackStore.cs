@@ -17,6 +17,13 @@ internal sealed partial class LocalTrackStore(string root)
     private string AnalysisDirectory => Path.Combine(root, "analysis-v6");
     private string QueuePath => Path.Combine(root, "queue.json");
     public string PcmDirectory => Path.Combine(root, "pcm-v1");
+
+    /// <summary>Resolve an imported original MP3, never a decoded PCM cache or arbitrary path.</summary>
+    internal string ReportAudioPath(string id)
+    {
+        if (!ValidId(id)) throw new InvalidDataException("Некорректный ID оригинального MP3.");
+        return MediaPath(id);
+    }
     public event Action<string>? TrackStorageChanged;
 
     public async Task<TrackFile> CopyAsync(TrackFile file, CancellationToken token)

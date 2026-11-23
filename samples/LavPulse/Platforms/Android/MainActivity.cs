@@ -18,6 +18,8 @@ namespace Laveyana.LavPulse;
 public class MainActivity : MauiAppCompatActivity
 {
     private ActivityResultLauncher? _folderLauncher;
+    private ActivityResultLauncher? _reportSaveLauncher;
+    private TaskCompletionSource<AndroidUri?>? _reportSaveResult;
     private TaskCompletionSource<AndroidUri?>? _folderResult;
     private ScreenStateReceiver? _screenReceiver;
     private bool? _hideStatusBar;
@@ -34,6 +36,8 @@ public class MainActivity : MauiAppCompatActivity
         VolumeControlStream = Android.Media.Stream.Music;
         _folderLauncher = RegisterForActivityResult(new ActivityResultContracts.OpenDocumentTree(),
             new FolderResult(result => _folderResult?.TrySetResult(result)));
+        _reportSaveLauncher = RegisterForActivityResult(new ActivityResultContracts.CreateDocument("application/zip"),
+            new FolderResult(result => _reportSaveResult?.TrySetResult(result)));
         if (savedInstanceState is null) AndroidTrackActivation.Receive(Intent);
     }
 
@@ -156,6 +160,22 @@ public class MainActivity : MauiAppCompatActivity
         {
             _folderResult = null;
         }
+    }
+
+    /// <summary>Opens the native system document picker to save a ZIP in shared storage or SD.</summary>
+    internal async Task<AndroidUri?> PickReportDocumentAsync(string suggestedName, CancellationToken token)
+    {
+        if (_reportSaveLauncher is null || _reportSaveResult is not null)
+            throw new InvalidOperationException("Экспорт ZIP сейчас недоступен.");
+        var result = new TaskCompletionSource<AndroidUri?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _reportSaveResult = result;
+        try
+        {
+            token.ThrowIfCancellationRequested();
+            _reportSaveLauncher.Launch(suggestedName);
+            return await result.Task.WaitAsync(token);
+        }
+        finally { _reportSaveResult = null; }
     }
 
     private sealed class FolderResult(Action<AndroidUri?> picked) : Java.Lang.Object, IActivityResultCallback

@@ -12,18 +12,18 @@ public sealed partial class DeckView : Border
     private readonly Label _name = MixerStyle.Label("", MixerStyle.PhoneFont(13, 12), bold: true);
     private readonly Label _time = MixerStyle.Label("", MixerStyle.PhoneFont(11, 10), MixerColor.Muted);
     private readonly Label _bpm = MixerStyle.Label("", MixerStyle.PhoneFont(11, 10), MixerColor.Accent);
-    // Temporary diagnostic control: keep it inside the deck, to the right of the time.
-    private readonly Button _copyAnalysis = new()
+    // Temporary diagnostic controls; exporting reports lives in Settings.
+    private readonly Button _markProblem = new()
     {
-        Text = "Копия",
-        FontFamily = "Inter",
-        FontSize = 10,
-        HeightRequest = 28,
-        MinimumHeightRequest = 28,
-        Padding = new Thickness(6, 0),
-        CornerRadius = 6,
-        VerticalOptions = LayoutOptions.Center,
-        IsVisible = false
+        Text = "В отчёт", FontFamily = "Inter", FontSize = 10,
+        HeightRequest = 28, MinimumHeightRequest = 28, Padding = new Thickness(5, 0),
+        CornerRadius = 6, VerticalOptions = LayoutOptions.Center, IsVisible = false
+    };
+    private readonly Button _markRhythm = new()
+    {
+        Text = "Ритм", FontFamily = "Inter", FontSize = 10,
+        HeightRequest = 28, MinimumHeightRequest = 28, Padding = new Thickness(5, 0),
+        CornerRadius = 6, VerticalOptions = LayoutOptions.Center, IsVisible = false
     };
     private readonly Label _previewLabel = MixerStyle.Label("", MixerStyle.PhoneFont(12, 11));
     private readonly WaveformDrawable _detailDrawable = new() { Detailed = true };
@@ -66,17 +66,25 @@ public sealed partial class DeckView : Border
         _previewLabel.InputTransparent = true;
         _previewLabel.IsVisible = false;
 
-        MixerStyle.UseColor(_copyAnalysis, VisualElement.BackgroundColorProperty, MixerColor.Button);
-        MixerStyle.UseColor(_copyAnalysis, Button.TextColorProperty, MixerColor.Text);
-        SemanticProperties.SetDescription(_copyAnalysis, "Скопировать диагностический отчёт по анализу трека");
-        _copyAnalysis.Clicked += (_, _) =>
+        foreach (var button in new[] { _markProblem, _markRhythm })
         {
-            if (_track is { } track) AnalysisCopyRequested?.Invoke(track);
+            MixerStyle.UseColor(button, VisualElement.BackgroundColorProperty, MixerColor.Button);
+            MixerStyle.UseColor(button, Button.TextColorProperty, MixerColor.Text);
+        }
+        SemanticProperties.SetDescription(_markProblem, "Добавить в репорт замечание по выделенному участку");
+        SemanticProperties.SetDescription(_markRhythm, "Отметить участок с хорошо слышимым ритмом");
+        _markProblem.Clicked += (_, _) =>
+        {
+            if (_track is { } track) ReportMarkRequested?.Invoke(track, _displayPosition, TrackMarkMode.Problem);
+        };
+        _markRhythm.Clicked += (_, _) =>
+        {
+            if (_track is { } track) ReportMarkRequested?.Invoke(track, _displayPosition, TrackMarkMode.StrongRhythm);
         };
         var header = new Grid
         {
             ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto),
-                new(GridLength.Auto)], ColumnSpacing = 6
+                new(GridLength.Auto), new(GridLength.Auto)], ColumnSpacing = 5
         };
         _name.MaxLines = 1;
         _name.LineBreakMode = LineBreakMode.TailTruncation;
@@ -85,7 +93,8 @@ public sealed partial class DeckView : Border
         header.Add(_name);
         header.Add(_bpm, 1);
         header.Add(_time, 2);
-        header.Add(_copyAnalysis, 3);
+        header.Add(_markProblem, 3);
+        header.Add(_markRhythm, 4);
         var detailLayer = new Grid { Children = { _detail, _detailCursor, _previewLabel } };
         MixerStyle.StyleCard(this, new VerticalStackLayout { Spacing = 5, Children = { header, detailLayer, _overviewLayer } });
         Padding = new Thickness(10, 7);
@@ -95,7 +104,7 @@ public sealed partial class DeckView : Border
     }
 
     public event Action<CachedTrack, long>? SeekRequested;
-    public event Action<CachedTrack>? AnalysisCopyRequested;
+    public event Action<CachedTrack, long, TrackMarkMode>? ReportMarkRequested;
     internal CachedTrack? DisplayedTrack => _track;
     internal bool IsOverviewAnimating => _overviewAnimating;
     internal bool IsOverviewCollapsed => !_overviewAnimating && _overviewProgress <= .00001;
@@ -147,7 +156,7 @@ public sealed partial class DeckView : Border
         }
 
         IsVisible = playing.HasValue;
-        _copyAnalysis.IsVisible = playing.HasValue;
+        _markProblem.IsVisible = _markRhythm.IsVisible = playing.HasValue;
         if (playing is not { } deck)
         {
             SetOverview(false, animate: false);
