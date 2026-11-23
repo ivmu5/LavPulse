@@ -1,5 +1,8 @@
 namespace Laveyana.LavPulse.Controls;
 
+/// <summary>One user-selectable writable storage volume or folder.</summary>
+public readonly record struct LibraryStorageOption(string Directory, string Label);
+
 public enum PlayerPalette
 {
     LavPulse,
@@ -57,6 +60,8 @@ public sealed record PlayerSettings
     public bool AutoMix { get; init; } = true;
     /// <summary>Zero selects a limit automatically based on the processors available to the app.</summary>
     public int AnalysisParallelism { get; init; } = DefaultAnalysisParallelism;
+    /// <summary>Empty = private app storage; otherwise a selected drive or folder containing LavPulse/library.</summary>
+    public string StorageDirectory { get; init; } = "";
     public bool ShowOnLockScreen { get; init; }
     public bool HideStatusBar { get; init; } = true;
     public bool WaveformOverview { get; init; }
