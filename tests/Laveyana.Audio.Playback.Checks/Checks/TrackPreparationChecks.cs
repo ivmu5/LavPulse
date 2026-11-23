@@ -5,6 +5,7 @@ internal static class TrackPreparationChecks
     public static async Task RunAsync(string directory)
     {
         CheckNativeRate();
+        CheckRhythmAnalysis();
         var input = TrackFile.FromStream("fixture.mp3", () => Task.FromResult<Stream>(CreateMp3()));
         var original = await new TrackPreparation(directory).ImportAsync(input, CancellationToken.None);
         byte[] expected = await File.ReadAllBytesAsync(original.Path);
@@ -63,6 +64,42 @@ internal static class TrackPreparationChecks
                 "Cancellation left a partial cache file or an open decoder.");
         }
         Console.WriteLine("OK: platform MP3 decoding, cancellation and managed retry after a partial write.");
+    }
+
+    private static void CheckRhythmAnalysis()
+    {
+        const int pointsPerSecond = 25;
+        int framesPerPoint = PlaybackFormat.SampleRate / pointsPerSecond;
+        var points = Enumerable.Repeat(new WaveformPoint(.17f, .09f, .09f, .035f), 1500).ToArray();
+        for (int beat = 0; beat < 120; beat++)
+        {
+            int index = (int)Math.Round(6 + beat * 12.5);
+            points[index] = new(.91f, .8f, .5f, .2f);
+        }
+        var track = new TrackWaveform(points, (long)points.Length * framesPerPoint, framesPerPoint);
+        var result = TrackRhythmAnalyzer.Analyze(track);
+        Require(result.HasBeatGrid && Math.Abs(result.Bpm - 120) <= 1 && result.Confidence > .8f &&
+            result.TransientFrames.Length >= 100 &&
+            Math.Abs(result.FirstBeatFrame - 6L * framesPerPoint) <= framesPerPoint,
+            "A periodic 120 BPM kick pattern did not produce a stable beat grid and transients.");
+
+        var fastPoints = Enumerable.Repeat(new WaveformPoint(.17f, .09f, .09f, .035f), 1500).ToArray();
+        double fastStep = pointsPerSecond * 60d / 140;
+        for (int beat = 0; beat < 140; beat++)
+        {
+            int index = (int)Math.Round(6 + beat * fastStep);
+            fastPoints[index] = new(.91f, .8f, .5f, .2f);
+        }
+        var fast = TrackRhythmAnalyzer.Analyze(new TrackWaveform(fastPoints, track.TotalFrames, framesPerPoint));
+        Require(fast.HasBeatGrid && Math.Abs(fast.Bpm - 140) <= 1,
+            "A 140 BPM track was mistaken for a 70 BPM half-time rhythm.");
+
+        var steady = new TrackWaveform(Enumerable.Repeat(new WaveformPoint(.5f, .2f, .15f, .1f), 1500).ToArray(),
+            track.TotalFrames, framesPerPoint);
+        var noRhythm = TrackRhythmAnalyzer.Analyze(steady);
+        Require(!noRhythm.HasBeatGrid && noRhythm.TransientFrames.Length == 0,
+            "A continuous signal created fictitious beats.");
+        Console.WriteLine("OK: BPM, onset positions, beat phase and silent beat-grid suppression.");
     }
 
     private static void CheckNativeRate()

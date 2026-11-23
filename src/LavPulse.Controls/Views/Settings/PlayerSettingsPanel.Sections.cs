@@ -52,10 +52,18 @@ public sealed partial class PlayerSettingsPanel
             new(PlayerSettings.MinimumWaveformDetailSeconds, PlayerSettings.MaximumWaveformDetailSeconds,
                 defaults.WaveformDetailSeconds, 1), _settings.WaveformDetailSeconds,
             value => _settings = _settings with { WaveformDetailSeconds = value });
-        var overview = Select("Вид нижней дорожки", [(false, "Полоса прогресса"), (true, "Цветная волна")],
-            _settings.WaveformOverview, CreateTimelinePreview,
-            waveform => _settings = _settings with { WaveformOverview = waveform });
-        return Section("Дорожки деки", detail.Row, overview);
+        var detailed = Select("Верхняя волна",
+            [(DeckWaveformMode.Color, "Цветная"), (DeckWaveformMode.BeatGrid, "Сетка долей"),
+             (DeckWaveformMode.Transients, "Удары + сетка")],
+            _settings.DetailedWaveform, CreateDetailedTimelinePreview,
+            mode => _settings = _settings with { DetailedWaveform = mode });
+        int overviewChoice = !_settings.WaveformOverview ? 0 : _settings.WaveformOverviewBeatGrid ? 2 : 1;
+        var overview = Select("Нижняя дорожка", [(0, "Прогресс"), (1, "Цветная"), (2, "Цветная + сетка")],
+            overviewChoice, CreateTimelinePreview,
+            value => _settings = _settings with { WaveformOverview = value != 0, WaveformOverviewBeatGrid = value == 2 });
+        var hint = MixerStyle.Label("Метки долей показываются только при уверенном определении BPM. " +
+            "Вариант «Удары + сетка» также выделяет найденные транзиенты.", 11, MixerColor.Muted);
+        return Section("Дорожки деки", detail.Row, detailed, overview, hint);
     }
 
     private View CreateColorSection()
