@@ -13,7 +13,8 @@ public sealed partial class MainPage
             () => Window is { } window ? WithPickerAsync(() => PlatformTrackFolder.PickAsync(window, _lifetime.Token))
                 : Task.FromResult<TrackFolderSource?>(null),
             OpenSavedLibraryAsync, ImportLibrarySelectionAsync, _library.ReadLibraryMetadataAsync,
-            ListLibraryScanTracksAsync, RescanLibraryTrackAsync, RemoveLibrarySelectionAsync, ClosePanel, _lifetime.Token,
+            ListLibraryScanTracksAsync, ScanLibraryTrackAsync, _library.HasAnalysis, _settings.AnalysisParallelism,
+            RemoveLibrarySelectionAsync, ClosePanel, _lifetime.Token,
             _trackStore.ReadTrackStorageSizeAsync));
         if (library is null) return false;
         library.ImportFolderOpened += RecordOpeningScreen;
@@ -53,10 +54,10 @@ public sealed partial class MainPage
         (await TrackFolderReader.ReadTracksAsync(selection.Folders[^1], token))
         .Select(item => item.File).DistinctBy(track => track.LocalPath).ToArray();
 
-    private Task RescanLibraryTrackAsync(TrackFile file, CancellationToken token)
+    private Task<bool> ScanLibraryTrackAsync(TrackFile file, bool replaceAnalysis, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        return _library.RescanAsync(_library.Add([file], [])[0], token);
+        return _library.ScanLibraryTrackAsync(_library.Add([file], [])[0], replaceAnalysis, token);
     }
 
     private async Task<int> RemoveLibrarySelectionAsync(TrackLibrarySelection selection)

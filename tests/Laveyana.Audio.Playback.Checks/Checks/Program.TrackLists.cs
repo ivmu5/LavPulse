@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Laveyana.LavPulse.Controls;
 using Laveyana.Audio.Playback;
+using Laveyana.LavPulse.Tracks;
 
 internal static partial class Program
 {
@@ -49,41 +50,62 @@ internal static partial class Program
 
     private static async Task CheckManualScanControlsAsync()
     {
-        TrackFile[] files = [TrackFile.FromPath("first.mp3"), TrackFile.FromPath("second.mp3"), TrackFile.FromPath("third.mp3")];
-        using var skip = new TrackScanBatch(default);
+        TrackFile[] files = [TrackFile.FromPath("first.mp3"), TrackFile.FromPath("second.mp3"),
+            TrackFile.FromPath("third.mp3"), TrackFile.FromPath("fourth.mp3")];
+        using var skip = new TrackScanBatch(2, default);
         var timeout = TimeSpan.FromSeconds(5);
-        var preview = new TaskCompletionSource<(TrackFile, int)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var activeTracks = new TaskCompletionSource<IReadOnlyList<TrackFile>>(TaskCreationOptions.RunContinuationsAsynchronously);
         var thirdStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var finishSecond = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var completed = new List<TrackFile>();
         var pass = skip.RunAsync(files, async (file, token) =>
         {
-            if (file == files[0]) await Task.Delay(Timeout.Infinite, token);
-            else if (file == files[1]) await finishSecond.Task.WaitAsync(token);
-            else
+            if (file == files[0]) await finishFirst.Task.WaitAsync(token);
+            else if (file == files[1]) await Task.Delay(Timeout.Infinite, token);
+            else if (file == files[2])
             {
                 thirdStarted.SetResult();
                 throw new InvalidDataException("Simulated scan error.");
             }
-        }, (file, _, _, active) => preview.TrySetResult((file, active)), completed.Add);
-        Require(await preview.Task.WaitAsync(timeout) == (files[0], 2) && !thirdStarted.Task.IsCompleted,
-            "The scan did not start exactly two tracks and preview the first.");
-        skip.Skip();
+            return file != files[3]; // Its analysis became available between listing and execution.
+        }, (active, _, _) => activeTracks.TrySetResult(active), completed.Add);
+        Require((await activeTracks.Task.WaitAsync(timeout)).SequenceEqual(files[..2]) && !thirdStarted.Task.IsCompleted,
+            "The scan did not show both active tracks or started a third track too early.");
+        skip.Skip(files[1]);
         await thirdStarted.Task.WaitAsync(timeout);
-        finishSecond.SetResult();
-        Require(await pass.WaitAsync(timeout) == (1, 1, 1) && completed.SequenceEqual([files[1]]),
-            "Skipping the preview interrupted another active scan or miscounted a failed scan.");
+        finishFirst.SetResult();
+        Require(await pass.WaitAsync(timeout) == (1, 2, 1) && completed.SequenceEqual([files[0]]),
+            "Skipping the second row interrupted another active scan or reported already analyzed work as new.");
 
-        using var stop = new TrackScanBatch(default);
+        using var stop = new TrackScanBatch(3, default);
         int work = 0;
-        var stopped = stop.RunAsync(files, (_, token) =>
+        var stopped = stop.RunAsync(files, async (_, token) =>
         {
             work++;
-            return Task.Delay(Timeout.Infinite, token);
-        }, (_, _, _, _) => { }, _ => throw new InvalidOperationException("Cancelled scan was counted."));
+            await Task.Delay(Timeout.Infinite, token);
+            return true;
+        }, (_, _, _) => { }, _ => throw new InvalidOperationException("Cancelled scan was counted."));
         stop.Stop();
-        Require(await stopped.WaitAsync(timeout) == (0, 0, 0) && work == 2,
+        Require(await stopped.WaitAsync(timeout) == (0, 0, 0) && work == 3,
             "Stopping a parallel scan started a queued track or counted a skip.");
-        Console.WriteLine("OK: parallel manual scanning, targeted skips, independent failures, and stopping both workers.");
+
+        var slots = new TrackAnalysisSlots(2);
+        await slots.AcquireAsync(scan: true, default);
+        await slots.AcquireAsync(scan: true, default);
+        var waitingScan = slots.AcquireAsync(scan: true, default).AsTask();
+        Require(!waitingScan.IsCompleted && slots.AcquireAsync(scan: false, default).IsCompletedSuccessfully,
+            "Scans exceeded their limit or blocked the reserved PCM slot.");
+        slots.SetParallelism(3);
+        await waitingScan.WaitAsync(timeout);
+        slots.SetParallelism(1);
+        var waitingAfterDecrease = slots.AcquireAsync(scan: true, default).AsTask();
+        slots.Release(scan: true);
+        slots.Release(scan: true);
+        Require(!waitingAfterDecrease.IsCompleted, "The decreased limit allowed an extra scan.");
+        slots.Release(scan: true);
+        await waitingAfterDecrease.WaitAsync(timeout);
+        slots.Release(scan: true);
+        slots.Release(scan: false);
+        Console.WriteLine("OK: configurable parallel scanning, active tracks, targeted skips, and cancellation.");
     }
 }

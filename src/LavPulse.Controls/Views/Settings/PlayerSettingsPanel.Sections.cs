@@ -2,6 +2,15 @@ namespace Laveyana.LavPulse.Controls;
 
 public sealed partial class PlayerSettingsPanel
 {
+    private View CreateAnalysisSection()
+    {
+        var parallelism = Number("Потоки анализа", "",
+            new(PlayerSettings.MinimumAnalysisParallelism, PlayerSettings.MaximumAnalysisParallelism,
+                PlayerSettings.DefaultAnalysisParallelism, 1), _settings.AnalysisParallelism,
+            value => _settings = _settings with { AnalysisParallelism = value });
+        return Section("Параллельное сканирование", parallelism.Row);
+    }
+
     private View CreatePlaybackSection()
     {
         var defaults = new PlayerSettings();

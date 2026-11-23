@@ -1,4 +1,5 @@
 using Laveyana.Audio.Playback;
+using Laveyana.LavPulse.Controls;
 using System.Collections.Concurrent;
 
 namespace Laveyana.LavPulse.Tracks;
@@ -8,7 +9,6 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
 {
     private const long ArtworkBudgetBytes = 32L * 1024 * 1024;
     private const long ThumbnailBudgetBytes = 24L * 1024 * 1024;
-    private const int MaxConcurrentScans = 2;
     private readonly object _cacheGate = new();
     private readonly Dictionary<string, TrackFile> _paths = new(OperatingSystem.IsWindows()
         ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
@@ -26,9 +26,7 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
     private readonly Dictionary<TrackFile, Task<TrackMetadata>> _metadata = new();
     private readonly Dictionary<TrackFile, Task<TrackMetadata>> _queueMetadata = new();
     private readonly SemaphoreSlim _thumbnailSlots = new(2);
-    private readonly SemaphoreSlim _scanSlots = new(MaxConcurrentScans);
-    // Scans share the decoder limit but leave a slot available for PCM preparation.
-    private readonly SemaphoreSlim _decodeSlots = new(MaxConcurrentScans + 1);
+    private readonly TrackAnalysisSlots _analysisSlots = new(PlayerSettings.DefaultAnalysisParallelism);
     private readonly SemaphoreSlim _metadataSlots = new(3);
 
     /// <summary>Adds playable files while retaining stable identities for the queue and cached tracks.</summary>
@@ -113,10 +111,13 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
 
     public bool HasAnalysis(TrackFile file) => store.HasAnalysis(file);
 
+    public void SetAnalysisParallelism(int parallelism) => _analysisSlots.SetParallelism(Math.Clamp(parallelism,
+        PlayerSettings.MinimumAnalysisParallelism, PlayerSettings.MaximumAnalysisParallelism));
+
     public Task AnalyzeAsync(TrackFile file) => ScanAsync(file, replaceAnalysis: false, lifetime);
 
-    public Task RescanAsync(TrackFile file, CancellationToken token) =>
-        TrackLibraryWork(ScanAsync(file, replaceAnalysis: true, token));
+    public Task<bool> ScanLibraryTrackAsync(TrackFile file, bool replaceAnalysis, CancellationToken token) =>
+        TrackLibraryWork(ScanAsync(file, replaceAnalysis, token));
 
     private T TrackLibraryWork<T>(T work) where T : Task
     {
@@ -138,21 +139,19 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
         finally { lock (_cacheGate) _libraryWork.Remove(work); }
     }
 
-    private async Task ScanAsync(TrackFile file, bool replaceAnalysis, CancellationToken token)
+    private async Task<bool> ScanAsync(TrackFile file, bool replaceAnalysis, CancellationToken token)
     {
-        await _scanSlots.WaitAsync(token).ConfigureAwait(false);
+        await _analysisSlots.AcquireAsync(scan: true, token).ConfigureAwait(false);
         bool scanning = false;
-        bool decoderAcquired = false;
         try
         {
-            await _decodeSlots.WaitAsync(token).ConfigureAwait(false);
-            decoderAcquired = true;
-            if (!replaceAnalysis && store.HasAnalysis(file)) return;
+            if (!replaceAnalysis && store.HasAnalysis(file)) return false;
             lock (_cacheGate) _analyzing[file] = _analyzing.GetValueOrDefault(file) + 1;
             scanning = true;
             var analysis = await preparation.AnalyzeAsync(file.LocalPath!, token).ConfigureAwait(false);
             await store.SaveAnalysisAsync(file, analysis.Waveform, analysis.Info, null, token, replaceAnalysis)
                 .ConfigureAwait(false);
+            return true;
         }
         finally
         {
@@ -164,8 +163,7 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
                     else _analyzing[file]--;
                 }
             }
-            if (decoderAcquired) _decodeSlots.Release();
-            _scanSlots.Release();
+            _analysisSlots.Release(scan: true);
         }
     }
 
@@ -202,7 +200,7 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
         }
 
         // Only a cache miss competes with background work for a decoder.
-        await _decodeSlots.WaitAsync(token).ConfigureAwait(false);
+        await _analysisSlots.AcquireAsync(scan: false, token).ConfigureAwait(false);
         try
         {
             var track = await preparation.ImportAsync(file, tags,
@@ -221,7 +219,7 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
         }
         finally
         {
-            _decodeSlots.Release();
+            _analysisSlots.Release(scan: false);
         }
     }
 
@@ -242,8 +240,6 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
         {
             // Failed imports clean up their own temporary files.
         }
-        _decodeSlots.Dispose();
-        _scanSlots.Dispose();
         _metadataSlots.Dispose();
         _thumbnailSlots.Dispose();
     }

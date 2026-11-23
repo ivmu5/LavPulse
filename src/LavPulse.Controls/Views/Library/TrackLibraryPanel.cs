@@ -23,7 +23,6 @@ public sealed partial class TrackLibraryPanel : ContentView
     private readonly Label _heading = MixerStyle.Label("Медиатека", MixerStyle.PhoneFont(23, 20), bold: true);
     private readonly Button _pick = MixerStyle.Button("Папка", icon: "player_folder.png");
     private readonly Button _saved = MixerStyle.Button("К сохранённым");
-    private readonly Button _scanButton = MixerStyle.Button("Пересканировать", icon: "player_reset.png");
     private readonly Button _edit = MixerStyle.Button("Редактирование", icon: "player_edit.png");
     private readonly TapGestureRecognizer _outsideSwipe = new();
     private LibraryTreeItem? _revealed;
@@ -36,7 +35,8 @@ public sealed partial class TrackLibraryPanel : ContentView
         Func<Task<TrackFolderSource>> openLibrary, Func<TrackLibrarySelection, bool, Task<int>> import,
         Func<TrackFile, CancellationToken, Task<TrackMetadata>> readMetadata,
         Func<TrackLibrarySelection, CancellationToken, Task<IReadOnlyList<TrackFile>>> listScanTracks,
-        Func<TrackFile, CancellationToken, Task> scanTrack, Func<TrackLibrarySelection, Task<int>> remove,
+        Func<TrackFile, bool, CancellationToken, Task<bool>> scanTrack, Func<TrackFile, bool> hasAnalysis,
+        int analysisParallelism, Func<TrackLibrarySelection, Task<int>> remove,
         Action close, CancellationToken lifetime,
         Func<TrackFile, CancellationToken, ValueTask<long?>>? readLocalStorageSize = null)
     {
@@ -47,6 +47,9 @@ public sealed partial class TrackLibraryPanel : ContentView
         _readLocalStorageSize = readLocalStorageSize;
         _listScanTracks = listScanTracks;
         _scanTrack = scanTrack;
+        _hasAnalysis = hasAnalysis;
+        _analysisParallelism = Math.Clamp(analysisParallelism, PlayerSettings.MinimumAnalysisParallelism,
+            PlayerSettings.MaximumAnalysisParallelism);
         _remove = remove;
         _session = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
         _token = _session.Token;
@@ -55,7 +58,6 @@ public sealed partial class TrackLibraryPanel : ContentView
         back.Clicked += (_, _) => close();
         _pick.Clicked += async (_, _) => await RunAsync(PickAsync, "Не удалось открыть папку");
         _saved.Clicked += (_, _) => TryReturnToSavedLibrary();
-        _scanButton.Clicked += async (_, _) => await RunAsync(ScanAsync, "Не удалось пересканировать");
         _edit.Clicked += (_, _) => SetEditing(!_editing);
         var header = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
         _heading.VerticalOptions = LayoutOptions.Center;
@@ -80,10 +82,9 @@ public sealed partial class TrackLibraryPanel : ContentView
             ColumnDefinitions = [new(GridLength.Star)]
         };
         footer.Add(_message);
-        footer.Add(_scanButton, row: 1);
-        _scanPreview = new LibraryTreeItem(this, previewOnly: true) { IsVisible = false };
+        _scanActions = CreateScanActions();
+        footer.Add(_scanActions, row: 1);
         _scanPanel = CreateScanPanel();
-        footer.Add(_scanPanel, row: 1);
 
         _tree = new TrackListView<TreeRow, LibraryTreeItem>(() => new LibraryTreeItem(this),
             (view, item, _) => view.Bind(item), ReleaseRow);
@@ -115,7 +116,7 @@ public sealed partial class TrackLibraryPanel : ContentView
         };
         layout.Add(header);
         layout.Add(actions, row: 1);
-        layout.Add(_tree, row: 2);
+        layout.Add(new Grid { Children = { _tree, _scanPanel } }, row: 2);
         layout.Add(footer, row: 3);
         var host = new Grid { Children = { layout } };
         host.SizeChanged += (_, _) =>
@@ -160,8 +161,7 @@ public sealed partial class TrackLibraryPanel : ContentView
         _metadataCache.Clear();
         ResetFolderSizes();
         ResetEditing();
-        SetScanPreviewVisible(false);
-        _scanPreview.Bind(null);
+        ShowActiveScans([]);
         _tree.SetItems([]);
         _session.Dispose();
     }
@@ -266,9 +266,9 @@ public sealed partial class TrackLibraryPanel : ContentView
         MixerStyle.SetListEditButton(_edit, _editing);
         _saved.IsVisible = !_local && _selected is not null;
         bool folder = _selected?.File is null;
-        _scanButton.IsVisible = _local && _scanBatch is null;
-        _scanButton.IsEnabled = !_busy && _selected is not null;
+        _scanActions.IsVisible = _local && _scanBatch is null;
+        _scanActions.IsEnabled = !_busy && _selected is not null;
         foreach (var view in _tree.RealizedRows) view.UpdateRow();
-        SemanticProperties.SetDescription(_scanButton, folder ? "Пересканировать папку" : "Пересканировать трек");
+        SemanticProperties.SetDescription(_rescan, folder ? "Пересканировать папку" : "Пересканировать трек");
     }
 }
