@@ -8,6 +8,7 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
 {
     private const long ArtworkBudgetBytes = 32L * 1024 * 1024;
     private const long ThumbnailBudgetBytes = 24L * 1024 * 1024;
+    private const int MaxConcurrentScans = 2;
     private readonly object _cacheGate = new();
     private readonly Dictionary<string, TrackFile> _paths = new(OperatingSystem.IsWindows()
         ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
@@ -25,7 +26,9 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
     private readonly Dictionary<TrackFile, Task<TrackMetadata>> _metadata = new();
     private readonly Dictionary<TrackFile, Task<TrackMetadata>> _queueMetadata = new();
     private readonly SemaphoreSlim _thumbnailSlots = new(2);
-    private readonly SemaphoreSlim _decodeSlots = new(2);
+    private readonly SemaphoreSlim _scanSlots = new(MaxConcurrentScans);
+    // Scans share the decoder limit but leave a slot available for PCM preparation.
+    private readonly SemaphoreSlim _decodeSlots = new(MaxConcurrentScans + 1);
     private readonly SemaphoreSlim _metadataSlots = new(3);
 
     /// <summary>Adds playable files while retaining stable identities for the queue and cached tracks.</summary>
@@ -137,10 +140,13 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
 
     private async Task ScanAsync(TrackFile file, bool replaceAnalysis, CancellationToken token)
     {
-        await _decodeSlots.WaitAsync(token).ConfigureAwait(false);
+        await _scanSlots.WaitAsync(token).ConfigureAwait(false);
         bool scanning = false;
+        bool decoderAcquired = false;
         try
         {
+            await _decodeSlots.WaitAsync(token).ConfigureAwait(false);
+            decoderAcquired = true;
             if (!replaceAnalysis && store.HasAnalysis(file)) return;
             lock (_cacheGate) _analyzing[file] = _analyzing.GetValueOrDefault(file) + 1;
             scanning = true;
@@ -158,7 +164,8 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
                     else _analyzing[file]--;
                 }
             }
-            _decodeSlots.Release();
+            if (decoderAcquired) _decodeSlots.Release();
+            _scanSlots.Release();
         }
     }
 
@@ -236,6 +243,7 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
             // Failed imports clean up their own temporary files.
         }
         _decodeSlots.Dispose();
+        _scanSlots.Dispose();
         _metadataSlots.Dispose();
         _thumbnailSlots.Dispose();
     }

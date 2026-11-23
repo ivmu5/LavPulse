@@ -55,26 +55,36 @@ public sealed partial class MainPage
                     pending++;
                     if (addToQueue ? add : remember) updated++;
                     bool first = add && loadFirst && _playback.Snapshot.Current is null && !IsLoadingFirst;
-                    if (!first && pending < ImportBatchSize &&
-                        Stopwatch.GetElapsedTime(lastCheckpoint) < ImportCheckpointInterval) continue;
+                    if (alreadyLocal || (!first && pending < ImportBatchSize &&
+                        Stopwatch.GetElapsedTime(lastCheckpoint) < ImportCheckpointInterval)) continue;
                     await FlushAsync();
-                    if (first && !_closed && _playback.Snapshot.Current is null && !IsLoadingFirst)
-                        _ = LoadFirstAsync();
                 }
             }
             finally
             {
-                try { if (pending > 0) await FlushAsync(); }
+                try
+                {
+                    if (pending > 0)
+                    {
+                        var save = FlushAsync();
+                        if (!alreadyLocal) await save;
+                    }
+                }
                 finally { _importGate.Release(); }
             }
 
-            async Task FlushAsync()
+            Task FlushAsync()
             {
                 pending = 0;
                 lastCheckpoint = Stopwatch.GetTimestamp();
                 var save = SaveQueueAsync();
-                if (addToQueue && !_closed) UpdateQueue();
-                await save;
+                if (addToQueue && !_closed)
+                {
+                    if (loadFirst && _queue.Tracks.Count > 0 && _playback.Snapshot.Current is null && !IsLoadingFirst)
+                        _ = LoadFirstAsync();
+                    UpdateQueue();
+                }
+                return save;
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }

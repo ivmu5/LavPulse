@@ -51,19 +51,28 @@ internal static partial class Program
     {
         TrackFile[] files = [TrackFile.FromPath("first.mp3"), TrackFile.FromPath("second.mp3"), TrackFile.FromPath("third.mp3")];
         using var skip = new TrackScanBatch(default);
-        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var displayed = new List<int>();
+        var timeout = TimeSpan.FromSeconds(5);
+        var preview = new TaskCompletionSource<(TrackFile, int)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thirdStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishSecond = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var completed = new List<TrackFile>();
         var pass = skip.RunAsync(files, async (file, token) =>
         {
-            if (file != files[1]) return;
-            started.SetResult();
-            await Task.Delay(Timeout.Infinite, token);
-        }, (_, position, _) => displayed.Add(position), completed.Add);
-        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            if (file == files[0]) await Task.Delay(Timeout.Infinite, token);
+            else if (file == files[1]) await finishSecond.Task.WaitAsync(token);
+            else
+            {
+                thirdStarted.SetResult();
+                throw new InvalidDataException("Simulated scan error.");
+            }
+        }, (file, _, _, active) => preview.TrySetResult((file, active)), completed.Add);
+        Require(await preview.Task.WaitAsync(timeout) == (files[0], 2) && !thirdStarted.Task.IsCompleted,
+            "The scan did not start exactly two tracks and preview the first.");
         skip.Skip();
-        Require(await pass == (2, 1, 0) && displayed.SequenceEqual([1, 2, 3]) &&
-            completed.SequenceEqual([files[0], files[2]]), "Skipping did not resume with the following track.");
+        await thirdStarted.Task.WaitAsync(timeout);
+        finishSecond.SetResult();
+        Require(await pass.WaitAsync(timeout) == (1, 1, 1) && completed.SequenceEqual([files[1]]),
+            "Skipping the preview interrupted another active scan or miscounted a failed scan.");
 
         using var stop = new TrackScanBatch(default);
         int work = 0;
@@ -71,9 +80,10 @@ internal static partial class Program
         {
             work++;
             return Task.Delay(Timeout.Infinite, token);
-        }, (_, _, _) => { }, _ => throw new InvalidOperationException("Cancelled scan was counted."));
+        }, (_, _, _, _) => { }, _ => throw new InvalidOperationException("Cancelled scan was counted."));
         stop.Stop();
-        Require(await stopped == (0, 0, 0) && work == 1, "Stopping started more tracks or counted a skip.");
-        Console.WriteLine("OK: skipping and stopping a manual track scan.");
+        Require(await stopped.WaitAsync(timeout) == (0, 0, 0) && work == 2,
+            "Stopping a parallel scan started a queued track or counted a skip.");
+        Console.WriteLine("OK: parallel manual scanning, targeted skips, independent failures, and stopping both workers.");
     }
 }

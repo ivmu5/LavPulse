@@ -45,24 +45,16 @@ internal sealed partial class PlayerLibrary
             _tagAccess[file] = ++_access;
             if (!_metadata.TryGetValue(file, out var task) || task.IsFaulted || task.IsCanceled)
             {
-                _metadata[file] = task = _prepared.TryGetValue(file, out var pending) && !pending.Work.IsFaulted && !pending.Work.IsCanceled
-                    ? ReadPreparedMetadataAsync(file, pending.Work)
-                    : ReadTagsAsync(file);
+                // Queue rows need tags while the deck is still decoding the audio.
+                if (_prepared.TryGetValue(file, out var pending) && pending.Work.IsCompletedSuccessfully)
+                {
+                    var track = pending.Work.Result;
+                    task = Task.FromResult(new TrackMetadata(track.Title, track.Artist, track.Artwork) { Album = track.Album });
+                }
+                else task = ReadTagsAsync(file);
+                _metadata[file] = task;
             }
             return task;
-        }
-    }
-
-    private async Task<TrackMetadata> ReadPreparedMetadataAsync(TrackFile file, Task<CachedTrack> pending)
-    {
-        try
-        {
-            var track = await pending.ConfigureAwait(false);
-            return new(track.Title, track.Artist, track.Artwork) { Album = track.Album };
-        }
-        catch (OperationCanceledException) when (!lifetime.IsCancellationRequested)
-        {
-            return await ReadTagsAsync(file).ConfigureAwait(false);
         }
     }
 
