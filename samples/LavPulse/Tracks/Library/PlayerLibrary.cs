@@ -26,7 +26,8 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
     private readonly Dictionary<TrackFile, Task<TrackMetadata>> _metadata = new();
     private readonly Dictionary<TrackFile, Task<TrackMetadata>> _queueMetadata = new();
     private readonly SemaphoreSlim _thumbnailSlots = new(2);
-    private readonly TrackAnalysisSlots _analysisSlots = new(PlayerSettings.DefaultAnalysisParallelism);
+    private readonly TrackAnalysisSlots _analysisSlots = new(
+        PlayerSettings.ResolveAnalysisParallelism(PlayerSettings.DefaultAnalysisParallelism));
     private readonly SemaphoreSlim _metadataSlots = new(3);
 
     /// <summary>Adds playable files while retaining stable identities for the queue and cached tracks.</summary>
@@ -111,8 +112,8 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
 
     public bool HasAnalysis(TrackFile file) => store.HasAnalysis(file);
 
-    public void SetAnalysisParallelism(int parallelism) => _analysisSlots.SetParallelism(Math.Clamp(parallelism,
-        PlayerSettings.MinimumAnalysisParallelism, PlayerSettings.MaximumAnalysisParallelism));
+    public void SetAnalysisParallelism(int parallelism) =>
+        _analysisSlots.SetParallelism(PlayerSettings.ResolveAnalysisParallelism(parallelism));
 
     public Task AnalyzeAsync(TrackFile file) => ScanAsync(file, replaceAnalysis: false, lifetime);
 

@@ -40,7 +40,7 @@ internal static class PlayerPreferences
             CrossfadeMilliseconds = Math.Clamp(Preferences.Default.Get("crossfade-ms", defaults.CrossfadeMilliseconds), 0, 12000),
             AutoMix = Preferences.Default.Get("automix", defaults.AutoMix),
             AnalysisParallelism = Math.Clamp(Preferences.Default.Get("analysis-parallelism", defaults.AnalysisParallelism),
-                PlayerSettings.MinimumAnalysisParallelism, PlayerSettings.MaximumAnalysisParallelism),
+                PlayerSettings.DefaultAnalysisParallelism, PlayerSettings.MaximumAnalysisParallelism),
             ShowOnLockScreen = Preferences.Default.Get("show-player-on-lock-screen", defaults.ShowOnLockScreen),
             HideStatusBar = Preferences.Default.Get("hide-status-bar", defaults.HideStatusBar),
             WaveformOverview = Preferences.Default.Get("waveform-overview", defaults.WaveformOverview),
