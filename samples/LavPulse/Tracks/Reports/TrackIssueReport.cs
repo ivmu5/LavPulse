@@ -17,7 +17,18 @@ internal sealed record TrackIssueMark(long StartFrame, long EndFrame, string Com
 /// <summary>Persistent report for one imported MP3, identified by its SHA-256 library filename.</summary>
 internal sealed record TrackIssueReport(
     string Id, string FileName, string Title, string? Artist, string Analysis,
-    List<TrackIssueMark> Marks);
+    List<TrackIssueMark> Marks)
+{
+    /// <summary>Individual user-tapped bass attacks in the order they were heard.</summary>
+    public List<ManualBeatTap> BeatTaps { get; init; } = [];
+}
+
+/// <summary>
+/// A single physical press while hearing a bass/kick beat. Position already follows
+/// the compensated presentation-time playhead. No automatic beat-grid mutation.
+/// </summary>
+internal sealed record ManualBeatTap(long Frame, DateTimeOffset PressedAtUtc,
+    int TimingToleranceMilliseconds = 180, int VisualDelayMilliseconds = 0);
 
 [JsonSerializable(typeof(List<TrackIssueReport>))]
 internal sealed partial class TrackReportJson : JsonSerializerContext;

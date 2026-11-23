@@ -11,7 +11,8 @@ internal static class TrackReportArchive
     {
         var text = new StringBuilder();
         text.AppendLine("LAVPULSE USER TRACK REPORT");
-        text.AppendLine($"Tracks: {reports.Count}; comments: {reports.Sum(x => x.Marks.Count)}");
+        text.AppendLine($"Tracks: {reports.Count}; comments: {reports.Sum(x => x.Marks.Count)}; " +
+            $"manual bass taps: {reports.Sum(x => x.BeatTaps?.Count ?? 0)}");
         foreach (var item in reports)
         {
             text.AppendLine();
@@ -23,6 +24,8 @@ internal static class TrackReportArchive
                 text.AppendLine("Track enrolled automatically when manual BPM editing started; no section saved yet.");
             foreach (var note in item.Marks)
                 text.AppendLine(RenderMark(note));
+            text.AppendLine();
+            text.AppendLine(RenderBeatTaps(item.BeatTaps ?? []));
             text.AppendLine();
             text.AppendLine(item.Analysis);
         }
@@ -40,6 +43,23 @@ internal static class TrackReportArchive
               $"up to {mark.PossibleMissingBeats} missing beats across tempo changes" : "";
         return $"[{Time(mark.StartFrame)} - {Time(mark.EndFrame)}] {type}{bpm}{transition}: " +
             $"{mark.Comment} ({mark.CreatedAt:O})";
+    }
+
+    internal static string RenderBeatTaps(IReadOnlyList<ManualBeatTap> taps)
+    {
+        var text = new StringBuilder();
+        text.AppendLine($"MANUALLY TAPPED BASS BEATS: {taps.Count} presses (not automatic BeatGrid)");
+        text.AppendLine("Time | timing uncertainty | device visual compensation | input UTC");
+        foreach (var tap in taps)
+            text.AppendLine($"{Time(tap.Frame)} | ±{tap.TimingToleranceMilliseconds} ms | " +
+                $"{tap.VisualDelayMilliseconds} ms | {tap.PressedAtUtc:O}");
+
+        text.AppendLine("MANUAL BPM ESTIMATES BY TAPPED REGION (1–3 missed beats tolerated):");
+        foreach (var section in ManualTapTempoAnalyzer.Analyze(taps))
+            text.AppendLine($"{Time(section.StartFrame)}..{Time(section.EndFrame)} | " +
+                $"BPM≈{(section.EstimatedBpm is double bpm ? bpm.ToString("0.#", CultureInfo.InvariantCulture) : "unknown")} | " +
+                $"taps={section.TapCount} | inferred skipped beats={section.InferredMissedBeats}");
+        return text.ToString();
     }
 
     internal static async Task CreateAsync(IReadOnlyList<TrackIssueReport> reports, string destination,
@@ -76,8 +96,10 @@ internal static class TrackReportArchive
                     await WriteText(zip, baseName + "analysis.txt", report.Analysis, token);
                     await WriteText(zip, baseName + "comments.txt",
                         report.Marks.Count == 0
-                            ? "Automatically enrolled for manual BPM analysis; no marked ranges saved yet."
+                            ? "No manually written comments or selected ranges."
                             : string.Join(Environment.NewLine, report.Marks.Select(RenderMark)), token);
+                    await WriteText(zip, baseName + "manual-beat-taps.txt",
+                        RenderBeatTaps(report.BeatTaps ?? []), token);
                     string originalName = SafeName(report.FileName);
                     var entry = zip.CreateEntry(baseName + originalName, CompressionLevel.NoCompression);
                     await using var input = new FileStream(audioFiles[i], FileMode.Open, FileAccess.Read, FileShare.Read,
