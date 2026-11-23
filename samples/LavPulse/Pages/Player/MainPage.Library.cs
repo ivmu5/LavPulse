@@ -44,7 +44,7 @@ public sealed partial class MainPage
                 folders.Take(folders.Count - 1).ToArray());
         var (_, updated) = await ImportLocalTracksAsync(files, loadFirst: addToQueue, alreadyLocal: selection.Local,
             addToQueue: addToQueue);
-        if (addToQueue && !_closed && !IsLoadingFirst) await SelectDefaultAsync();
+        if (addToQueue && !_closed && !IsLoadingFirst) _ = SelectDefaultAsync();
         return updated;
     }
 

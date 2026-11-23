@@ -14,6 +14,7 @@ public sealed partial class TrackLibraryPanel
     private readonly Button _skipScan = MixerStyle.Button("Пропустить", icon: "player_next.png");
     private readonly Button _stopScan = MixerStyle.Button("Остановить", icon: "player_cancel.png");
     private TrackScanBatch? _scanBatch;
+    private TrackFile? _scanPreviewFile;
     private double? _scanPulseStart;
 
     internal event Action? ScanAnimationChanged;
@@ -79,7 +80,10 @@ public sealed partial class TrackLibraryPanel
         {
             var files = await _listScanTracks(SelectionFor(selected), batch.Token);
             var result = await batch.RunAsync(files, _scanTrack, ShowScanProgress,
-                file => completed.Add(file.LocalPath!));
+                file =>
+                {
+                    if (file.LocalPath is { } path) completed.Add(path);
+                });
             _token.ThrowIfCancellationRequested();
             string summary = $"Готово: {result.Scanned} · Пропущено: {result.Skipped} · Ошибок: {result.Failed}";
             _message.Text = batch.Token.IsCancellationRequested ? $"Остановлено. {summary}" :
@@ -93,6 +97,7 @@ public sealed partial class TrackLibraryPanel
         {
             SetScanPreviewVisible(false);
             _scanPreview.Bind(null);
+            _scanPreviewFile = null;
             _scanPanel.IsVisible = false;
             _scanBatch = null;
             if (!_token.IsCancellationRequested && completed.Count > 0)
@@ -106,13 +111,17 @@ public sealed partial class TrackLibraryPanel
         }
     }
 
-    private void ShowScanProgress(TrackFile file, int index, int total)
+    private void ShowScanProgress(TrackFile file, int finished, int total, int active)
     {
-        _scanPosition.Text = $"Сканируется {index} / {total}";
-        _scanProgress.Progress = (double)(index - 1) / total;
+        _scanPosition.Text = $"Обработано {finished} / {total} · В работе: {active}";
+        _scanProgress.Progress = (double)finished / total;
         SemanticProperties.SetDescription(_scanProgress, _scanPosition.Text);
-        _scanPreview.Bind(new TreeRow([], file));
+        if (!ReferenceEquals(_scanPreviewFile, file))
+        {
+            _scanPreviewFile = file;
+            _scanPreview.Bind(new TreeRow([], file));
+        }
         SetScanPreviewVisible(true);
-        _skipScan.IsEnabled = true;
+        _skipScan.IsEnabled = _scanBatch?.CanSkip == true;
     }
 }

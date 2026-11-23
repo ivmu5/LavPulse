@@ -12,7 +12,7 @@ internal class TrackListRow : Border
         typeof(PlayerColors), typeof(TrackListRow), MixerTheme.Default.Artwork,
         propertyChanged: (bindable, _, _) => ((TrackListRow)bindable).UpdateCoverBackground());
 
-    private readonly Image _art = new() { Aspect = Aspect.AspectFill };
+    private readonly Image _art = new() { Aspect = Aspect.AspectFill, IsVisible = false };
     private readonly Border _cover;
     private readonly Grid _leading;
     private readonly Grid _content;
@@ -135,7 +135,10 @@ internal class TrackListRow : Border
         if (!_artwork.Equals(artwork))
         {
             _artwork = artwork;
+            // A native image request can finish after a recycled row has cleared its source.
+            if (artwork.IsEmpty) _art.IsVisible = false;
             _art.Source = TrackCover.FromArtwork(artwork);
+            if (!artwork.IsEmpty) _art.IsVisible = true;
         }
         UpdateCoverBackground();
     }
