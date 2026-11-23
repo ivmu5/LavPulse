@@ -49,7 +49,8 @@ public sealed partial class PlayerSettingsPanel
         clear.Clicked += async (_, _) =>
             await RunAsync(clear, async () => _clearReports is null ? null : await _clearReports());
 
-        var help = MixerStyle.Label("Отметки добавляются кнопками «В отчёт» и «Ритм» в правой части деки. " +
+        var help = MixerStyle.Label("При открытии «Ритм» трек автоматически появляется в отчёте, " +
+            "даже если первый диапазон ещё не сохранён. «В отчёт» добавляет замечания. " +
             "ZIP содержит диагностические данные, выбранные интервалы, комментарии и оригинальные MP3. " +
             "Ничего не отправляется в интернет автоматически. На Windows выбирается папка/имя ZIP, " +
             "на Android — место сохранения через системный проводник.", 11, MixerColor.Muted);

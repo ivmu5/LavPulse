@@ -22,11 +22,43 @@ internal sealed class TrackReportStore(string filePath)
         finally { _gate.Release(); }
     }
 
+    /// <summary>Entering manual BPM annotation enrolls the track immediately, even before a mark is saved.</summary>
+    public async Task<bool> RegisterAsync(string id, string fileName, string title, string? artist,
+        string analysis, CancellationToken token)
+    {
+        ValidateId(id);
+        await _gate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            await EnsureLoadedAsync(token).ConfigureAwait(false);
+            int index = _items!.FindIndex(report => report.Id == id);
+            if (index >= 0)
+            {
+                // Existing user annotations remain intact when manual editing resumes.
+                var current = _items[index];
+                _items[index] = current with
+                {
+                    FileName = fileName, Title = title, Artist = artist, Analysis = analysis
+                };
+            }
+            else _items.Add(new(id, fileName, title, artist, analysis, []));
+
+            try { await PersistAsync(token).ConfigureAwait(false); }
+            catch
+            {
+                if (index >= 0) _items[index] = _items[index] with { Analysis = analysis };
+                else _items.RemoveAt(_items.Count - 1);
+                throw;
+            }
+            return index < 0;
+        }
+        finally { _gate.Release(); }
+    }
+
     public async Task AddAsync(string id, string fileName, string title, string? artist,
         string analysis, TrackIssueMark mark, CancellationToken token)
     {
-        if (id.Length != 64 || !id.All(char.IsAsciiHexDigitUpper))
-            throw new ArgumentException("Неверный идентификатор импортированного трека.", nameof(id));
+        ValidateId(id);
         if (mark.StartFrame < 0 || mark.EndFrame < mark.StartFrame ||
             (mark.Kind == TrackReportMarkKind.Problem && string.IsNullOrWhiteSpace(mark.Comment)) ||
             mark.Comment.Length > 3000 || mark.TimingToleranceMilliseconds is < 0 or > 1500 ||
@@ -66,6 +98,12 @@ internal sealed class TrackReportStore(string filePath)
             catch { _items = prior; throw; }
         }
         finally { _gate.Release(); }
+    }
+
+    private static void ValidateId(string id)
+    {
+        if (id.Length != 64 || !id.All(char.IsAsciiHexDigitUpper))
+            throw new ArgumentException("Неверный идентификатор импортированного трека.", nameof(id));
     }
 
     private async Task EnsureLoadedAsync(CancellationToken token)

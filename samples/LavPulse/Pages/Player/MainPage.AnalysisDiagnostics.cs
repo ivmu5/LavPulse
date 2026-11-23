@@ -8,8 +8,35 @@ namespace Laveyana.LavPulse;
 
 public sealed partial class MainPage
 {
-    private void OpenReportMarker(CachedTrack track, long position, TrackMarkMode mode)
+    private async void OpenReportMarker(CachedTrack track, long position, TrackMarkMode mode)
     {
+        if (_closed || _view.Panel is not null) return;
+        if (mode == TrackMarkMode.StrongRhythm)
+        {
+            try
+            {
+                // Clicking "Ритм" is enough to include the original track in the next ZIP.
+                // The editor may be cancelled; any previously added sections remain intact.
+                if (_library.Find(track) is not { LocalPath: { } path } || !File.Exists(path))
+                    throw new FileNotFoundException("Оригинальный MP3 больше не доступен.");
+                string id = Path.GetFileNameWithoutExtension(path);
+                string analysis = await Task.Run(() => TrackAnalysisReport.Create(
+                    track.Name, track.Waveform, track.AudioInfo, track.Title, track.Artist, track.Album),
+                    _lifetime.Token);
+                bool added = await _reports.RegisterAsync(id, track.Name, track.Title,
+                    track.Artist, analysis, _lifetime.Token);
+                if (_closed) return;
+                _view.Status.Text = added
+                    ? $"«{track.Title}» автоматически добавлен в репорт"
+                    : $"«{track.Title}» уже находится в репорте";
+            }
+            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
+            catch (Exception ex)
+            {
+                if (!_closed) _view.Status.Text = "Не удалось добавить трек в репорт: " + ex.Message;
+                return;
+            }
+        }
         OpenPanel(() => new TrackReportMarkPanel(track, position, mode,
             mark => AddReportMarkAsync(track, mark), ClosePanel));
     }

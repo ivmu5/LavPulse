@@ -107,6 +107,8 @@ public sealed class TrackReportMarkPanel : ContentView
         };
         if (mode == TrackMarkMode.StrongRhythm)
         {
+            main.Add(MixerStyle.Label("Трек уже добавлен в отчёт автоматически. Сохраняй участки по мере " +
+                "прослушивания — отдельно добавлять трек не нужно.", 11, MixerColor.Muted));
             main.Add(MixerStyle.Label("Предполагаемый BPM (необязательно)", 12));
             main.Add(_bpm);
             main.Add(MixerStyle.Label("Ручная разметка неточная: границы ±250 мс. " +

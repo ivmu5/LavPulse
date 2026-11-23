@@ -17,7 +17,9 @@ internal static class TrackReportArchive
             text.AppendLine("==================================================");
             text.AppendLine(item.Title + (string.IsNullOrWhiteSpace(item.Artist) ? "" : " — " + item.Artist));
             text.AppendLine("Source: " + item.FileName);
-            text.AppendLine("USER COMMENTS (mm:ss.mmm)");
+            text.AppendLine("USER COMMENTS AND MANUAL BPM SECTIONS (mm:ss.mmm)");
+            if (item.Marks.Count == 0)
+                text.AppendLine("Track enrolled automatically when manual BPM editing started; no section saved yet.");
             foreach (var note in item.Marks)
                 text.AppendLine(RenderMark(note));
             text.AppendLine();
@@ -71,7 +73,9 @@ internal static class TrackReportArchive
                     string baseName = $"tracks/{i + 1:D2}-{report.Id[..12]}/";
                     await WriteText(zip, baseName + "analysis.txt", report.Analysis, token);
                     await WriteText(zip, baseName + "comments.txt",
-                        string.Join(Environment.NewLine, report.Marks.Select(RenderMark)), token);
+                        report.Marks.Count == 0
+                            ? "Automatically enrolled for manual BPM analysis; no marked ranges saved yet."
+                            : string.Join(Environment.NewLine, report.Marks.Select(RenderMark)), token);
                     string originalName = SafeName(report.FileName);
                     var entry = zip.CreateEntry(baseName + originalName, CompressionLevel.NoCompression);
                     await using var input = new FileStream(audioFiles[i], FileMode.Open, FileAccess.Read, FileShare.Read,
