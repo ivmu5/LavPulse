@@ -225,7 +225,16 @@ internal static class TrackPreparationChecks
         Require(treble.TransientFrames.Length == 0,
             "High-frequency clicks were incorrectly labeled as strong drum attacks.");
 
-        Console.WriteLine("OK: percussive accents, hi-hat rejection and quiet-beat detection.");
+        var random = new Random(731);
+        var noise = new RhythmEnergy[9000];
+        for (int i = 0; i < noise.Length; i++)
+            noise[i] = new RhythmEnergy(.03f + .12f * (float)random.NextDouble(),
+                .03f + .12f * (float)random.NextDouble(), .03f + .12f * (float)random.NextDouble());
+        var chaotic = TrackRhythmAnalyzer.AnalyzeEnergy(noise, hop, (long)noise.Length * hop);
+        Require(!chaotic.HasBeatGrid && chaotic.TransientFrames.Length < 90,
+            "Irregular non-rhythmic energy was presented as continuous beat and accent markers.");
+
+        Console.WriteLine("OK: percussive accents, hi-hat rejection, quiet beats and irregular-noise suppression.");
     }
 
     private static void CheckNativeRate()

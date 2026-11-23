@@ -80,7 +80,9 @@ public static class TrackRhythmAnalyzer
         if (totalFrames <= 0 || energy.Count < 16) return Empty();
         double hopsPerSecond = PlaybackFormat.SampleRate / (double)framesPerHop;
         var onsets = DetectOnsets(energy, hopsPerSecond, cancellationToken);
-        long[] transients = StoreTransients(onsets, framesPerHop, totalFrames);
+        // Without reliable rhythm, show only exceptionally strong isolated accents.
+        // Relax the visual threshold only after the grid is independently validated.
+        long[] transients = StoreTransients(onsets, framesPerHop, totalFrames, .85f);
         if (onsets.Count < 8) return Empty(transients);
 
         int stride = Math.Max(1, (int)Math.Round(2 * hopsPerSecond));
@@ -224,7 +226,8 @@ public static class TrackRhythmAnalyzer
             .OrderBy(b => b).ToArray();
         double representativeBpm = tempi[tempi.Length / 2];
         float confidence = (float)Math.Clamp(coherence * .82 + .18 * matched / Math.Max(1, beats.Count), 0, 1);
-        return new TrackBeatGrid(representativeBpm, beats[0], confidence, transients)
+        return new TrackBeatGrid(representativeBpm, beats[0], confidence,
+            StoreTransients(onsets, framesPerHop, totalFrames, .65f))
         {
             BeatFrames = beats.ToArray()
         };
@@ -289,13 +292,13 @@ public static class TrackRhythmAnalyzer
     }
 
     /// <summary>Store only prominent low/mid attacks for the small visual markers.</summary>
-    private static long[] StoreTransients(List<Onset> onsets, int hopFrames, long totalFrames)
+    private static long[] StoreTransients(List<Onset> onsets, int hopFrames, long totalFrames, float minimumAccent)
     {
         int minimumDistance = Math.Max(2, (int)Math.Round(.16 * PlaybackFormat.SampleRate / hopFrames));
         var accents = new List<Onset>();
         foreach (Onset onset in onsets)
         {
-            if (onset.Accent < .65f) continue;
+            if (onset.Accent < minimumAccent) continue;
             if (accents.Count > 0 && onset.Index - accents[^1].Index < minimumDistance)
             {
                 if (onset.Accent > accents[^1].Accent) accents[^1] = onset;
