@@ -105,7 +105,8 @@ public sealed partial class MainPage
     private async Task<string> ReportSummaryAsync()
     {
         var reports = await _reports.ReadAllAsync(_lifetime.Token);
-        return $"Треков: {reports.Length}; замечаний и ориентиров: {reports.Sum(r => r.Marks.Count)}";
+        return $"Треков: {reports.Length}; комментариев и участков: {reports.Sum(r => r.Marks.Count)}; " +
+            $"басовых нажатий: {reports.Sum(r => r.BeatTaps?.Count ?? 0)}";
     }
 
     private async Task<string> CopyReportTextAsync()

@@ -21,7 +21,7 @@ internal static class TrackReportArchive
             text.AppendLine("Source: " + item.FileName);
             text.AppendLine("USER COMMENTS AND MANUAL BPM SECTIONS (mm:ss.mmm)");
             if (item.Marks.Count == 0)
-                text.AppendLine("Track enrolled automatically when manual BPM editing started; no section saved yet.");
+                text.AppendLine("No text comments or range annotations yet.");
             foreach (var note in item.Marks)
                 text.AppendLine(RenderMark(note));
             text.AppendLine();
@@ -50,7 +50,7 @@ internal static class TrackReportArchive
         var text = new StringBuilder();
         text.AppendLine($"MANUALLY TAPPED BASS BEATS: {taps.Count} presses (not automatic BeatGrid)");
         text.AppendLine("Time | timing uncertainty | device visual compensation | input UTC");
-        foreach (var tap in taps)
+        foreach (var tap in taps.OrderBy(item => item.PressedAtUtc))
             text.AppendLine($"{Time(tap.Frame)} | ±{tap.TimingToleranceMilliseconds} ms | " +
                 $"{tap.VisualDelayMilliseconds} ms | {tap.PressedAtUtc:O}");
 
