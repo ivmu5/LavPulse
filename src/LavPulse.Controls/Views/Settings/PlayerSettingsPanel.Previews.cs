@@ -12,7 +12,30 @@ public sealed partial class PlayerSettingsPanel
     private static readonly float[] SampleLevels = [.82f, .65f, .45f, .62f, .36f, .53f, .78f, .57f, .42f, .69f];
     private static readonly TrackWaveform TimelineSample = new(
         SampleLevels.Select(level => new WaveformPoint(level, level * .85f, level * .53f, level * .27f)).ToArray(),
-        (long)SampleLevels.Length * FramesPerSample, FramesPerSample);
+        (long)SampleLevels.Length * FramesPerSample, FramesPerSample)
+    {
+        Rhythm = new TrackBeatGrid(120, 0, 1, [])
+    };
+    private static readonly TrackWaveform DetailedTimelineSample = CreateDetailedTimelineSample();
+
+    private static TrackWaveform CreateDetailedTimelineSample()
+    {
+        const int count = 320;
+        int interval = PlaybackFormat.SampleRate / 25;
+        var points = new WaveformPoint[count];
+        var onsets = new List<long>();
+        for (int i = 0; i < count; i++)
+        {
+            bool kick = i % 25 == 0 || i % 25 == 12;
+            float level = kick ? .92f : .18f + .08f * MathF.Abs(MathF.Sin(i * .27f));
+            points[i] = new(level, kick ? .85f : level * .38f, level * .47f, level * .18f);
+            if (kick) onsets.Add((long)i * interval);
+        }
+        return new TrackWaveform(points, (long)count * interval, interval)
+        {
+            Rhythm = new TrackBeatGrid(120, 0, .98f, onsets.ToArray())
+        };
+    }
     private static readonly ControlTemplate PreviewChoiceTemplate = new(CreateChoiceBorder);
 
     // Each row is one radio group. Star columns keep every preview visible together on phones and desktops.
@@ -181,17 +204,39 @@ public sealed partial class PlayerSettingsPanel
         SpectrumBottomPaddingRows = 0
     };
 
-    private View CreateTimelinePreview(bool waveform)
+    private View CreateTimelinePreview(int option)
     {
         var theme = MixerTheme.Create(_settings, MixerTheme.SystemTheme);
         var drawable = new WaveformDrawable
         {
             Theme = theme,
             Colors = theme.Visualization,
-            UseProgressBar = !waveform,
+            UseProgressBar = option == 0,
+            Mode = option == 2 ? DeckWaveformMode.BeatGrid : DeckWaveformMode.Color,
             Waveform = TimelineSample,
             DetailWindowSeconds = _settings.WaveformDetailSeconds,
             Position = TimelineSample.TotalFrames * 3 / 5
+        };
+        var view = new Grid
+        {
+            Children = { new GraphicsView { Drawable = drawable }, new GraphicsView { Drawable = drawable.CreateCursor() } }
+        };
+        MixerStyle.UseColor(view, BackgroundColorProperty, MixerColor.Overlay);
+        return view;
+    }
+
+    private View CreateDetailedTimelinePreview(DeckWaveformMode mode)
+    {
+        var theme = MixerTheme.Create(_settings, MixerTheme.SystemTheme);
+        var drawable = new WaveformDrawable
+        {
+            Theme = theme,
+            Colors = theme.Visualization,
+            Mode = mode,
+            Detailed = true,
+            DetailWindowSeconds = 12,
+            Waveform = DetailedTimelineSample,
+            Position = DetailedTimelineSample.TotalFrames / 2
         };
         var view = new Grid
         {

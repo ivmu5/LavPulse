@@ -17,6 +17,17 @@ internal sealed class WaveformDrawable : IDrawable
         }
     }
     internal MixerTheme Theme { get; set; } = MixerTheme.Default;
+    private DeckWaveformMode _mode;
+    public DeckWaveformMode Mode
+    {
+        get => _mode;
+        set
+        {
+            if (_mode == value) return;
+            _mode = value;
+            ReleaseBands();
+        }
+    }
     public bool UseProgressBar { get; set; }
 
     public TrackWaveform? Waveform
@@ -97,6 +108,10 @@ internal sealed class WaveformDrawable : IDrawable
 
         long start = WindowStart();
         long length = Detailed ? DetailLength(waveform) : waveform.TotalFrames;
+        if (Mode != DeckWaveformMode.Color && waveform.Rhythm is { HasBeatGrid: true } rhythm)
+            DrawBeatGrid(canvas, bounds, rhythm, start, length, x, width);
+        if (Mode == DeckWaveformMode.Transients && Detailed && waveform.Rhythm is { } transients)
+            DrawOnsetMarks(canvas, bounds, transients.TransientFrames, start, length, x, width);
         int columns = Columns(width);
         float spacing = width / columns;
         long meshStart = start / length * length;
@@ -121,6 +136,51 @@ internal sealed class WaveformDrawable : IDrawable
         canvas.DrawPath(_bands[1]);
         canvas.StrokeColor = Colors.Alternate;
         canvas.DrawPath(_bands[2]);
+        canvas.RestoreState();
+    }
+
+    /// <summary>Draws real rhythmic ticks, downsampled for a full-track overview to avoid visual noise.</summary>
+    private void DrawBeatGrid(ICanvas canvas, RectF bounds, TrackBeatGrid grid, long start,
+        long length, float x, float width)
+    {
+        double period = PlaybackFormat.SampleRate * 60d / grid.Bpm;
+        if (period <= 0 || !double.IsFinite(period)) return;
+        int stride = 1;
+        if (!Detailed)
+        {
+            while (stride < 1024 && period * stride * width / length < 11) stride *= 2;
+        }
+        long first = (long)Math.Ceiling((start - grid.FirstBeatFrame) / period / stride) * stride;
+        long last = (long)Math.Floor((start + length - grid.FirstBeatFrame) / period);
+        canvas.SaveState();
+        canvas.ClipRectangle(x, bounds.Top, width, bounds.Height);
+        canvas.StrokeColor = Colors.Accent.WithAlpha(Detailed ? .24f : .32f);
+        canvas.StrokeSize = Detailed ? 1 : 1.5f;
+        for (long tick = first; tick <= last && tick - first < 300; tick += stride)
+        {
+            double frame = grid.FirstBeatFrame + tick * period;
+            if (frame < 0 || frame > (Waveform?.TotalFrames ?? 0)) continue;
+            float px = x + (float)((frame - start) * width / length);
+            canvas.DrawLine(px, bounds.Top + 3, px, bounds.Bottom - 3);
+        }
+        canvas.RestoreState();
+    }
+
+    private void DrawOnsetMarks(ICanvas canvas, RectF bounds, long[] onsets, long start,
+        long length, float x, float width)
+    {
+        if (onsets.Length == 0) return;
+        int first = Array.BinarySearch(onsets, start);
+        if (first < 0) first = ~first;
+        canvas.SaveState();
+        canvas.ClipRectangle(x, bounds.Top, width, bounds.Height);
+        canvas.StrokeColor = Colors.Alternate.WithAlpha(.75f);
+        canvas.StrokeSize = 1.2f;
+        for (int i = first; i < onsets.Length && onsets[i] <= start + length; i++)
+        {
+            float px = x + (float)((onsets[i] - start) * width / length);
+            canvas.DrawLine(px, bounds.Top + 1, px, bounds.Top + 7);
+        }
         canvas.RestoreState();
     }
 

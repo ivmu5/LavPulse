@@ -8,6 +8,9 @@ public enum PlayerPalette
     Custom
 }
 
+/// <summary>Appearance of the detailed deck waveform; beat markers come from the saved rhythm analysis.</summary>
+public enum DeckWaveformMode { Color, BeatGrid, Transients }
+
 public enum SpectrumColorMode
 {
     Split,
@@ -57,6 +60,8 @@ public sealed record PlayerSettings
     public bool ShowOnLockScreen { get; init; }
     public bool HideStatusBar { get; init; } = true;
     public bool WaveformOverview { get; init; }
+    public bool WaveformOverviewBeatGrid { get; init; }
+    public DeckWaveformMode DetailedWaveform { get; init; } = DeckWaveformMode.Transients;
     public int WaveformDetailSeconds { get; init; } = DefaultWaveformDetailSeconds;
     public PlayerPalette Palette { get; init; }
     public PlayerColors CustomColors { get; init; } = PlayerColors.For(PlayerPalette.LavPulse);

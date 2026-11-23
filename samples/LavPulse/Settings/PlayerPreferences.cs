@@ -44,6 +44,10 @@ internal static class PlayerPreferences
             ShowOnLockScreen = Preferences.Default.Get("show-player-on-lock-screen", defaults.ShowOnLockScreen),
             HideStatusBar = Preferences.Default.Get("hide-status-bar", defaults.HideStatusBar),
             WaveformOverview = Preferences.Default.Get("waveform-overview", defaults.WaveformOverview),
+            WaveformOverviewBeatGrid = Preferences.Default.Get("waveform-overview-beat-grid", defaults.WaveformOverviewBeatGrid),
+            DetailedWaveform = (DeckWaveformMode)Math.Clamp(
+                Preferences.Default.Get("detailed-waveform-mode", (int)defaults.DetailedWaveform),
+                0, (int)DeckWaveformMode.Transients),
             WaveformDetailSeconds = Math.Clamp(Preferences.Default.Get("waveform-detail-seconds", defaults.WaveformDetailSeconds),
                 PlayerSettings.MinimumWaveformDetailSeconds, PlayerSettings.MaximumWaveformDetailSeconds),
             Theme = (PlayerTheme)Math.Clamp(Preferences.Default.Get("interface-theme", (int)defaults.Theme), 0, (int)PlayerTheme.Light),
@@ -84,6 +88,8 @@ internal static class PlayerPreferences
         Preferences.Default.Set("show-player-on-lock-screen", settings.ShowOnLockScreen);
         Preferences.Default.Set("hide-status-bar", settings.HideStatusBar);
         Preferences.Default.Set("waveform-overview", settings.WaveformOverview);
+        Preferences.Default.Set("waveform-overview-beat-grid", settings.WaveformOverviewBeatGrid);
+        Preferences.Default.Set("detailed-waveform-mode", (int)settings.DetailedWaveform);
         Preferences.Default.Set("waveform-detail-seconds", settings.WaveformDetailSeconds);
         Preferences.Default.Set("interface-theme", (int)settings.Theme);
         Preferences.Default.Set("dark-background", (int)settings.DarkBackground);

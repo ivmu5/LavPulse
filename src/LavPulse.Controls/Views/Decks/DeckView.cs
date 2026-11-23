@@ -210,9 +210,13 @@ public sealed partial class DeckView : Border
             PlayerSettings.MinimumWaveformDetailSeconds, PlayerSettings.MaximumWaveformDetailSeconds);
         bool themeChanged = !ReferenceEquals(_detailDrawable.Theme, theme);
         bool overviewChanged = _overviewDrawable.UseProgressBar != progressBar;
-        if (!themeChanged && !overviewChanged && _detailDrawable.DetailWindowSeconds == detailSeconds) return;
+        var overviewMode = settings.WaveformOverviewBeatGrid ? DeckWaveformMode.BeatGrid : DeckWaveformMode.Color;
+        bool modeChanged = _detailDrawable.Mode != settings.DetailedWaveform || _overviewDrawable.Mode != overviewMode;
+        if (!themeChanged && !overviewChanged && !modeChanged && _detailDrawable.DetailWindowSeconds == detailSeconds) return;
 
         _detailDrawable.DetailWindowSeconds = _overviewDrawable.DetailWindowSeconds = detailSeconds;
+        _detailDrawable.Mode = settings.DetailedWaveform;
+        _overviewDrawable.Mode = overviewMode;
         if (themeChanged)
         {
             _detailDrawable.Colors = _overviewDrawable.Colors = theme.Visualization;
