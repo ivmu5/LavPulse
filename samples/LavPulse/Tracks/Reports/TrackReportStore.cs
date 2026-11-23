@@ -32,6 +32,7 @@ internal sealed class TrackReportStore(string filePath)
         {
             await EnsureLoadedAsync(token).ConfigureAwait(false);
             int index = _items!.FindIndex(report => report.Id == id);
+            var previous = new List<TrackIssueReport>(_items);
             if (index >= 0)
             {
                 // Existing user annotations remain intact when manual editing resumes.
@@ -44,12 +45,7 @@ internal sealed class TrackReportStore(string filePath)
             else _items.Add(new(id, fileName, title, artist, analysis, []));
 
             try { await PersistAsync(token).ConfigureAwait(false); }
-            catch
-            {
-                if (index >= 0) _items[index] = _items[index] with { Analysis = analysis };
-                else _items.RemoveAt(_items.Count - 1);
-                throw;
-            }
+            catch { _items = previous; throw; }
             return index < 0;
         }
         finally { _gate.Release(); }
@@ -71,6 +67,7 @@ internal sealed class TrackReportStore(string filePath)
         {
             await EnsureLoadedAsync(token).ConfigureAwait(false);
             var existing = _items!.FindIndex(x => x.Id == id);
+            var previous = new List<TrackIssueReport>(_items);
             if (existing >= 0)
             {
                 var item = _items[existing];
@@ -81,7 +78,8 @@ internal sealed class TrackReportStore(string filePath)
                 };
             }
             else _items.Add(new(id, fileName, title, artist, analysis, [mark]));
-            await PersistAsync(token).ConfigureAwait(false);
+            try { await PersistAsync(token).ConfigureAwait(false); }
+            catch { _items = previous; throw; }
         }
         finally { _gate.Release(); }
     }
