@@ -4,8 +4,8 @@ namespace Laveyana.LavPulse.Controls;
 public sealed partial class PlayerSettingsPanel : ContentView
 {
     private readonly Action<PlayerSettings>? _previewAppearance;
-    private readonly ContentView[] _sectionHosts = new ContentView[6];
-    private readonly Button[] _sectionButtons = new Button[6];
+    private readonly ContentView[] _sectionHosts = new ContentView[7];
+    private readonly Button[] _sectionButtons = new Button[7];
     private readonly List<NumericSettingInput> _visibleNumbers = [];
     private readonly Grid _settingsLayout;
     private readonly ContentView _paletteEditorHost = new() { IsVisible = false };
@@ -32,7 +32,8 @@ public sealed partial class PlayerSettingsPanel : ContentView
         header.Add(reset, 1);
 
         var sections = new VerticalStackLayout { Spacing = 8 };
-        string[] names = ["Воспроизведение", "Деки", "Цвета", "Интерфейс и FPS", "Мастер-спектр", "Яркость спектра"];
+        string[] names = ["Воспроизведение", "Деки", "Цвета", "Интерфейс и FPS", "Мастер-спектр", "Яркость спектра",
+            "Анализ треков"];
         for (int index = 0; index < names.Length; index++)
         {
             int section = index;
@@ -102,7 +103,8 @@ public sealed partial class PlayerSettingsPanel : ContentView
             2 => CreateColorSection(),
             3 => CreateFrameRateSection(),
             4 => CreateSpectrumSection(),
-            _ => CreateBrightnessSection()
+            5 => CreateBrightnessSection(),
+            _ => CreateAnalysisSection()
         };
         for (int section = 0; section < _sectionButtons.Length; section++)
         {

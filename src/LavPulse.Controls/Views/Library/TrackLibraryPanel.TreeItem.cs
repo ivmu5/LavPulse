@@ -10,7 +10,7 @@ public sealed partial class TrackLibraryPanel
     private sealed class LibraryTreeItem : TrackListRow
     {
         private readonly TrackLibraryPanel _panel;
-        private readonly bool _previewOnly;
+        private readonly bool _scanRow;
         private readonly Label _chevron = MixerStyle.Label("", 14, MixerColor.Accent);
         private readonly Label _title = TrackLabel(MixerStyle.PhoneFont(13, 12), MixerColor.Text, bold: true);
         private readonly Label _details = TrackLabel(MixerStyle.PhoneFont(11, 10), MixerColor.Muted);
@@ -21,11 +21,10 @@ public sealed partial class TrackLibraryPanel
         private TreeRow? _row;
         private CancellationTokenSource? _preview;
 
-        public LibraryTreeItem(TrackLibraryPanel panel, bool previewOnly = false)
+        public LibraryTreeItem(TrackLibraryPanel panel, Action<TrackFile>? skip = null)
         {
             _panel = panel;
-            _previewOnly = previewOnly;
-            InputTransparent = previewOnly;
+            _scanRow = skip is not null;
 
             var icon = new Image { WidthRequest = 20, HeightRequest = 20, VerticalOptions = LayoutOptions.Center };
             MixerStyle.UseIcon(icon, Image.SourceProperty, "player_folder.png");
@@ -39,6 +38,27 @@ public sealed partial class TrackLibraryPanel
                 Spacing = 2,
                 Children = { _title, _details }
             });
+            SetActionWidth(GridLength.Auto);
+            _size.VerticalOptions = LayoutOptions.Center;
+            _size.HorizontalTextAlignment = TextAlignment.End;
+            if (skip is not null)
+            {
+                var skipButton = MixerStyle.Button("Пропустить");
+                skipButton.VerticalOptions = LayoutOptions.Center;
+                skipButton.Clicked += (_, _) =>
+                {
+                    if (_row?.File is not { } file) return;
+                    skipButton.IsEnabled = false;
+                    skip(file);
+                };
+                SetActions(new HorizontalStackLayout
+                {
+                    Spacing = 4,
+                    VerticalOptions = LayoutOptions.Center,
+                    Children = { _size, skipButton }
+                });
+                return;
+            }
             _add.Clicked += async (_, _) =>
             {
                 if (_row is { } row) await _panel.ImportItemAsync(row, addToQueue: true);
@@ -47,17 +67,12 @@ public sealed partial class TrackLibraryPanel
             {
                 if (_row is { } row) await _panel.ImportItemAsync(row, addToQueue: false);
             };
-            _size.VerticalOptions = LayoutOptions.Center;
-            _size.HorizontalTextAlignment = TextAlignment.End;
-            _add.IsVisible = !previewOnly;
             SetActions(new HorizontalStackLayout
             {
                 Spacing = 4,
                 VerticalOptions = LayoutOptions.Center,
                 Children = { _size, _add, _import }
             });
-            SetActionWidth(GridLength.Auto);
-            if (previewOnly) return;
             EnableDelete();
             DeleteRequested += async () =>
             {
@@ -119,10 +134,12 @@ public sealed partial class TrackLibraryPanel
         public void UpdateRow()
         {
             if (_row is not { } row) return;
+            MixerStyle.UseColor(this, BackgroundColorProperty, row.Selected ? MixerColor.Selected : MixerColor.Button);
+            if (_scanRow) return;
             _chevron.Text = row.Expanded ? "▾" : "▸";
-            SetInlineDelete(!_previewOnly && _panel._editing && _panel.CanRemove(row));
+            SetInlineDelete(_panel._editing && _panel.CanRemove(row));
             SetDeleteEnabled(!_panel._busy);
-            _import.IsVisible = !_previewOnly && !_panel._local;
+            _import.IsVisible = !_panel._local;
             _add.IsEnabled = _import.IsEnabled = !_panel._busy;
             bool folder = row.File is null;
             string add = folder ? "Добавить папку в очередь" : "Добавить трек в очередь";
@@ -132,7 +149,6 @@ public sealed partial class TrackLibraryPanel
             SemanticProperties.SetDescription(_import, import);
             ToolTipProperties.SetText(_add, add);
             ToolTipProperties.SetText(_import, import);
-            MixerStyle.UseColor(this, BackgroundColorProperty, row.Selected ? MixerColor.Selected : MixerColor.Button);
         }
 
         public void UpdateSize()

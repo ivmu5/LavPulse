@@ -39,6 +39,8 @@ internal static class PlayerPreferences
             FadeOutMilliseconds = Math.Clamp(Preferences.Default.Get("fade-out-ms", defaults.FadeOutMilliseconds), 0, 3000),
             CrossfadeMilliseconds = Math.Clamp(Preferences.Default.Get("crossfade-ms", defaults.CrossfadeMilliseconds), 0, 12000),
             AutoMix = Preferences.Default.Get("automix", defaults.AutoMix),
+            AnalysisParallelism = Math.Clamp(Preferences.Default.Get("analysis-parallelism", defaults.AnalysisParallelism),
+                PlayerSettings.MinimumAnalysisParallelism, PlayerSettings.MaximumAnalysisParallelism),
             ShowOnLockScreen = Preferences.Default.Get("show-player-on-lock-screen", defaults.ShowOnLockScreen),
             HideStatusBar = Preferences.Default.Get("hide-status-bar", defaults.HideStatusBar),
             WaveformOverview = Preferences.Default.Get("waveform-overview", defaults.WaveformOverview),
@@ -78,6 +80,7 @@ internal static class PlayerPreferences
         Preferences.Default.Set("fade-out-ms", settings.FadeOutMilliseconds);
         Preferences.Default.Set("crossfade-ms", settings.CrossfadeMilliseconds);
         Preferences.Default.Set("automix", settings.AutoMix);
+        Preferences.Default.Set("analysis-parallelism", settings.AnalysisParallelism);
         Preferences.Default.Set("show-player-on-lock-screen", settings.ShowOnLockScreen);
         Preferences.Default.Set("hide-status-bar", settings.HideStatusBar);
         Preferences.Default.Set("waveform-overview", settings.WaveformOverview);
