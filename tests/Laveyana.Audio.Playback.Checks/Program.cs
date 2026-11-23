@@ -16,6 +16,7 @@ internal static partial class Program
             CheckQueueClear();
             CheckQueueViewport();
             CheckTrackListLayout();
+            CheckQueueMarqueeMotion();
             await CheckManualScanControlsAsync();
             await CheckInterruptedQueueAnalysis();
             await CheckQueueAnalysisLookahead();

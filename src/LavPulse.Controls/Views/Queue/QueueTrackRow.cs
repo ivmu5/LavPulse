@@ -210,15 +210,19 @@ internal sealed class QueueTrackRow : TrackListRow
             }
             float overflow = Math.Max(0, width - bounds.Width);
             IsOverflowing |= overflow > 0;
-            // Pause at each end and pan slowly enough to read the whole line.
-            double travel = overflow / 18d;
-            double phase = Seconds % (2 * travel + 2.4);
-            float offset = (float)Math.Max(0, Math.Min(overflow, Math.Min(phase - 1.2, 2 * travel + 2.4 - phase) * 18));
+            // The DrawString rectangle overload can word-wrap a line when its measured width
+            // differs from the renderer's glyph layout by a pixel or two. Centering that
+            // wrapped text makes a long queue title jump vertically while it scrolls.
+            // The baseline overload never wraps: all marquee motion stays on the X axis.
+            float offset = QueueMarqueeMotion.Offset(overflow, Seconds);
             canvas.Font = font;
             canvas.FontSize = size;
             canvas.FontColor = color;
-            canvas.DrawString(value, bounds.X - offset, bounds.Y, Math.Max(width, bounds.Width), bounds.Height,
-                HorizontalAlignment.Left, VerticalAlignment.Center, TextFlow.ClipBounds);
+            canvas.SaveState();
+            canvas.ClipRectangle(bounds);
+            canvas.DrawString(value, bounds.X - offset,
+                QueueMarqueeMotion.Baseline(bounds.Center.Y, size), HorizontalAlignment.Left);
+            canvas.RestoreState();
         }
     }
 }

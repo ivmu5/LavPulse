@@ -48,6 +48,34 @@ internal static partial class Program
         Console.WriteLine("OK: shared track list virtualization and folder collapse offset.");
     }
 
+    private static void CheckQueueMarqueeMotion()
+    {
+        const float overflow = 180;
+        const float centerY = 32;
+        const float fontSize = 13;
+        float baseline = QueueMarqueeMotion.Baseline(centerY, fontSize);
+        Require(QueueMarqueeMotion.Offset(0, 10) == 0 &&
+            QueueMarqueeMotion.Offset(-1, 10) == 0 &&
+            QueueMarqueeMotion.Offset(overflow, 0) == 0,
+            "A non-overflowing queue label tried to scroll.");
+
+        double travel = overflow / 18d;
+        double cycle = 2 * travel + 2.4;
+        Require(QueueMarqueeMotion.Offset(overflow, 1.2) == 0 &&
+            Math.Abs(QueueMarqueeMotion.Offset(overflow, 1.2 + travel) - overflow) < .001 &&
+            Math.Abs(QueueMarqueeMotion.Offset(overflow, cycle) - 0) < .001,
+            "The queue marquee did not pause at both ends.");
+
+        for (double time = 0; time <= cycle * 3; time += 1d / 120)
+        {
+            float x = QueueMarqueeMotion.Offset(overflow, time);
+            Require(float.IsFinite(x) && x >= 0 && x <= overflow &&
+                QueueMarqueeMotion.Baseline(centerY, fontSize) == baseline,
+                "Queue marquee motion changed the vertical baseline or exceeded the horizontal clip.");
+        }
+        Console.WriteLine("OK: one-line queue marquee with fixed baseline and horizontal-only motion.");
+    }
+
     private static async Task CheckManualScanControlsAsync()
     {
         Require(TrackAnalysisParallelism.Resolve(8, processors: 2) == 1 &&
