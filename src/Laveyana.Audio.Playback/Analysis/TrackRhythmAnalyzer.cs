@@ -260,7 +260,7 @@ public static class TrackRhythmAnalyzer
                 novelty[i] <= novelty[i - 1] || novelty[i] < novelty[i + 1]) continue;
             float bassShare = novelty[i] > 0 ? bassChange[i] * 1.9f / novelty[i] : 0;
             float strength = novelty[i] / (novelty[i] + Math.Max(.04f, average * 2)) *
-                (.5f + .8f * Math.Clamp(bassShare, 0, 1));
+                (.28f + 1.5f * Math.Clamp(bassShare, 0, 1));
             if (result.Count > 0 && i - result[^1].Index < minDistance)
             {
                 if (strength > result[^1].Strength) result[^1] = new Onset(i, strength);
