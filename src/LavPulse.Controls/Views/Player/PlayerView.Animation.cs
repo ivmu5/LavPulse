@@ -56,7 +56,8 @@ public sealed partial class PlayerView
         {
             TrackLibraryPanel library => library.NeedsScanFrames,
             null => _queueAnimating || _deckEntrance is not null || _deckExit is not null ||
-                (!_queue.IsEditing && (_playheadsAnimating || CurrentDeck.IsScrubbing || IncomingDeck.IsScrubbing)),
+                (!_queue.IsEditing && (_playheadsAnimating || CurrentDeck.IsScrubbing || IncomingDeck.IsScrubbing ||
+                    CurrentDeck.IsOverviewAnimating || IncomingDeck.IsOverviewAnimating)),
             _ => false
         });
         if (_uiClockActive == needed) return;
@@ -76,10 +77,12 @@ public sealed partial class PlayerView
         if (_deckExit is { } exit && exit.Advance(time))
         {
             CompleteDeckExit(exit.Deck);
-            CurrentDeck.Show(_latestCurrent, _latestCanSeek, _latestOverview);
+            CurrentDeck.Show(_latestCurrent, _latestCanSeek, _latestOverview, animateOverview: true);
         }
         if (!_queue.IsEditing)
         {
+            CurrentDeck.AdvanceOverview(time);
+            IncomingDeck.AdvanceOverview(time);
             if (_playheadsAnimating)
             {
                 double now = DeckPlayhead.Now;
@@ -103,11 +106,12 @@ public sealed partial class PlayerView
             (CurrentDeck, IncomingDeck) = (IncomingDeck, CurrentDeck);
             IncomingDeck.FreezeForExit();
             _leavingDeck = IncomingDeck;
-            _deckExit = new(IncomingDeck, -SlideDistance, .26, Easing.CubicIn);
+            _deckExit = new(IncomingDeck, -SlideDistance, 0, .98, .42);
             SyncUiFrames();
         }
 
-        CurrentDeck.Show(snapshot.Current, canSeek && _leavingDeck is null, showOverview && _leavingDeck is null);
+        CurrentDeck.Show(snapshot.Current, canSeek && _leavingDeck is null, showOverview && _leavingDeck is null,
+            animateOverview: true);
         if (snapshot.Incoming is { } incoming)
         {
             ShowEnteringDeck(incoming);
@@ -129,13 +133,18 @@ public sealed partial class PlayerView
         if (firstFrame)
         {
             entering.TranslationX = SlideDistance;
+            entering.Opacity = 0;
+            entering.Scale = .98;
         }
         entering.Show(track, false, showOverview: false);
         if (firstFrame)
         {
             if (_deckEntrance is { } previousEntrance && !ReferenceEquals(previousEntrance.Deck, entering))
+            {
                 previousEntrance.Deck.TranslationX = 0;
-            _deckEntrance = new(entering, 0, .28, Easing.CubicOut);
+                previousEntrance.Deck.Opacity = previousEntrance.Deck.Scale = 1;
+            }
+            _deckEntrance = new(entering, 0, 1, 1, .46);
             SyncUiFrames();
         }
     }
@@ -148,13 +157,16 @@ public sealed partial class PlayerView
         _leavingDeck = null;
         deck.Show(null, false, showOverview: false);
         deck.TranslationX = 0;
+        deck.Opacity = deck.Scale = 1;
         _decks.Children.Remove(deck);
         _decks.Children.Add(deck);
     }
 
-    private sealed class DeckSlide(DeckView deck, double to, double duration, Easing easing)
+    private sealed class DeckSlide(DeckView deck, double to, double toOpacity, double toScale, double duration)
     {
         private readonly double _from = deck.TranslationX;
+        private readonly double _fromOpacity = deck.Opacity;
+        private readonly double _fromScale = deck.Scale;
         private double? _start;
         public DeckView Deck { get; } = deck;
 
@@ -162,8 +174,11 @@ public sealed partial class PlayerView
         {
             _start ??= time;
             double progress = Math.Clamp((time - _start.Value) / duration, 0, 1);
-            Deck.TranslationX = _from + (to - _from) * easing.Ease(progress);
-            return progress == 1;
+            double eased = PlayerMotion.Ease(progress);
+            Deck.TranslationX = _from + (to - _from) * eased;
+            Deck.Opacity = _fromOpacity + (toOpacity - _fromOpacity) * eased;
+            Deck.Scale = _fromScale + (toScale - _fromScale) * eased;
+            return progress >= 1;
         }
     }
 
@@ -188,8 +203,12 @@ public sealed partial class PlayerView
         if (_leavingDeck is { } leaving) CompleteDeckExit(leaving);
         CurrentDeck.CancelScrub();
         IncomingDeck.CancelScrub();
+        CurrentDeck.CancelOverviewAnimation();
+        IncomingDeck.CancelOverviewAnimation();
         _deckEntrance = null;
         CurrentDeck.TranslationX = IncomingDeck.TranslationX = 0;
+        CurrentDeck.Opacity = IncomingDeck.Opacity = 1;
+        CurrentDeck.Scale = IncomingDeck.Scale = 1;
     }
 
     private void RememberDecks(QueueSnapshot snapshot, bool canSeek, bool showOverview)
