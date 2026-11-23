@@ -18,7 +18,31 @@ internal static class SpectrumFrameClockChecks
         Require(!clock.TryAdvance(2.001, 60, out _), "A stall produced catch-up drawings.");
         Require(clock.TryAdvance(2.017, 60, out elapsed) && Math.Abs(elapsed - .017f) < .0001f,
             "Smoothing must use the actual time since the last draw.");
-        Console.WriteLine("OK: spectrum frame limits, fractional cadence and dropped display ticks.");
+        CheckMotionCadence();
+        Console.WriteLine("OK: spectrum frame limits, fractional cadence, and FPS-synchronized transition curves.");
+    }
+
+    private static void CheckMotionCadence()
+    {
+        Require(PlayerMotion.Ease(-1) == 0 && PlayerMotion.Ease(0) == 0 &&
+            PlayerMotion.Ease(1) == 1 && PlayerMotion.Ease(2) == 1,
+            "A transition must clamp to its endpoints.");
+        foreach (int rate in new[] { 30, 60, 120 })
+        {
+            SpectrumFrameClock clock = default;
+            double previous = 0;
+            int frames = 0;
+            for (int tick = 0; tick <= 120; tick++)
+            {
+                double time = tick / 120d;
+                if (!clock.TryAdvance(time, rate, out _)) continue;
+                double fraction = PlayerMotion.Ease(Math.Min(1, time / .46));
+                Require(fraction >= previous, "A transition moved backward between display frames.");
+                previous = fraction;
+                frames++;
+            }
+            Require(previous == 1 && frames >= rate, "The transition did not finish at the selected display cadence.");
+        }
     }
 
     private static int Count(int refresh, int limit)

@@ -22,5 +22,6 @@
     <Compile Include="../../src/LavPulse.Controls/Views/Queue/QueueViewport.cs" Link="QueueViewport.cs" />
     <Compile Include="../../src/LavPulse.Controls/Views/Settings/TrackAnalysisParallelism.cs" Link="TrackAnalysisParallelism.cs" />
     <Compile Include="../../src/LavPulse.Controls/Views/Spectrum/SpectrumFrameClock.cs" Link="SpectrumFrameClock.cs" />
+    <Compile Include="../../src/LavPulse.Controls/Views/Player/PlayerMotion.cs" Link="PlayerMotion.cs" />
   </ItemGroup>
 </Project>

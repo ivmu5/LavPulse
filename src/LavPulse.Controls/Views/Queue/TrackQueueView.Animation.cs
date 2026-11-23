@@ -124,13 +124,16 @@ internal sealed partial class TrackQueueView
         _incoming.ScaleX = .96;
         _incoming.ScaleY = Math.Clamp(rowHeight / Math.Max(1, _right.Height), .15, 1);
         double startingScale = _incoming.ScaleY;
-        await AnimateAsync(260, progress =>
+        if (IsLoaded && _rowAnimationsEnabled) _queue.Opacity = 1;
+        bool completed = await AnimateAsync(420, progress =>
         {
-            double eased = Easing.CubicOut.Ease(progress);
+            double eased = PlayerMotion.Ease(progress);
             _incoming.TranslationY = originY * (1 - eased);
             _incoming.ScaleX = .96 + .04 * eased;
             _incoming.ScaleY = startingScale + (1 - startingScale) * eased;
+            _queue.Opacity = 1 - PlayerMotion.Ease(Math.Min(1, progress / .75));
         });
+        if (completed) _queue.Opacity = 0;
     }
 
     /// <summary>Shows the incoming card at rest, including when the app returns during a mix.</summary>
@@ -170,12 +173,12 @@ internal sealed partial class TrackQueueView
         _queue.Opacity = 0;
         // The right-aligned artwork has its own inset within the second column.
         double offset = -(_right.X - _current.X + Math.Max(0, _right.Width - _incoming.CoverWidth));
-        bool completed = await AnimateAsync(300, progress =>
+        bool completed = await AnimateAsync(460, progress =>
         {
-            double outgoing = Easing.CubicIn.Ease(Math.Min(1, progress * 300 / 210));
-            _current.Scale = 1 - .3 * outgoing;
-            _current.Opacity = 1 - outgoing;
-            _incoming.TranslationX = offset * Easing.CubicOut.Ease(progress);
+            double eased = PlayerMotion.Ease(progress);
+            _current.Scale = 1 - .08 * eased;
+            _current.Opacity = 1 - eased;
+            _incoming.TranslationX = offset * eased;
         });
         if (!completed || animation != _animation)
         {
@@ -192,11 +195,15 @@ internal sealed partial class TrackQueueView
         // The parent page clips the content beyond the device's right edge.
         double entrance = Math.Max(0, (Window?.Width ?? Width) - _right.X);
         _queue.TranslationX = entrance;
-        _queue.Opacity = 1;
+        _queue.Opacity = .2;
         PositionQueue();
         SyncRowClock();
-        completed = await AnimateAsync(340, progress =>
-            _queue.TranslationX = entrance * (1 - Easing.CubicOut.Ease(progress)));
+        completed = await AnimateAsync(460, progress =>
+        {
+            double eased = PlayerMotion.Ease(progress);
+            _queue.TranslationX = entrance * (1 - eased);
+            _queue.Opacity = .2 + .8 * eased;
+        });
         if (completed && animation == _animation)
         {
             _queue.InputTransparent = false;

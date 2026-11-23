@@ -7,6 +7,8 @@ public sealed partial class DeckView : Border
 {
     private const double DragThreshold = 6;
     private const double MaxScrubSpeed = 30;
+    private const double OverviewHeight = 44;
+    private const double OverviewRevealSeconds = .42;
     private readonly Label _name = MixerStyle.Label("", MixerStyle.PhoneFont(13, 12), bold: true);
     private readonly Label _time = MixerStyle.Label("", MixerStyle.PhoneFont(11, 10), MixerColor.Muted);
     private readonly Label _previewLabel = MixerStyle.Label("", MixerStyle.PhoneFont(12, 11));
@@ -17,6 +19,11 @@ public sealed partial class DeckView : Border
     private readonly GraphicsView _detailCursor;
     private readonly GraphicsView _overviewCursor;
     private readonly Grid _overviewLayer;
+    private double _overviewProgress = 1;
+    private double _overviewFrom = 1;
+    private double _overviewTarget = 1;
+    private double? _overviewStart;
+    private bool _overviewAnimating;
     private long _detailStart = -1;
     private long _overviewPaintedPosition;
     private CachedTrack? _track;
@@ -32,10 +39,10 @@ public sealed partial class DeckView : Border
     public DeckView()
     {
         _detail = new PlaybackGraphicsView { Drawable = _detailDrawable, HeightRequest = 64 };
-        _overview = new GraphicsView { Drawable = _overviewDrawable, HeightRequest = 44 };
+        _overview = new GraphicsView { Drawable = _overviewDrawable, HeightRequest = OverviewHeight };
         _detailCursor = new PlaybackGraphicsView { Drawable = _detailDrawable.CreateCursor(), InputTransparent = true };
         _overviewCursor = new PlaybackGraphicsView { Drawable = _overviewDrawable.CreateCursor(), InputTransparent = true };
-        _overviewLayer = new Grid { Children = { _overview, _overviewCursor } };
+        _overviewLayer = new Grid { IsClippedToBounds = true, Children = { _overview, _overviewCursor } };
         SemanticProperties.SetDescription(_detail, "Детальная волна. Удерживай и веди в сторону. Жест вверх отменяет перемотку.");
         SemanticProperties.SetDescription(_overview, "Полоса прогресса. Нажми или перетащи к нужной позиции. Жест вверх отменяет перемотку.");
         _previewLabel.HorizontalOptions = LayoutOptions.Center;
@@ -61,6 +68,7 @@ public sealed partial class DeckView : Border
 
     public event Action<CachedTrack, long>? SeekRequested;
     internal CachedTrack? DisplayedTrack => _track;
+    internal bool IsOverviewAnimating => _overviewAnimating;
 
     internal void SetPlayheadAnimation(bool enabled)
     {
@@ -98,12 +106,11 @@ public sealed partial class DeckView : Border
     public void Show(PlayingTrack? playing, bool canSeek) => Show(playing, canSeek, showOverview: true);
 
     /// <summary>Updates the playhead and suppresses the overview and gestures during a mix.</summary>
-    public void Show(PlayingTrack? playing, bool canSeek, bool showOverview)
+    public void Show(PlayingTrack? playing, bool canSeek, bool showOverview, bool animateOverview = false)
     {
         _canSeek = canSeek;
         _detail.InputTransparent = _overview.InputTransparent = !canSeek;
-        bool revealOverview = !_overviewLayer.IsVisible && showOverview;
-        _overviewLayer.IsVisible = showOverview;
+        bool revealOverview = _overviewProgress < 1 && showOverview;
         if (!_canSeek || !ReferenceEquals(_track, playing?.Track))
         {
             CancelScrub();
@@ -112,6 +119,7 @@ public sealed partial class DeckView : Border
         IsVisible = playing.HasValue;
         if (playing is not { } deck)
         {
+            SetOverview(false, animate: false);
             _track = null;
             _detailDrawable.Waveform = _overviewDrawable.Waveform = null;
             return;
@@ -129,6 +137,9 @@ public sealed partial class DeckView : Border
             UpdateTitleColor();
         }
 
+        // Resize the overview smoothly after a handoff without creating an independent timer.
+        SetOverview(showOverview, animateOverview && !trackChanged);
+
         bool snap = trackChanged || _snapPlayhead || !_animatePlayhead;
         _snapPlayhead = false;
         _position = deck.Position;
@@ -140,6 +151,54 @@ public sealed partial class DeckView : Border
             _displayPosition = display;
             Redraw();
         }
+    }
+
+    /// <summary>Advances a height-and-opacity reveal on the shared, FPS-limited display clock.</summary>
+    internal void AdvanceOverview(double time)
+    {
+        if (!_overviewAnimating) return;
+        _overviewStart ??= time;
+        double progress = Math.Clamp((time - _overviewStart.Value) / OverviewRevealSeconds, 0, 1);
+        SetOverviewProgress(_overviewFrom + (_overviewTarget - _overviewFrom) * PlayerMotion.Ease(progress));
+        if (progress >= 1) _overviewAnimating = false;
+    }
+
+    internal void CancelOverviewAnimation()
+    {
+        _overviewAnimating = false;
+        _overviewStart = null;
+        SetOverviewProgress(_overviewTarget);
+    }
+
+    private void SetOverview(bool visible, bool animate)
+    {
+        double target = visible ? 1 : 0;
+        if (!animate)
+        {
+            _overviewTarget = target;
+            CancelOverviewAnimation();
+            return;
+        }
+        if (target == _overviewTarget && (_overviewAnimating || _overviewProgress == target)) return;
+        _overviewFrom = _overviewProgress;
+        _overviewTarget = target;
+        _overviewStart = null;
+        _overviewAnimating = _overviewFrom != target;
+        if (target > 0)
+        {
+            // A newly revealed overview needs its waveform geometry even at zero initial height.
+            _overviewLayer.IsVisible = true;
+            _overview.Invalidate();
+        }
+    }
+
+    private void SetOverviewProgress(double progress)
+    {
+        if (Math.Abs(_overviewProgress - progress) < .00001) return;
+        _overviewProgress = progress;
+        _overviewLayer.HeightRequest = OverviewHeight * progress;
+        _overviewLayer.Opacity = progress;
+        _overviewLayer.IsVisible = progress > 0;
     }
 
     /// <summary>Restyles both timelines while retaining position and seek gestures.</summary>
