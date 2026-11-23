@@ -83,6 +83,17 @@ internal static class TrackPreparationChecks
             Math.Abs(result.FirstBeatFrame - 6L * framesPerPoint) <= framesPerPoint,
             "A periodic 120 BPM kick pattern did not produce a stable beat grid and transients.");
 
+        var fastPoints = Enumerable.Repeat(new WaveformPoint(.17f, .09f, .09f, .035f), 1500).ToArray();
+        double fastStep = pointsPerSecond * 60d / 140;
+        for (int beat = 0; beat < 140; beat++)
+        {
+            int index = (int)Math.Round(6 + beat * fastStep);
+            fastPoints[index] = new(.91f, .8f, .5f, .2f);
+        }
+        var fast = TrackRhythmAnalyzer.Analyze(new TrackWaveform(fastPoints, track.TotalFrames, framesPerPoint));
+        Require(fast.HasBeatGrid && Math.Abs(fast.Bpm - 140) <= 1,
+            "A 140 BPM track was mistaken for a 70 BPM half-time rhythm.");
+
         var steady = new TrackWaveform(Enumerable.Repeat(new WaveformPoint(.5f, .2f, .15f, .1f), 1500).ToArray(),
             track.TotalFrames, framesPerPoint);
         var noRhythm = TrackRhythmAnalyzer.Analyze(steady);

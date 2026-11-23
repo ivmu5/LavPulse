@@ -11,6 +11,7 @@ public sealed partial class DeckView : Border
     private const double OverviewRevealSeconds = .42;
     private readonly Label _name = MixerStyle.Label("", MixerStyle.PhoneFont(13, 12), bold: true);
     private readonly Label _time = MixerStyle.Label("", MixerStyle.PhoneFont(11, 10), MixerColor.Muted);
+    private readonly Label _bpm = MixerStyle.Label("", MixerStyle.PhoneFont(11, 10), MixerColor.Accent);
     private readonly Label _previewLabel = MixerStyle.Label("", MixerStyle.PhoneFont(12, 11));
     private readonly WaveformDrawable _detailDrawable = new() { Detailed = true };
     private readonly WaveformDrawable _overviewDrawable = new() { UseProgressBar = true };
@@ -52,12 +53,17 @@ public sealed partial class DeckView : Border
         _previewLabel.InputTransparent = true;
         _previewLabel.IsVisible = false;
 
-        var header = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
+        var header = new Grid
+        {
+            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto)], ColumnSpacing = 8
+        };
         _name.MaxLines = 1;
         _name.LineBreakMode = LineBreakMode.TailTruncation;
-        _name.VerticalTextAlignment = _time.VerticalTextAlignment = TextAlignment.Center;
+        _name.VerticalTextAlignment = _time.VerticalTextAlignment = _bpm.VerticalTextAlignment = TextAlignment.Center;
+        _bpm.IsVisible = false;
         header.Add(_name);
-        header.Add(_time, 1);
+        header.Add(_bpm, 1);
+        header.Add(_time, 2);
         var detailLayer = new Grid { Children = { _detail, _detailCursor, _previewLabel } };
         MixerStyle.StyleCard(this, new VerticalStackLayout { Spacing = 5, Children = { header, detailLayer, _overviewLayer } });
         Padding = new Thickness(10, 7);
@@ -134,6 +140,8 @@ public sealed partial class DeckView : Border
             _detailDrawable.Waveform = _overviewDrawable.Waveform = deck.Track.Waveform;
             InvalidateWaveGeometry();
             _name.Text = deck.Track.Title;
+            _bpm.Text = deck.Track.Waveform.Rhythm is { HasBeatGrid: true } rhythm ? $"≈{rhythm.Bpm:0.#} BPM" : "";
+            _bpm.IsVisible = _bpm.Text.Length != 0;
             _deck = deck.Deck;
             UpdateTitleColor();
         }
