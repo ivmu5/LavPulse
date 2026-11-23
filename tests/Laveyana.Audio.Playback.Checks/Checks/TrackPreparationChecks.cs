@@ -6,6 +6,7 @@ internal static class TrackPreparationChecks
     {
         CheckNativeRate();
         CheckRhythmAnalysis();
+        CheckHighResolutionRhythmAnalysis();
         var input = TrackFile.FromStream("fixture.mp3", () => Task.FromResult<Stream>(CreateMp3()));
         var original = await new TrackPreparation(directory).ImportAsync(input, CancellationToken.None);
         byte[] expected = await File.ReadAllBytesAsync(original.Path);
@@ -100,6 +101,83 @@ internal static class TrackPreparationChecks
         Require(!noRhythm.HasBeatGrid && noRhythm.TransientFrames.Length == 0,
             "A continuous signal created fictitious beats.");
         Console.WriteLine("OK: BPM, onset positions, beat phase and silent beat-grid suppression.");
+    }
+
+
+    private static void CheckHighResolutionRhythmAnalysis()
+    {
+        static (TrackBeatGrid Grid, List<long> Hits) Measure(Func<double, double> tempo,
+            bool syncopated = false, double seconds = 90)
+        {
+            const int hop = PlaybackFormat.SampleRate / 100;
+            var energy = new RhythmEnergy[(int)(seconds * 100)];
+            Array.Fill(energy, new RhythmEnergy(.045f, .035f, .025f));
+            var hits = new List<long>();
+            double time = .24;
+            while (time < seconds - .5)
+            {
+                double bpm = tempo(time);
+                int sample = (int)Math.Round(time * 100);
+                energy[sample] = new RhythmEnergy(.9f, .5f, .3f);
+                hits.Add((long)sample * hop);
+                if (syncopated)
+                {
+                    int offbeat = (int)Math.Round((time + 30 / bpm) * 100);
+                    if (offbeat < energy.Length) energy[offbeat] = new RhythmEnergy(.045f, .18f, .8f);
+                }
+                time += 60 / bpm;
+            }
+            return (TrackRhythmAnalyzer.AnalyzeEnergy(energy, hop, (long)energy.Length * hop), hits);
+        }
+
+        static void CheckAlignment(TrackBeatGrid grid, List<long> expected,
+            double skipBeforeSeconds, double toleranceMs)
+        {
+            Require(grid.HasBeatGrid && grid.BeatFrames.Length > 20,
+                "A strongly periodic track must produce a beat sequence.");
+            int checkedCount = 0;
+            foreach (long position in expected)
+            {
+                if (position < skipBeforeSeconds * PlaybackFormat.SampleRate) continue;
+                int nearest = Array.BinarySearch(grid.BeatFrames, position);
+                if (nearest < 0) nearest = ~nearest;
+                long error = long.MaxValue;
+                if (nearest < grid.BeatFrames.Length)
+                    error = Math.Min(error, Math.Abs(grid.BeatFrames[nearest] - position));
+                if (nearest > 0)
+                    error = Math.Min(error, Math.Abs(grid.BeatFrames[nearest - 1] - position));
+                Require(error <= toleranceMs * PlaybackFormat.SampleRate / 1000,
+                    "Tracked beat drifted away from a measured kick.");
+                checkedCount++;
+            }
+            Require(checkedCount > 30, "The beat test did not cover enough of the track.");
+        }
+
+        var (steady, steadyHits) = Measure(_ => 120, syncopated: true);
+        Require(Math.Abs(steady.Bpm - 120) < 1.5 && Math.Abs(steady.BpmAt(50 * PlaybackFormat.SampleRate) - 120) < 1.5,
+            "Syncopated hi-hats confused the steady beat detector.");
+        CheckAlignment(steady, steadyHits, 0, 40);
+
+        var (accelerando, changingHits) = Measure(time => 120 + 20 * time / 90);
+        Require(Math.Abs(accelerando.BpmAt(8 * PlaybackFormat.SampleRate) - 122) < 4 &&
+            Math.Abs(accelerando.BpmAt(78 * PlaybackFormat.SampleRate) - 137) < 4,
+            "The beat grid did not follow a gradual change in tempo.");
+        CheckAlignment(accelerando, changingHits, 0, 65);
+
+        var (change, changedHits) = Measure(time => time < 30 ? 120 : 140);
+        Require(Math.Abs(change.BpmAt(20 * PlaybackFormat.SampleRate) - 120) < 3 &&
+            Math.Abs(change.BpmAt(70 * PlaybackFormat.SampleRate) - 140) < 3,
+            "The local-tempo model missed a sudden tempo change.");
+        CheckAlignment(change, changedHits, 37, 65);
+
+        var (silent, _) = Measure(_ => 120, seconds: 10);
+        Require(silent.HasBeatGrid, "Short rhythmic tracks were not analyzed.");
+        var flat = new RhythmEnergy[6000];
+        Array.Fill(flat, new RhythmEnergy(.15f, .15f, .15f));
+        Require(!TrackRhythmAnalyzer.AnalyzeEnergy(flat, PlaybackFormat.SampleRate / 100,
+            (long)flat.Length * PlaybackFormat.SampleRate / 100).HasBeatGrid,
+            "Steady noise must not generate an invented beat grid.");
+        Console.WriteLine("OK: 100 Hz onset analysis, syncopation, variable tempo, and beat-position accuracy.");
     }
 
     private static void CheckNativeRate()

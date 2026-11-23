@@ -75,7 +75,7 @@ internal sealed partial class LocalTrackStore(string root)
 
     public async Task<(TrackFile[] Tracks, TrackFile? Current)> ReadQueueAsync(CancellationToken token)
     {
-        // Rhythm analysis v2 replaces the former amplitude-only manifest. The media library
+        // Rhythm analysis v3 replaces fixed-tempo and amplitude-only manifests. The media library
         // and queue stay intact; obsolete manifests are discarded and scanned again as needed.
         try { Directory.Delete(Path.Combine(root, "analysis-v1"), recursive: true); }
         catch (DirectoryNotFoundException) { }

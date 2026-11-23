@@ -140,8 +140,6 @@ public sealed partial class DeckView : Border
             _detailDrawable.Waveform = _overviewDrawable.Waveform = deck.Track.Waveform;
             InvalidateWaveGeometry();
             _name.Text = deck.Track.Title;
-            _bpm.Text = deck.Track.Waveform.Rhythm is { HasBeatGrid: true } rhythm ? $"≈{rhythm.Bpm:0.#} BPM" : "";
-            _bpm.IsVisible = _bpm.Text.Length != 0;
             _deck = deck.Deck;
             UpdateTitleColor();
         }
@@ -152,6 +150,13 @@ public sealed partial class DeckView : Border
         bool snap = trackChanged || _snapPlayhead || !_animatePlayhead;
         _snapPlayhead = false;
         _position = deck.Position;
+        string tempo = deck.Track.Waveform.Rhythm is { HasBeatGrid: true } rhythm
+            ? $"≈{rhythm.BpmAt(_position):0.#} BPM" : "";
+        if (_bpm.Text != tempo)
+        {
+            _bpm.Text = tempo;
+            _bpm.IsVisible = tempo.Length != 0;
+        }
         double time = DeckPlayhead.Now;
         _playhead.Observe(_position, deck.Speed, time, snap);
         long display = snap ? _position : _playhead.DisplayPosition;

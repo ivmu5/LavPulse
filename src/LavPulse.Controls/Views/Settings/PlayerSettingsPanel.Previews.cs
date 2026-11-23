@@ -15,6 +15,9 @@ public sealed partial class PlayerSettingsPanel
         (long)SampleLevels.Length * FramesPerSample, FramesPerSample)
     {
         Rhythm = new TrackBeatGrid(120, 0, 1, [])
+        {
+            BeatFrames = Enumerable.Range(0, 160).Select(i => (long)i * PlaybackFormat.SampleRate / 2).ToArray()
+        }
     };
     private static readonly TrackWaveform DetailedTimelineSample = CreateDetailedTimelineSample();
 
@@ -34,6 +37,9 @@ public sealed partial class PlayerSettingsPanel
         return new TrackWaveform(points, (long)count * interval, interval)
         {
             Rhythm = new TrackBeatGrid(120, 0, .98f, onsets.ToArray())
+            {
+                BeatFrames = Enumerable.Range(0, 26).Select(i => (long)i * PlaybackFormat.SampleRate / 2).ToArray()
+            }
         };
     }
     private static readonly ControlTemplate PreviewChoiceTemplate = new(CreateChoiceBorder);
