@@ -175,7 +175,7 @@ public sealed class TrackReportMarkPanel : ContentView
     private static async Task ShowErrorAsync(string message)
     {
         if (Application.Current?.Windows.FirstOrDefault()?.Page is Page page)
-            await page.DisplayAlert("Отчёт", message, "OK");
+            await page.DisplayAlertAsync("Отчёт", message, "OK");
     }
 
     private void RefreshRange()
