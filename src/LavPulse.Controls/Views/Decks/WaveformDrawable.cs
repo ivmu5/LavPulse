@@ -108,10 +108,6 @@ internal sealed class WaveformDrawable : IDrawable
 
         long start = WindowStart();
         long length = Detailed ? DetailLength(waveform) : waveform.TotalFrames;
-        if (Mode != DeckWaveformMode.Color && waveform.Rhythm is { HasBeatGrid: true } rhythm)
-            DrawBeatGrid(canvas, bounds, rhythm, start, length, x, width);
-        if (Mode == DeckWaveformMode.Transients && Detailed && waveform.Rhythm is { } transients)
-            DrawOnsetMarks(canvas, bounds, transients.TransientFrames, start, length, x, width);
         int columns = Columns(width);
         float spacing = width / columns;
         long meshStart = start / length * length;
@@ -137,6 +133,13 @@ internal sealed class WaveformDrawable : IDrawable
         canvas.StrokeColor = Colors.Alternate;
         canvas.DrawPath(_bands[2]);
         canvas.RestoreState();
+
+        // Overlay the grid and accents after the colored waveform: previously the bars
+        // obscured the faint grid and made valid beat positions nearly invisible.
+        if (Mode != DeckWaveformMode.Color && waveform.Rhythm is { HasBeatGrid: true } rhythm)
+            DrawBeatGrid(canvas, bounds, rhythm, start, length, x, width);
+        if (Mode == DeckWaveformMode.Transients && Detailed && waveform.Rhythm is { } transients)
+            DrawOnsetMarks(canvas, bounds, transients.TransientFrames, start, length, x, width);
     }
 
     /// <summary>Draws real rhythmic ticks, downsampled for a full-track overview to avoid visual noise.</summary>
@@ -157,8 +160,8 @@ internal sealed class WaveformDrawable : IDrawable
         }
         canvas.SaveState();
         canvas.ClipRectangle(x, bounds.Top, width, bounds.Height);
-        canvas.StrokeColor = Colors.Accent.WithAlpha(Detailed ? .24f : .32f);
-        canvas.StrokeSize = Detailed ? 1 : 1.5f;
+        canvas.StrokeColor = Colors.Accent.WithAlpha(Detailed ? .72f : .58f);
+        canvas.StrokeSize = Detailed ? 1.2f : 1.5f;
         for (int index = first, drawn = 0;
              index < beats.Length && beats[index] <= start + length && drawn < 300;
              index += stride, drawn++)
@@ -178,8 +181,8 @@ internal sealed class WaveformDrawable : IDrawable
         if (first < 0) first = ~first;
         canvas.SaveState();
         canvas.ClipRectangle(x, bounds.Top, width, bounds.Height);
-        canvas.StrokeColor = Colors.Alternate.WithAlpha(.75f);
-        canvas.StrokeSize = 1.2f;
+        canvas.StrokeColor = Colors.Alternate.WithAlpha(.94f);
+        canvas.StrokeSize = 1.5f;
         for (int i = first; i < onsets.Length && onsets[i] <= start + length; i++)
         {
             float px = x + (float)((onsets[i] - start) * width / length);

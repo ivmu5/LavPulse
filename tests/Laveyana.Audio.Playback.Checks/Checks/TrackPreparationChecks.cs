@@ -7,6 +7,7 @@ internal static class TrackPreparationChecks
         CheckNativeRate();
         CheckRhythmAnalysis();
         CheckHighResolutionRhythmAnalysis();
+        CheckPercussiveFiltering();
         var input = TrackFile.FromStream("fixture.mp3", () => Task.FromResult<Stream>(CreateMp3()));
         var original = await new TrackPreparation(directory).ImportAsync(input, CancellationToken.None);
         byte[] expected = await File.ReadAllBytesAsync(original.Path);
@@ -178,6 +179,53 @@ internal static class TrackPreparationChecks
             (long)flat.Length * PlaybackFormat.SampleRate / 100).HasBeatGrid,
             "Steady noise must not generate an invented beat grid.");
         Console.WriteLine("OK: 100 Hz onset analysis, syncopation, variable tempo, and beat-position accuracy.");
+    }
+
+    private static void CheckPercussiveFiltering()
+    {
+        const int hopsPerSecond = 100;
+        const int hop = PlaybackFormat.SampleRate / hopsPerSecond;
+        const int seconds = 35;
+        var energy = new RhythmEnergy[hopsPerSecond * seconds];
+        Array.Fill(energy, new RhythmEnergy(.045f, .035f, .025f));
+        int kicks = 0;
+        for (int step = 0; step < seconds * 8 - 4; step++)
+        {
+            int tick = 20 + step * 12 + step / 2;
+            if (tick >= energy.Length - 1) break;
+            if ((step & 3) == 0)
+            {
+                energy[tick] = new RhythmEnergy(.92f, .52f, .29f);
+                kicks++;
+            }
+            else
+            {
+                // Three hi-hat subdivisions per kick must not become three extra marks.
+                energy[tick] = new RhythmEnergy(.045f, .055f, .96f);
+            }
+        }
+        var analyzed = TrackRhythmAnalyzer.AnalyzeEnergy(energy, hop, (long)energy.Length * hop);
+        Require(analyzed.HasBeatGrid && Math.Abs(analyzed.Bpm - 120) < 2,
+            "Kick-driven beat detection disappeared under loud hi-hats.");
+        Require(analyzed.TransientFrames.Length >= kicks * .85 &&
+                analyzed.TransientFrames.Length <= kicks * 1.1,
+            "Visual transient marks included hi-hat subdivisions or missed the kicks.");
+
+        // A consistent volume reduction must not disable tempo or transient estimation.
+        var quieter = energy.Select(e => new RhythmEnergy(e.Low * .004f, e.Mid * .004f, e.High * .004f)).ToArray();
+        var quiet = TrackRhythmAnalyzer.AnalyzeEnergy(quieter, hop, (long)quieter.Length * hop);
+        Require(quiet.HasBeatGrid && Math.Abs(quiet.Bpm - analyzed.Bpm) <= 1 &&
+                Math.Abs(quiet.TransientFrames.Length - analyzed.TransientFrames.Length) <= 2,
+            "Quietly mastered music was rejected by an absolute amplitude threshold.");
+
+        var trebleOnly = Enumerable.Repeat(new RhythmEnergy(.045f, .035f, .025f), 2000).ToArray();
+        for (int tick = 20; tick < trebleOnly.Length; tick += 12)
+            trebleOnly[tick] = new RhythmEnergy(.045f, .035f, .9f);
+        var treble = TrackRhythmAnalyzer.AnalyzeEnergy(trebleOnly, hop, (long)trebleOnly.Length * hop);
+        Require(treble.TransientFrames.Length == 0,
+            "High-frequency clicks were incorrectly labeled as strong drum attacks.");
+
+        Console.WriteLine("OK: percussive accents, hi-hat rejection and quiet-beat detection.");
     }
 
     private static void CheckNativeRate()

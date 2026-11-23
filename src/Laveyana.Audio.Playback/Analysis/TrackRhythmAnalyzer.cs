@@ -10,7 +10,7 @@ public sealed record TrackBeatGrid(double Bpm, long FirstBeatFrame, float Confid
     /// <summary>Individually tracked beat positions (48 kHz PCM frame coordinates).</summary>
     public long[] BeatFrames { get; init; } = [];
 
-    public bool HasBeatGrid => Bpm >= 70 && Confidence >= .46f && BeatFrames.Length >= 4;
+    public bool HasBeatGrid => Bpm >= 70 && Confidence >= .40f && BeatFrames.Length >= 4;
 
     /// <summary>Estimates the local BPM from neighboring beats instead of the track-wide median.</summary>
     public double BpmAt(long position)
@@ -38,7 +38,9 @@ public static class TrackRhythmAnalyzer
     private const int MaximumStoredTransients = 8192;
     private const int MaximumBeatFrames = 32768;
 
-    private readonly record struct Onset(int Index, float Strength);
+    // Tempo estimation needs permissive onset candidates, but the visual hit markers
+    // should represent only prominent low/mid attacks.
+    private readonly record struct Onset(int Index, float Strength, float Accent);
 
     public static bool IsValid(TrackBeatGrid rhythm, long totalFrames) =>
         rhythm.Bpm >= 0 && rhythm.Bpm <= MaximumBpm && double.IsFinite(rhythm.Bpm) &&
@@ -157,13 +159,15 @@ public static class TrackRhythmAnalyzer
             quality[window] = scores[window, bestLast];
             if (window > 0) bestLast = backtrack[window, bestLast];
         }
-        var evidence = quality.Where((q, i) => hitsPerSlice[i] >= 8 && q >= .4f).ToArray();
+        // Use repeated evidence from multiple windows rather than a single high score.
+        // This recovers real rhythms with extra syncopation without blindly drawing a grid.
+        var evidence = quality.Where((q, i) => hitsPerSlice[i] >= 8 && q >= .35f).ToArray();
         if (evidence.Length < 2) return Empty(transients);
         float coherence = evidence.Average();
-        if (coherence < .52f) return Empty(transients);
+        if (coherence < .44f) return Empty(transients);
 
         // Anchor the first beat from the phase of the earliest confident region.
-        int anchor = Array.FindIndex(quality, q => q >= .52f);
+        int anchor = Array.FindIndex(quality, q => q >= .44f);
         if (anchor < 0) return Empty(transients);
         double anchorBpm = selected[anchor];
         double angularSpeed = Math.Tau * anchorBpm / (60 * hopsPerSecond);
@@ -214,8 +218,9 @@ public static class TrackRhythmAnalyzer
             position += spacing + correction * .6;
         }
 
-        if (beats.Count < 4) return Empty(transients);
-        double[] tempi = selected.Where((_, i) => hitsPerSlice[i] >= 8 && quality[i] >= .4f)
+        // A grid that cannot align with measured attacks should not be displayed.
+        if (beats.Count < 4 || matched < Math.Max(3, beats.Count / 8)) return Empty(transients);
+        double[] tempi = selected.Where((_, i) => hitsPerSlice[i] >= 8 && quality[i] >= .35f)
             .OrderBy(b => b).ToArray();
         double representativeBpm = tempi[tempi.Length / 2];
         float confidence = (float)Math.Clamp(coherence * .82 + .18 * matched / Math.Max(1, beats.Count), 0, 1);
@@ -239,41 +244,66 @@ public static class TrackRhythmAnalyzer
         int count = energy.Count;
         var novelty = new float[count];
         var bassChange = new float[count];
+        var midChange = new float[count];
         var prefix = new double[count + 1];
         for (int i = 1; i < count; i++)
         {
             if ((i & 16383) == 0) token.ThrowIfCancellationRequested();
             RhythmEnergy now = energy[i], before = energy[i - 1];
             bassChange[i] = Math.Max(0, now.Low - before.Low);
-            novelty[i] = bassChange[i] * 1.9f + Math.Max(0, now.Mid - before.Mid) * .85f +
-                Math.Max(0, now.High - before.High) * .45f;
+            midChange[i] = Math.Max(0, now.Mid - before.Mid);
+            // High-only clicks, hats and harmonics are weak beat evidence.
+            novelty[i] = bassChange[i] * 1.9f + midChange[i] * .85f +
+                Math.Max(0, now.High - before.High) * .25f;
             prefix[i + 1] = prefix[i] + novelty[i];
         }
+
         int radius = Math.Max(2, (int)Math.Round(hopsPerSecond));
-        int minDistance = Math.Max(2, (int)Math.Round(hopsPerSecond * .06));
+        int minDistance = Math.Max(2, (int)Math.Round(hopsPerSecond * .08));
         var result = new List<Onset>();
         for (int i = 1; i < count - 1; i++)
         {
-            int from = Math.Max(0, i - radius), to = Math.Min(count, i + radius + 1);
-            float average = (float)((prefix[to] - prefix[from]) / (to - from));
-            if (novelty[i] < Math.Max(.012f, average * 1.55f) ||
-                novelty[i] <= novelty[i - 1] || novelty[i] < novelty[i + 1]) continue;
-            float bassShare = novelty[i] > 0 ? bassChange[i] * 1.9f / novelty[i] : 0;
-            float strength = novelty[i] / (novelty[i] + Math.Max(.04f, average * 2)) *
-                (.28f + 1.5f * Math.Clamp(bassShare, 0, 1));
+            int first = Math.Max(0, i - radius), last = Math.Min(count, i + radius + 1);
+            float average = (float)((prefix[last] - prefix[first]) / (last - first));
+            float rise = novelty[i];
+            // Relative thresholds keep quietly mastered tracks measurable. Compare each
+            // candidate against both nearby attacks and its local band energy.
+            float energyAtPeak = energy[i].Low * 1.9f + energy[i].Mid * .85f + energy[i].High * .25f;
+            if (rise < Math.Max(.000001f, average * 1.8f) ||
+                rise < energyAtPeak * .04f ||
+                rise <= novelty[i - 1] || rise < novelty[i + 1]) continue;
+
+            float bassShare = Math.Clamp(bassChange[i] * 1.9f / rise, 0, 1);
+            float midShare = Math.Clamp(midChange[i] * .85f / rise, 0, 1);
+            float prominence = rise / (rise + Math.Max(.000001f, average * 2));
+            float strength = prominence * (.16f + 1.7f * bassShare + .75f * midShare);
+            float accent = prominence * (1.3f * bassShare + .9f * midShare);
             if (result.Count > 0 && i - result[^1].Index < minDistance)
             {
-                if (strength > result[^1].Strength) result[^1] = new Onset(i, strength);
+                if (strength > result[^1].Strength)
+                    result[^1] = new Onset(i, strength, accent);
             }
-            else result.Add(new Onset(i, strength));
+            else result.Add(new Onset(i, strength, accent));
         }
         return result;
     }
 
+    /// <summary>Store only prominent low/mid attacks for the small visual markers.</summary>
     private static long[] StoreTransients(List<Onset> onsets, int hopFrames, long totalFrames)
     {
-        int stride = Math.Max(1, (int)Math.Ceiling(onsets.Count / (double)MaximumStoredTransients));
-        return onsets.Where((_, index) => index % stride == 0)
+        int minimumDistance = Math.Max(2, (int)Math.Round(.16 * PlaybackFormat.SampleRate / hopFrames));
+        var accents = new List<Onset>();
+        foreach (Onset onset in onsets)
+        {
+            if (onset.Accent < .65f) continue;
+            if (accents.Count > 0 && onset.Index - accents[^1].Index < minimumDistance)
+            {
+                if (onset.Accent > accents[^1].Accent) accents[^1] = onset;
+            }
+            else accents.Add(onset);
+        }
+        int stride = Math.Max(1, (int)Math.Ceiling(accents.Count / (double)MaximumStoredTransients));
+        return accents.Where((_, index) => index % stride == 0)
             .Select(hit => Math.Min(totalFrames - 1, (long)hit.Index * hopFrames)).ToArray();
     }
 
