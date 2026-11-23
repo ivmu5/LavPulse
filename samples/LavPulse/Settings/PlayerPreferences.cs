@@ -38,6 +38,7 @@ internal static class PlayerPreferences
             FadeInMilliseconds = Math.Clamp(Preferences.Default.Get("fade-in-ms", defaults.FadeInMilliseconds), 0, 3000),
             FadeOutMilliseconds = Math.Clamp(Preferences.Default.Get("fade-out-ms", defaults.FadeOutMilliseconds), 0, 3000),
             CrossfadeMilliseconds = Math.Clamp(Preferences.Default.Get("crossfade-ms", defaults.CrossfadeMilliseconds), 0, 12000),
+            VisualDelayMilliseconds = Math.Clamp(Preferences.Default.Get("visual-delay-ms", defaults.VisualDelayMilliseconds), 0, 1500),
             AutoMix = Preferences.Default.Get("automix", defaults.AutoMix),
             StorageDirectory = Preferences.Default.Get("library-storage-requested", defaults.StorageDirectory),
             AnalysisParallelism = Math.Clamp(Preferences.Default.Get("analysis-parallelism", defaults.AnalysisParallelism),
@@ -84,6 +85,7 @@ internal static class PlayerPreferences
         Preferences.Default.Set("fade-in-ms", settings.FadeInMilliseconds);
         Preferences.Default.Set("fade-out-ms", settings.FadeOutMilliseconds);
         Preferences.Default.Set("crossfade-ms", settings.CrossfadeMilliseconds);
+        Preferences.Default.Set("visual-delay-ms", settings.VisualDelayMilliseconds);
         Preferences.Default.Set("automix", settings.AutoMix);
         Preferences.Default.Set("library-storage-requested", settings.StorageDirectory);
         Preferences.Default.Set("analysis-parallelism", settings.AnalysisParallelism);

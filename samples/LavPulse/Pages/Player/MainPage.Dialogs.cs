@@ -78,7 +78,7 @@ public sealed partial class MainPage
         SaveOpenEqualizer();
         if (panel is TrackLibraryPanel library) library.Cancel();
 
-        var snapshot = _playback.Snapshot;
+        var snapshot = _playback.PresentedSnapshot;
         UpdatePositions(snapshot);
         _view.ShowPanel(null);
         if (_appearanceDraft is not null)
@@ -150,6 +150,7 @@ public sealed partial class MainPage
         _settings = value;
         _playback.SetAutoMix(value.AutoMix);
         _playback.SetCrossfadeDuration(value.CrossfadeMilliseconds);
+        _playback.SetVisualDelay(value.VisualDelayMilliseconds);
         _library.SetAnalysisParallelism(value.AnalysisParallelism);
         UpdateSpectrumAnalysis();
         RefreshAppearance();

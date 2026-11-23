@@ -64,7 +64,7 @@ public sealed partial class MainPage
     {
         if (_closed || _windowVisible == visible) return;
 
-        var snapshot = _playback.Snapshot;
+        var snapshot = _playback.PresentedSnapshot;
         // Reconcile the queue before redrawing, so a track change in the background never replays its animation.
         if (visible) UpdatePositions(snapshot);
         _windowVisible = visible;
@@ -112,7 +112,7 @@ public sealed partial class MainPage
         }
     }
 
-    private void UpdatePositions() => UpdatePositions(_playback.Snapshot);
+    private void UpdatePositions() => UpdatePositions(_playback.PresentedSnapshot);
 
     /// <summary>Advances queue and media state, updating the player view only while it is visible.</summary>
     private void UpdatePositions(QueueSnapshot snapshot)
