@@ -113,8 +113,8 @@ internal sealed class TrackReportStore(string filePath)
             return;
         }
         await using var source = File.OpenRead(filePath);
-        _items = await JsonSerializer.DeserializeAsync<List<TrackIssueReport>>(source, cancellationToken: token)
-            .ConfigureAwait(false) ?? [];
+        _items = await JsonSerializer.DeserializeAsync(source,
+            TrackReportJson.Default.ListTrackIssueReport, token).ConfigureAwait(false) ?? [];
     }
 
     private async Task PersistAsync(CancellationToken token)
@@ -126,7 +126,8 @@ internal sealed class TrackReportStore(string filePath)
             await using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write,
                 FileShare.None, 16 * 1024, FileOptions.Asynchronous))
             {
-                await JsonSerializer.SerializeAsync(output, _items, cancellationToken: token).ConfigureAwait(false);
+                await JsonSerializer.SerializeAsync(output, _items,
+                    TrackReportJson.Default.ListTrackIssueReport, token).ConfigureAwait(false);
                 await output.FlushAsync(token).ConfigureAwait(false);
             }
             File.Move(temporary, filePath, overwrite: true);

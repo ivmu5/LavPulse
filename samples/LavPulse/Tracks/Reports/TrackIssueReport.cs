@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Laveyana.LavPulse.Tracks;
 
 /// <summary>Human-reported issue or an approximate section where the beat is clearly audible.</summary>
@@ -16,3 +18,6 @@ internal sealed record TrackIssueMark(long StartFrame, long EndFrame, string Com
 internal sealed record TrackIssueReport(
     string Id, string FileName, string Title, string? Artist, string Analysis,
     List<TrackIssueMark> Marks);
+
+[JsonSerializable(typeof(List<TrackIssueReport>))]
+internal sealed partial class TrackReportJson : JsonSerializerContext;
