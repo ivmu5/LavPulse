@@ -135,9 +135,10 @@ public sealed partial class DeckView : Border
     public void RestoreBassTaps(CachedTrack track, IReadOnlyList<long> frames)
     {
         if (!ReferenceEquals(track, _track)) return;
+        var existing = new HashSet<long>(_manualTaps);
         foreach (long frame in frames)
         {
-            if (!_manualTaps.Contains(frame)) _manualTaps.Add(frame);
+            if (existing.Add(frame)) _manualTaps.Add(frame);
         }
         UpdateVisibleTapMarks();
     }
@@ -145,6 +146,20 @@ public sealed partial class DeckView : Border
     private void AddVisibleTap(long frame)
     {
         _manualTaps.Add(frame);
+        UpdateVisibleTapMarks();
+    }
+
+    /// <summary>Undo an optimistic UI mark if persisting that press failed.</summary>
+    public void DiscardFailedBassTap(CachedTrack track, long frame)
+    {
+        if (!ReferenceEquals(track, _track)) return;
+        if (_manualTaps.Remove(frame)) UpdateVisibleTapMarks();
+    }
+
+    public void ClearBassTaps()
+    {
+        if (_manualTaps.Count == 0) return;
+        _manualTaps.Clear();
         UpdateVisibleTapMarks();
     }
 

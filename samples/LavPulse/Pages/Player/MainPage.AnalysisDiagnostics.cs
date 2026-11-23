@@ -43,6 +43,8 @@ public sealed partial class MainPage
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception ex)
         {
+            _view.CurrentDeck.DiscardFailedBassTap(track, frame);
+            _view.IncomingDeck.DiscardFailedBassTap(track, frame);
             if (_tapAnalysisReports.TryGetValue(track, out var task) && task.IsFaulted)
                 _tapAnalysisReports.Remove(track);
             if (!_closed) _view.Status.Text = "Не удалось сохранить удар: " + ex.Message;
@@ -177,6 +179,8 @@ public sealed partial class MainPage
             "Очистить", "Отмена"))
             return "Очистка отменена.";
         await _reports.ClearAsync(_lifetime.Token);
-        return "Сохранённые замечания удалены.";
+        _view.CurrentDeck.ClearBassTaps();
+        _view.IncomingDeck.ClearBassTaps();
+        return "Сохранённые замечания и ручные басовые удары удалены.";
     }
 }
