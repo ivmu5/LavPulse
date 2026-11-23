@@ -15,6 +15,7 @@
     <Compile Include="../../samples/LavPulse/Tracks/Reports/TrackIssueReport.cs" Link="TrackIssueReport.cs" />
     <Compile Include="../../samples/LavPulse/Tracks/Reports/TrackReportStore.cs" Link="TrackReportStore.cs" />
     <Compile Include="../../samples/LavPulse/Tracks/Reports/TrackReportArchive.cs" Link="TrackReportArchive.cs" />
+    <Compile Include="../../samples/LavPulse/Tracks/Reports/ManualTapTempoAnalyzer.cs" Link="ManualTapTempoAnalyzer.cs" />
     <Compile Include="../../samples/LavPulse/Tracks/Library/LocalTrackStore.Analysis.cs" Link="LocalTrackStore.Analysis.cs" />
     <Compile Include="../../samples/LavPulse/Tracks/Library/StoredTrackData.cs" Link="StoredTrackData.cs" />
     <Compile Include="../../samples/LavPulse/Tracks/Library/TrackAnalysisSlots.cs" Link="TrackAnalysisSlots.cs" />

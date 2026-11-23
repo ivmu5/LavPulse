@@ -63,6 +63,66 @@ internal static partial class Program
             await originalEntry.CopyToAsync(memory);
             Require(original.SequenceEqual(memory.ToArray()), "Original MP3 bytes were modified during export.");
         }
+        // First press on a fresh track must auto-register the original MP3 without
+        // navigating to any report editor. A series of taps is preserved verbatim.
+        string tapId = new string('B', 64);
+        byte[] tappedAudio = [2, 5, 9, 10, 40];
+        await File.WriteAllBytesAsync(Path.Combine(root, tapId + ".mp3"), tappedAudio);
+        DateTimeOffset origin = DateTimeOffset.UtcNow;
+        var referenceTaps = new List<ManualBeatTap>();
+        for (int index = 0; index < 20; index++)
+        {
+            // 150 BPM and up to 3 omitted hits; preserve original frame positions.
+            int beatIndex = index < 12 ? index : index + 3;
+            double second = .2 + beatIndex * .4;
+            long frame = (long)Math.Round(second * Rate);
+            var tap = new ManualBeatTap(frame, origin.AddSeconds(second), 180, 240);
+            referenceTaps.Add(tap);
+            await reports.AppendBeatTapAsync(tapId, "Tapped.mp3", "Tapped techno", "DJ",
+                "SAVED MACHINE ANALYSIS", tap, default);
+        }
+        var withTaps = await new TrackReportStore(storage).ReadAllAsync(default);
+        var enrolled = withTaps.Single(r => r.Id == tapId);
+        Require(enrolled.Marks.Count == 0 && enrolled.BeatTaps.Count == referenceTaps.Count &&
+            enrolled.BeatTaps[0].VisualDelayMilliseconds == 240 &&
+            enrolled.BeatTaps.Select(t => t.Frame).SequenceEqual(referenceTaps.Select(t => t.Frame)),
+            "Button presses did not auto-enroll and persist individual heard bass events.");
+        var tempo = ManualTapTempoAnalyzer.Analyze(enrolled.BeatTaps);
+        Require(tempo.Length > 0 && tempo.Any(s => s.EstimatedBpm is double bpm && Math.Abs(bpm - 150) < 1) &&
+            tempo.Sum(s => s.InferredMissedBeats) >= 3,
+            "Tap-tempo estimate did not tolerate three intentionally skipped beats.");
+
+        // Explicit pauses and jumps start a new analysis region, not a fictitious
+        // continuous tempo over unrelated sections.
+        var secondRegion = Enumerable.Range(0, 12).Select(index =>
+        {
+            double sec = 24 + index * .5;
+            return new ManualBeatTap((long)Math.Round(sec * Rate),
+                origin.AddSeconds(sec), 180, 0);
+        }).ToArray();
+        var regions = ManualTapTempoAnalyzer.Analyze([.. referenceTaps, .. secondRegion]);
+        Require(regions.Any(s => s.EstimatedBpm is double bpm && Math.Abs(bpm - 120) < 1) &&
+            regions.Any(s => s.EstimatedBpm is double bpm && Math.Abs(bpm - 150) < 1),
+            "The manual reporter merged separate 120 and 150 BPM sections.");
+
+        string tappedZip = Path.Combine(root, "manual-beats.zip");
+        await TrackReportArchive.CreateAsync(withTaps, tappedZip,
+            key => Path.Combine(root, key + ".mp3"), default);
+        using (var archive = ZipFile.OpenRead(tappedZip))
+        {
+            var tapEntry = archive.Entries.Single(e => e.FullName.Contains(tapId[..12]) &&
+                e.FullName.EndsWith("manual-beat-taps.txt"));
+            using var reader = new StreamReader(tapEntry.Open());
+            string text = await reader.ReadToEndAsync();
+            Require(text.Contains("150") && text.Contains("±180 ms") &&
+                text.Contains("240 ms") && text.Contains("20 presses"),
+                "Manual bass onset timings and uncertainty were missing from the exported ZIP.");
+            using var audio = archive.Entries.Single(e => e.Name == "Tapped.mp3").Open();
+            using var bytes = new MemoryStream();
+            await audio.CopyToAsync(bytes);
+            Require(bytes.ToArray().SequenceEqual(tappedAudio), "Tapping changed the original MP3.");
+        }
+
         await reports.ClearAsync(default);
         Require((await new TrackReportStore(storage).ReadAllAsync(default)).Length == 0 &&
             File.Exists(mp3), "Clearing reports deleted the original audio or failed to clear marks.");

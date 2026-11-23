@@ -17,7 +17,11 @@ internal sealed class TrackReportStore(string filePath)
         try
         {
             await EnsureLoadedAsync(token).ConfigureAwait(false);
-            return _items!.Select(x => x with { Marks = [.. x.Marks] }).ToArray();
+            return _items!.Select(x => x with
+            {
+                Marks = [.. x.Marks],
+                BeatTaps = [.. (x.BeatTaps ?? [])]
+            }).ToArray();
         }
         finally { _gate.Release(); }
     }
@@ -80,6 +84,43 @@ internal sealed class TrackReportStore(string filePath)
             else _items.Add(new(id, fileName, title, artist, analysis, [mark]));
             try { await PersistAsync(token).ConfigureAwait(false); }
             catch { _items = previous; throw; }
+        }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>Stores a bass tap and auto-enrolls its track in a single atomic operation.</summary>
+    public async Task<int> AppendBeatTapAsync(string id, string fileName, string title, string? artist,
+        string analysis, ManualBeatTap tap, CancellationToken token)
+    {
+        ValidateId(id);
+        if (tap.Frame < 0 || tap.TimingToleranceMilliseconds is < 0 or > 1500 ||
+            tap.VisualDelayMilliseconds is < 0 or > 1500)
+            throw new ArgumentOutOfRangeException(nameof(tap));
+
+        await _gate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            await EnsureLoadedAsync(token).ConfigureAwait(false);
+            var before = new List<TrackIssueReport>(_items!);
+            int index = _items!.FindIndex(item => item.Id == id);
+            TrackIssueReport item = index < 0
+                ? new TrackIssueReport(id, fileName, title, artist, analysis, [])
+                : _items[index];
+            var taps = item.BeatTaps is { } current ? new List<ManualBeatTap>(current) : [];
+            if (taps.Count >= 20_000)
+                throw new InvalidOperationException("Достигнут лимит ручных ударов для одного трека.");
+            taps.Add(tap);
+            item = item with
+            {
+                FileName = fileName, Title = title, Artist = artist,
+                Analysis = index < 0 ? analysis : item.Analysis,
+                BeatTaps = taps
+            };
+            if (index < 0) _items.Add(item);
+            else _items[index] = item;
+            try { await PersistAsync(token).ConfigureAwait(false); }
+            catch { _items = before; throw; }
+            return taps.Count;
         }
         finally { _gate.Release(); }
     }

@@ -98,6 +98,8 @@ public sealed partial class MainPage : ContentPage
         _view.IncomingDeck.SeekRequested += Seek;
         _view.CurrentDeck.ReportMarkRequested += OpenReportMarker;
         _view.IncomingDeck.ReportMarkRequested += OpenReportMarker;
+        _view.CurrentDeck.BassBeatTapped += RecordBassTap;
+        _view.IncomingDeck.BassBeatTapped += RecordBassTap;
 
         _positions = Dispatcher.CreateTimer();
         _positions.Interval = VisibleRefreshInterval;
