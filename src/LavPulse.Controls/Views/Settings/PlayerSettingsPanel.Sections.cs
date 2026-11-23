@@ -28,13 +28,18 @@ public sealed partial class PlayerSettingsPanel
         var crossfade = Number("Длительность перехода", "мс", new(0, 12000, defaults.CrossfadeMilliseconds, 100),
             _settings.CrossfadeMilliseconds, value => _settings = _settings with { CrossfadeMilliseconds = value });
         var autoMix = Toggle("Автомикс", _settings.AutoMix, value => _settings = _settings with { AutoMix = value });
+        var visualDelay = Number("Компенсация задержки звука", "мс", new(0, 1500, defaults.VisualDelayMilliseconds, 10),
+            _settings.VisualDelayMilliseconds, value => _settings = _settings with { VisualDelayMilliseconds = value });
+        var delayHint = MixerStyle.Label("Если басы или удары слышны позже, чем появляются на экране (особенно через Bluetooth), " +
+            "увеличь значение. Настройка сдвигает только визуализацию, а не звук.", 11, MixerColor.Muted);
         var sections = new VerticalStackLayout
         {
             Spacing = 8,
             Children =
             {
                 Section("Плавный старт и пауза", Pair(fadeIn.Row, fadeOut.Row)),
-                Section("Переход между треками", autoMix, crossfade.Row)
+                Section("Переход между треками", autoMix, crossfade.Row),
+                Section("Синхронизация со звуком", visualDelay.Row, delayHint)
             }
         };
 #if ANDROID

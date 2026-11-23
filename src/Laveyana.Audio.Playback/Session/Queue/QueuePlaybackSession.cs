@@ -11,10 +11,13 @@ public sealed class QueuePlaybackSession : IDisposable
     private bool _spectrumEnabled = true;
     private MixedPlayback? _mix;
     private int _running;
+    private int _visualDelayMilliseconds;
 
     public QueuePlaybackSession() => _equalizer = new(_queue);
 
     public QueueSnapshot Snapshot => _queue.Snapshot;
+    /// <summary>Presentation-time snapshot; use for drawing only, never for audio transport decisions.</summary>
+    public QueueSnapshot PresentedSnapshot => Volatile.Read(ref _mix)?.PresentedSnapshot ?? _queue.Snapshot;
     public ISpectrumSource? Spectrum => Volatile.Read(ref _mix);
 
     /// <summary>Sets the initial track if the playback queue is empty.</summary>
@@ -54,6 +57,15 @@ public sealed class QueuePlaybackSession : IDisposable
     /// <summary>Sets the maximum transition time. Zero switches at the end or when requested.</summary>
     public void SetCrossfadeDuration(int milliseconds) => _queue.SetCrossfadeDuration(milliseconds);
 
+    /// <summary>Delays spectrum and presented deck state without touching audio playback.</summary>
+    public void SetVisualDelay(int milliseconds)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(milliseconds);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(milliseconds, 1500);
+        Volatile.Write(ref _visualDelayMilliseconds, milliseconds);
+        Volatile.Read(ref _mix)?.SetVisualDelay(milliseconds);
+    }
+
     /// <summary>Sets playback speed by resampling the source PCM, which also changes pitch.</summary>
     public bool TrySetSpeed(CachedTrack track, double rate) => _queue.TrySetSpeed(track, rate);
 
@@ -69,7 +81,8 @@ public sealed class QueuePlaybackSession : IDisposable
 
     public async Task RunAsync(IAudioOutput output, int startMilliseconds, CancellationToken token)
     {
-        var mix = new MixedPlayback(_equalizer, startMilliseconds);
+        var mix = new MixedPlayback(_equalizer, startMilliseconds, _queue.Snapshot, () => _queue.Snapshot);
+        mix.SetVisualDelay(Volatile.Read(ref _visualDelayMilliseconds));
         if (Interlocked.Exchange(ref _running, 1) != 0)
         {
             throw new InvalidOperationException("The audio output is already running.");

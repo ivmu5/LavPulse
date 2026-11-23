@@ -3,7 +3,7 @@ namespace Laveyana.Audio.Playback;
 internal sealed class MixedPlayback : IAudioRenderSource, ISpectrumSource
 {
     private const int SpectrumWindow = 2048;
-    private const int SpectrumHistorySize = 64;
+    private const int SpectrumHistorySize = 192;
 
     private readonly DeckVolumes? _levels;
     private readonly TransportFadeSource? _queueOutput;
@@ -20,6 +20,9 @@ internal sealed class MixedPlayback : IAudioRenderSource, ISpectrumSource
     private int _analysisGeneration;
     private TaskCompletionSource? _resumeAnalysis;
     private long _outputPosition = long.MaxValue;
+    private long _visualDelayFrames;
+    private readonly Func<QueueSnapshot>? _snapshotProvider;
+    private readonly AudioPresentationHistory? _presentation;
 
     public MixedPlayback(CachedPcmSource? deckA, CachedPcmSource? deckB, DeckVolumes levels)
     {
@@ -43,10 +46,24 @@ internal sealed class MixedPlayback : IAudioRenderSource, ISpectrumSource
     }
 
     /// <summary>Analyzes the finished queue mix with the same spectrum pipeline as standalone decks.</summary>
-    public MixedPlayback(IPcmSource queue, int startMilliseconds)
+    public MixedPlayback(IPcmSource queue, int startMilliseconds,
+        QueueSnapshot initialSnapshot, Func<QueueSnapshot> getSnapshot)
     {
         _queueOutput = new TransportFadeSource(queue, startMilliseconds);
         _mixer = new PcmMixer([new PcmInput(_queueOutput, 1)], PlaybackFormat.SpectrumBars, SpectrumWindow);
+        _snapshotProvider = getSnapshot;
+        _presentation = new AudioPresentationHistory(initialSnapshot);
+    }
+
+    /// <summary>Returns the decks at the audio-output head, not at the next rendered block.</summary>
+    public QueueSnapshot PresentedSnapshot => _presentation?.Read() ?? default;
+
+    /// <summary>Adds an optional user-calibrated delay beyond the platform output counter.</summary>
+    public void SetVisualDelay(int milliseconds)
+    {
+        long frames = PlaybackFormat.SampleRate * (long)Math.Clamp(milliseconds, 0, 1500) / 1000;
+        Volatile.Write(ref _visualDelayFrames, frames);
+        _presentation?.SetDelay(frames);
     }
 
     /// <summary>Starts a fade and lets the device drain normally once the fade is complete.</summary>
@@ -76,12 +93,19 @@ internal sealed class MixedPlayback : IAudioRenderSource, ISpectrumSource
         }
 
         _mixer.Render(buffer);
-        return _queueOutput?.LastReadFrames ?? Math.Max(_deckA?.LastReadFrames ?? 0, _deckB?.LastReadFrames ?? 0);
+        int frames = _queueOutput?.LastReadFrames ?? Math.Max(_deckA?.LastReadFrames ?? 0, _deckB?.LastReadFrames ?? 0);
+        if (frames > 0 && _presentation is { } clock && _snapshotProvider is { } provider)
+            clock.Append(frames, provider());
+        return frames;
     }
 
     // Audio backends that expose a playback head can align drawings with output.
     /// <summary>Publishes the device position for synchronizing spectrum presentation.</summary>
-    public void ReportOutputPosition(long playedFrames) => Volatile.Write(ref _outputPosition, playedFrames);
+    public void ReportOutputPosition(long playedFrames)
+    {
+        Volatile.Write(ref _outputPosition, playedFrames);
+        _presentation?.ReportOutputPosition(playedFrames);
+    }
 
     public void SetSpectrumEnabled(bool enabled)
     {
@@ -146,6 +170,8 @@ internal sealed class MixedPlayback : IAudioRenderSource, ISpectrumSource
     public bool TryReadSpectrum(Span<float> destination, ref long version)
     {
         long played = Volatile.Read(ref _outputPosition);
+        if (played != long.MaxValue)
+            played = Math.Max(0, played - Volatile.Read(ref _visualDelayFrames));
         lock (_spectrumGate)
         {
             if (_resumeAnalysis is not null) return false;
