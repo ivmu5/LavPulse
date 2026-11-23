@@ -19,7 +19,8 @@ internal static class SpectrumFrameClockChecks
         Require(clock.TryAdvance(2.017, 60, out elapsed) && Math.Abs(elapsed - .017f) < .0001f,
             "Smoothing must use the actual time since the last draw.");
         CheckMotionCadence();
-        Console.WriteLine("OK: spectrum frame limits, fractional cadence, and FPS-synchronized transition curves.");
+        CheckWaveformDynamics();
+        Console.WriteLine("OK: spectrum frame limits, FPS-synchronized motion and waveform transient contrast.");
     }
 
     private static void CheckMotionCadence()
@@ -43,6 +44,22 @@ internal static class SpectrumFrameClockChecks
             }
             Require(previous == 1 && frames >= rate, "The transition did not finish at the selected display cadence.");
         }
+    }
+
+    private static void CheckWaveformDynamics()
+    {
+        var points = Enumerable.Repeat(new Laveyana.Audio.Playback.WaveformPoint(.25f, .10f, .10f, .08f), 16).ToArray();
+        points[7] = new(.92f, .76f, .15f, .12f);
+        var dynamics = new WaveformDynamics(points);
+        Require(dynamics.BassAttack(7) > .8f && dynamics.BassAttack(12) == 0,
+            "A low-frequency impact was not distinguished from stable material.");
+        Require(dynamics.Height(points[7].Peak, dynamics.BassAttack(7)) >
+                2 * dynamics.Height(points[4].Peak, dynamics.BassAttack(4)),
+            "The detailed waveform suppressed the amplitude contrast of drum transients.");
+        var stable = new WaveformDynamics(Enumerable.Repeat(new Laveyana.Audio.Playback.WaveformPoint(
+            .5f, .15f, .2f, .1f), 25).ToArray());
+        Require(stable.BassAttack(18) == 0 && stable.Height(.5f, 0) <= 1f,
+            "A steady bass tone was incorrectly marked as a new transient.");
     }
 
     private static int Count(int refresh, int limit)
