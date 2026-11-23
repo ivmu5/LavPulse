@@ -95,7 +95,7 @@ internal static class LocalTrackStoreChecks
         Directory.CreateDirectory(Path.Combine(source, "analysis-v2"));
         Directory.CreateDirectory(Path.Combine(source, "pcm-v1"));
         await File.WriteAllBytesAsync(Path.Combine(source, "media", "one.mp3"), [1, 4, 9, 16]);
-        await File.WriteAllTextAsync(Path.Combine(source, "queue.json"), "{\\\"Tracks\\\":[]}");
+        await File.WriteAllTextAsync(Path.Combine(source, "queue.json"), "{\"Tracks\":[]}");
         await File.WriteAllBytesAsync(Path.Combine(source, "analysis-v2", "one.json"), [4, 3, 2]);
         await File.WriteAllBytesAsync(Path.Combine(source, "pcm-v1", "one.pcm"), [7, 8, 9]);
 

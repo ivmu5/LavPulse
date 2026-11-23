@@ -7,6 +7,7 @@ internal static class AppLibraryStorage
 {
     private const string ActivePreference = "library-storage-active";
     private const string DesiredPreference = "library-storage-requested";
+    private const string CleanupPreference = "library-storage-cleanup";
 
     public static string? StartupError { get; private set; }
 
@@ -45,17 +46,14 @@ internal static class AppLibraryStorage
                         .GetAwaiter().GetResult();
                 else if (!Directory.Exists(nextRoot))
                     Directory.CreateDirectory(nextRoot);
+                // Durable cleanup intention is stored before switching the active library.
+                Preferences.Default.Set(CleanupPreference, activeRoot);
                 Preferences.Default.Set(ActivePreference, requestedDirectory);
                 activeRoot = nextRoot;
                 try { LibraryStorageMigration.Confirm(nextRoot); }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     { System.Diagnostics.Debug.WriteLine($"LavPulse transfer marker cleanup: {ex}"); }
-                string oldRoot = LibraryStorageMigration.ResolveRoot(defaultRoot, activeDirectory);
-                try { if (Directory.Exists(oldRoot)) Directory.Delete(oldRoot, recursive: true); }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Old LavPulse library cleanup: {ex}");
-                }
+                CleanupPreviousLibrary(activeRoot);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
                                          ArgumentException or NotSupportedException)
@@ -66,6 +64,26 @@ internal static class AppLibraryStorage
 
         if (!Directory.Exists(activeRoot) && !string.IsNullOrWhiteSpace(activeDirectory))
             StartupError ??= "Выбранный накопитель недоступен. Подключи его, прежде чем импортировать треки.";
+        if (Directory.Exists(activeRoot)) CleanupPreviousLibrary(activeRoot);
         return activeRoot;
+    }
+
+    private static void CleanupPreviousLibrary(string activeRoot)
+    {
+        string pending = Preferences.Default.Get(CleanupPreference, "");
+        if (string.IsNullOrWhiteSpace(pending)) return;
+        try
+        {
+            // The previous library can only be removed after the active destination exists.
+            if (Directory.Exists(activeRoot) && !LibraryStorageMigration.SamePath(pending, activeRoot))
+            {
+                if (Directory.Exists(pending)) Directory.Delete(pending, recursive: true);
+                Preferences.Default.Remove(CleanupPreference);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            System.Diagnostics.Debug.WriteLine($"Old LavPulse library cleanup: {ex}");
+        }
     }
 }
