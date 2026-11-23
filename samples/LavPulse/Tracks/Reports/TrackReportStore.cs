@@ -28,7 +28,10 @@ internal sealed class TrackReportStore(string filePath)
         if (id.Length != 64 || !id.All(char.IsAsciiHexDigitUpper))
             throw new ArgumentException("Неверный идентификатор импортированного трека.", nameof(id));
         if (mark.StartFrame < 0 || mark.EndFrame < mark.StartFrame ||
-            string.IsNullOrWhiteSpace(mark.Comment) || mark.Comment.Length > 3000)
+            (mark.Kind == TrackReportMarkKind.Problem && string.IsNullOrWhiteSpace(mark.Comment)) ||
+            mark.Comment.Length > 3000 || mark.TimingToleranceMilliseconds is < 0 or > 1500 ||
+            mark.PossibleMissingBeats is < 0 or > 3 ||
+            (mark.SuggestedBpm is double bpm && (!double.IsFinite(bpm) || bpm is < 40 or > 300)))
             throw new ArgumentException("Укажи корректный диапазон и комментарий.", nameof(mark));
 
         await _gate.WaitAsync(token).ConfigureAwait(false);
@@ -47,6 +50,20 @@ internal sealed class TrackReportStore(string filePath)
             }
             else _items.Add(new(id, fileName, title, artist, analysis, [mark]));
             await PersistAsync(token).ConfigureAwait(false);
+        }
+        finally { _gate.Release(); }
+    }
+
+    public async Task ClearAsync(CancellationToken token)
+    {
+        await _gate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            await EnsureLoadedAsync(token).ConfigureAwait(false);
+            var prior = _items;
+            _items = [];
+            try { await PersistAsync(token).ConfigureAwait(false); }
+            catch { _items = prior; throw; }
         }
         finally { _gate.Release(); }
     }

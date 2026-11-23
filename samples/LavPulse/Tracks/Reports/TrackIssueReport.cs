@@ -1,7 +1,16 @@
 namespace Laveyana.LavPulse.Tracks;
 
-/// <summary>A user-observed problem over a selected portion of a decoded track.</summary>
-internal sealed record TrackIssueMark(long StartFrame, long EndFrame, string Comment, DateTimeOffset CreatedAt);
+/// <summary>Human-reported issue or an approximate section where the beat is clearly audible.</summary>
+internal enum TrackReportMarkKind { Problem, StrongRhythm }
+
+/// <summary>
+/// Start/end refer to the 48 kHz playback timeline. User taps/sliders are approximate:
+/// human timing uncertainty and one-to-three omitted beats at a tempo transition are
+/// diagnostic hints, NEVER authoritative beat-grid anchors.
+/// </summary>
+internal sealed record TrackIssueMark(long StartFrame, long EndFrame, string Comment,
+    DateTimeOffset CreatedAt, TrackReportMarkKind Kind = TrackReportMarkKind.Problem,
+    int TimingToleranceMilliseconds = 250, int PossibleMissingBeats = 3, double? SuggestedBpm = null);
 
 /// <summary>Persistent report for one imported MP3, identified by its SHA-256 library filename.</summary>
 internal sealed record TrackIssueReport(

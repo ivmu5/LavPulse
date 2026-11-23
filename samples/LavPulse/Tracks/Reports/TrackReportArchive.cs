@@ -19,11 +19,23 @@ internal static class TrackReportArchive
             text.AppendLine("Source: " + item.FileName);
             text.AppendLine("USER COMMENTS (mm:ss.mmm)");
             foreach (var note in item.Marks)
-                text.AppendLine($"[{Time(note.StartFrame)} - {Time(note.EndFrame)}] {note.Comment} ({note.CreatedAt:O})");
+                text.AppendLine(RenderMark(note));
             text.AppendLine();
             text.AppendLine(item.Analysis);
         }
         return text.ToString();
+    }
+
+    internal static string RenderMark(TrackIssueMark mark)
+    {
+        string type = mark.Kind == TrackReportMarkKind.StrongRhythm
+            ? "STRONG RHYTHM (human estimate)" : "PROBLEM";
+        string bpm = mark.SuggestedBpm is double value ? $"; user BPM≈{value:0.##}" : "";
+        string transition = mark.Kind == TrackReportMarkKind.StrongRhythm
+            ? $"; approximate boundary ±{mark.TimingToleranceMilliseconds} ms; " +
+              $"up to {mark.PossibleMissingBeats} missing beats across tempo changes" : "";
+        return $"[{Time(mark.StartFrame)} - {Time(mark.EndFrame)}] {type}{bpm}{transition}: " +
+            $"{mark.Comment} ({mark.CreatedAt:O})";
     }
 
     internal static async Task CreateAsync(IReadOnlyList<TrackIssueReport> reports, string destination,
@@ -59,7 +71,7 @@ internal static class TrackReportArchive
                     string baseName = $"tracks/{i + 1:D2}-{report.Id[..12]}/";
                     await WriteText(zip, baseName + "analysis.txt", report.Analysis, token);
                     await WriteText(zip, baseName + "comments.txt",
-                        RenderText([report]).Split("USER COMMENTS (mm:ss.mmm)")[1].Split(report.Analysis)[0], token);
+                        string.Join(Environment.NewLine, report.Marks.Select(RenderMark)), token);
                     string originalName = SafeName(report.FileName);
                     var entry = zip.CreateEntry(baseName + originalName, CompressionLevel.NoCompression);
                     await using var input = new FileStream(audioFiles[i], FileMode.Open, FileAccess.Read, FileShare.Read,
