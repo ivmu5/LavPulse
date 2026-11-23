@@ -26,8 +26,12 @@ internal static class LocalTrackStoreChecks
         await store.SaveAnalysisAsync(first, ready.Waveform, ready.AudioInfo, ready.Path, default);
         await store.SaveAnalysisAsync(first, scanned.Waveform, scanned.Info, null, default);
 
+        var obsolete = Path.Combine(root, "analysis-v1");
+        Directory.CreateDirectory(obsolete);
+        await File.WriteAllTextAsync(Path.Combine(obsolete, "legacy.json"), "{}");
         var reopened = new LocalTrackStore(root);
         var (tracks, current) = await reopened.ReadQueueAsync(default);
+        Require(!Directory.Exists(obsolete), "Old analysis manifests were not discarded on upgrade.");
         Require(tracks.Select(file => file.Name).SequenceEqual(["second.mp3", "first.mp3"]) &&
             ReferenceEquals(current, tracks[1]), "Queue order or current track changed after reopening.");
         Require(reopened.HasAnalysis(tracks[0]), "Compact analysis was not indexed after reopening.");

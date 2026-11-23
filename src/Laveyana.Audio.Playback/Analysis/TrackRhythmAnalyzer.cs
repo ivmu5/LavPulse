@@ -62,57 +62,37 @@ public static class TrackRhythmAnalyzer
             (long)hit.Index * waveform.FramesPerPoint)).ToArray();
         if (onsets.Count < MinimumOnsets) return new TrackBeatGrid(0, 0, 0, transients);
 
-        double rate = (double)PlaybackFormat.SampleRate / waveform.FramesPerPoint;
-        double bestBpm = 0, bestScore = 0;
-        // Tempo scoring tests repetition after 1, 2 and 4 beats; fractional point offsets
-        // keep accuracy above the source waveform's coarse 25 Hz time resolution.
-        for (double bpm = MinimumBpm; bpm <= MaximumBpm; bpm += .5)
+        double pointsPerSecond = (double)PlaybackFormat.SampleRate / waveform.FramesPerPoint;
+        double bestBpm = 0, bestScore = 0, bestAngle = 0;
+        // Circular onset-phase coherence scores all strong attacks across the entire track.
+        // Unlike short-lag peak matching, a wrong tempo accumulates phase drift and loses score.
+        // The lowest equally strong candidate wins the occasional half/double-time ambiguity.
+        for (double bpm = MinimumBpm; bpm <= MaximumBpm; bpm += .25)
         {
-            double step = rate * 60 / bpm;
-            double sum = 0, weight = 0;
-            foreach (var hit in onsets)
+            double radiansPerPoint = Math.Tau * bpm / (60 * pointsPerSecond);
+            double real = 0, imaginary = 0, weight = 0;
+            foreach (var onset in onsets)
             {
-                foreach (int beats in new[] { 1, 2, 4 })
-                {
-                    int center = (int)Math.Round(hit.Index + beats * step);
-                    if (center + 1 >= count) continue;
-                    float match = Math.Max(novelty[center - 1], Math.Max(novelty[center], novelty[center + 1]));
-                    float multiplier = beats == 1 ? 1f : beats == 2 ? .8f : .6f;
-                    sum += multiplier * hit.Strength * Math.Min(1, match / maximum);
-                    weight += multiplier * hit.Strength;
-                }
+                (double sine, double cosine) = Math.SinCos(onset.Index * radiansPerPoint);
+                real += onset.Strength * cosine;
+                imaginary += onset.Strength * sine;
+                weight += onset.Strength;
             }
             if (weight <= 0) continue;
-            double score = sum / weight;
-            // The candidate must explain consecutive beats, not only distant subdivisions.
-            if (score > bestScore)
+            double score = Math.Sqrt(real * real + imaginary * imaginary) / weight;
+            if (score > bestScore + .001)
             {
                 bestScore = score;
                 bestBpm = bpm;
+                bestAngle = Math.Atan2(imaginary, real);
             }
         }
         float confidence = (float)Math.Clamp(bestScore, 0, 1);
         if (confidence < .43f) return new TrackBeatGrid(0, 0, confidence, transients);
 
-        double period = rate * 60 / bestBpm;
-        double origin = 0, bestAlignment = -1;
-        // Use strong onsets as phase candidates rather than assuming the first sample starts on a beat.
-        var anchors = onsets.OrderByDescending(hit => hit.Strength).Take(64).ToArray();
-        foreach (var candidate in anchors)
-        {
-            double phase = candidate.Index % period;
-            double alignment = 0;
-            foreach (var onset in onsets)
-            {
-                double distance = Math.Abs(onset.Index - phase) % period;
-                distance = Math.Min(distance, period - distance);
-                double fraction = distance / period;
-                if (fraction < .16) alignment += onset.Strength * (1 - fraction / .16);
-            }
-            if (alignment <= bestAlignment) continue;
-            bestAlignment = alignment;
-            origin = phase;
-        }
+        double period = pointsPerSecond * 60 / bestBpm;
+        double phase = (bestAngle + Math.Tau) % Math.Tau;
+        double origin = phase / Math.Tau * period;
         long firstBeat = Math.Clamp((long)Math.Round(origin * waveform.FramesPerPoint), 0, waveform.TotalFrames);
         return new TrackBeatGrid(bestBpm, firstBeat, confidence, transients);
     }
