@@ -78,8 +78,8 @@ internal static partial class Program
     {
         var start = new QueueSnapshot(new PlayingTrack(first, 0, Deck.A), null);
         var timeline = new AudioPresentationHistory(start);
-        timeline.Append(Rate / 10, new(new(first, Rate / 10, Deck.A), null));
-        timeline.Append(Rate / 10, new(new(second, Rate / 10, Deck.B), null));
+        timeline.Append(Rate / 10, new QueueSnapshot(new PlayingTrack(first, Rate / 10, Deck.A), null));
+        timeline.Append(Rate / 10, new QueueSnapshot(new PlayingTrack(second, Rate / 10, Deck.B), null));
         Require(timeline.Read().Current?.Track == second,
             "A backend without a playback counter must use the last rendered state.");
         timeline.ReportOutputPosition(0);
