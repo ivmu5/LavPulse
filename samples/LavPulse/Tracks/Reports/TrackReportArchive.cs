@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 
@@ -32,7 +33,8 @@ internal static class TrackReportArchive
     {
         string type = mark.Kind == TrackReportMarkKind.StrongRhythm
             ? "STRONG RHYTHM (human estimate)" : "PROBLEM";
-        string bpm = mark.SuggestedBpm is double value ? $"; user BPM≈{value:0.##}" : "";
+        string bpm = mark.SuggestedBpm is double value
+            ? "; user BPM≈" + value.ToString("0.##", CultureInfo.InvariantCulture) : "";
         string transition = mark.Kind == TrackReportMarkKind.StrongRhythm
             ? $"; approximate boundary ±{mark.TimingToleranceMilliseconds} ms; " +
               $"up to {mark.PossibleMissingBeats} missing beats across tempo changes" : "";

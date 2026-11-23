@@ -25,7 +25,7 @@ internal sealed class QueueTrackRow : TrackListRow
 
     public QueueTrackRow()
     {
-        _graphics = new GraphicsView { Drawable = _text, InputTransparent = true };
+        _graphics = new GraphicsView { Drawable = _text, InputTransparent = true, IsClippedToBounds = true };
         _text.OverflowChanged += () => AnimationStateChanged?.Invoke();
         DragHandle = new Image
         {
