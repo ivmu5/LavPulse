@@ -37,6 +37,9 @@ public sealed partial class PlayerView : Grid
     private bool? _autoMixAppearance;
     private bool? _repeatAppearance;
     private bool? _equalizerAppearance;
+    private CancellationTokenSource? _previousHold;
+    private bool _previousWasHeld;
+    private const int PreviousHoldMilliseconds = 550;
 
     public PlayerView()
     {
@@ -150,6 +153,7 @@ public sealed partial class PlayerView : Grid
 
     public event Action? PlayRequested;
     public event Action? PreviousRequested;
+    public event Action? RestartCurrentRequested;
     public event Action? NextRequested;
     public event Action? AutoMixChanged;
     public event Action? RepeatOneChanged;
@@ -228,10 +232,22 @@ public sealed partial class PlayerView : Grid
         };
         _settings.Clicked += (_, _) => SettingsRequested?.Invoke();
         _play.Clicked += (_, _) => PlayRequested?.Invoke();
-        _previous.Clicked += (_, _) => PreviousRequested?.Invoke();
+        _previous.Pressed += (_, _) =>
+        {
+            CancelPreviousHold();
+            _previousWasHeld = false;
+            var hold = new CancellationTokenSource();
+            _previousHold = hold;
+            _ = DetectPreviousHoldAsync(hold);
+        };
+        _previous.Released += (_, _) => CancelPreviousHold();
+        _previous.Clicked += (_, _) =>
+        {
+            if (!_previousWasHeld) PreviousRequested?.Invoke();
+        };
         _next.Clicked += (_, _) => NextRequested?.Invoke();
         SemanticProperties.SetDescription(_next, "Свести со следующим треком");
-        SemanticProperties.SetDescription(_previous, "Предыдущий трек");
+        SemanticProperties.SetDescription(_previous, "Нажать: предыдущий трек. Удерживать: начало текущего трека.");
         SemanticProperties.SetDescription(_equalizer, "Открыть эквалайзер");
         SemanticProperties.SetDescription(_equalizerToggle, "Эквалайзер");
         _equalizer.RemoveDynamicResource(BackgroundColorProperty);
@@ -284,6 +300,27 @@ public sealed partial class PlayerView : Grid
             controls.RowSpacing = wide ? 0 : 4;
         };
         return controls;
+    }
+
+    private async Task DetectPreviousHoldAsync(CancellationTokenSource hold)
+    {
+        try
+        {
+            await Task.Delay(PreviousHoldMilliseconds, hold.Token);
+            if (!ReferenceEquals(_previousHold, hold) || !_previous.IsEnabled) return;
+            _previousWasHeld = true;
+            RestartCurrentRequested?.Invoke();
+        }
+        catch (OperationCanceledException) when (hold.IsCancellationRequested) { }
+    }
+
+    private void CancelPreviousHold()
+    {
+        var hold = _previousHold;
+        _previousHold = null;
+        if (hold is null) return;
+        hold.Cancel();
+        hold.Dispose();
     }
 
     public void SetRepeatOne(bool enabled)
@@ -364,6 +401,7 @@ public sealed partial class PlayerView : Grid
         _play.IsEnabled = canPlay;
         _next.IsEnabled = canMix;
         _previous.IsEnabled = canGoBack;
+        if (!canGoBack) CancelPreviousHold();
         if (_autoMixAppearance != automix)
         {
             _autoMixAppearance = automix;

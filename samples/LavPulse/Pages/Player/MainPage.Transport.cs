@@ -22,7 +22,7 @@ public sealed partial class MainPage
         }
     }
 
-    /// <summary>Restarts the current track or mixes into the most recently completed track.</summary>
+    /// <summary>Short press always requests the previous track, regardless of current playback position.</summary>
     private async Task PreviousAsync()
     {
         var snapshot = _playback.Snapshot;
@@ -30,12 +30,15 @@ public sealed partial class MainPage
         {
             return;
         }
-        if (_recommendations || current.Position > 3 * PlaybackFormat.SampleRate || _queue.Previous is not { } previous)
-        {
-            Seek(current.Track, 0);
-            return;
-        }
-        await ReplayHistoryAsync(previous);
+        if (!_recommendations && _queue.Previous is { } previous)
+            await ReplayHistoryAsync(previous);
+    }
+
+    /// <summary>Long press restarts the currently playing deck without changing the queue.</summary>
+    private void RestartCurrent()
+    {
+        if (_closed || IsStopping || IsTransitioning(_playback.Snapshot)) return;
+        if (_playback.Snapshot.Current is { } current) Seek(current.Track, 0);
     }
 
     /// <summary>Commits a seek preview to a still-active deck.</summary>

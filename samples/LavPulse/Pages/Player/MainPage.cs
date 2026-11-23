@@ -74,6 +74,7 @@ public sealed partial class MainPage : ContentPage
         _view.PlayRequested += async () => await TogglePlaybackAsync();
         _view.NextRequested += async () => await StartMixAsync();
         _view.PreviousRequested += async () => await PreviousAsync();
+        _view.RestartCurrentRequested += RestartCurrent;
         _view.AutoMixChanged += ToggleAutoMix;
         _view.RepeatOneChanged += ToggleRepeatOne;
         _view.EqualizerRequested += () => OpenEqualizer();

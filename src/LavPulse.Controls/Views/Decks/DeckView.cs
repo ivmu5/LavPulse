@@ -69,6 +69,7 @@ public sealed partial class DeckView : Border
     public event Action<CachedTrack, long>? SeekRequested;
     internal CachedTrack? DisplayedTrack => _track;
     internal bool IsOverviewAnimating => _overviewAnimating;
+    internal bool IsOverviewCollapsed => !_overviewAnimating && _overviewProgress <= .00001;
 
     internal void SetPlayheadAnimation(bool enabled)
     {
