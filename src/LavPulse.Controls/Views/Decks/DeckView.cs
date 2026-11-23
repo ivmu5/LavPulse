@@ -174,8 +174,9 @@ public sealed partial class DeckView : Border
         bool snap = trackChanged || _snapPlayhead || !_animatePlayhead;
         _snapPlayhead = false;
         _position = deck.Position;
-        string tempo = deck.Track.Waveform.Rhythm is { HasBeatGrid: true } rhythm
-            ? $"≈{rhythm.BpmAt(_position):0.#} BPM" : "";
+        double localBpm = deck.Track.Waveform.Rhythm is { HasBeatGrid: true } rhythm
+            ? rhythm.BpmAt(_position) : 0;
+        string tempo = localBpm > 0 ? $"≈{localBpm:0.#} BPM" : "";
         if (_bpm.Text != tempo)
         {
             _bpm.Text = tempo;

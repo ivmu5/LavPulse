@@ -117,7 +117,8 @@ public static class TrackRhythmAnalyzer
         long totalFrames, CancellationToken cancellationToken = default)
     {
         if (framesPerHop <= 0) throw new ArgumentOutOfRangeException(nameof(framesPerHop));
-        if (totalFrames <= 0 || energy.Count < 16) return Empty();
+        if (totalFrames <= 0 || energy.Count < 16)
+            return Empty() with { AnalysisStatus = "Недостаточно аудиоданных для анализа" };
         double hopsPerSecond = PlaybackFormat.SampleRate / (double)framesPerHop;
         var onsets = DetectOnsets(energy, hopsPerSecond, cancellationToken);
         // Without reliable rhythm, show only exceptionally strong isolated accents.

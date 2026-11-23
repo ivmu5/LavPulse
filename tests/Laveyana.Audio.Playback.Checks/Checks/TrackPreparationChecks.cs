@@ -267,7 +267,7 @@ internal static class TrackPreparationChecks
             "The report omitted the per-window diagnostic evidence.");
 
         var waveform = new TrackWaveform(
-            Enumerable.Repeat(new WaveformPoint(.5f, .28f, .19f, .09f), 500).ToArray(),
+            Enumerable.Repeat(new WaveformPoint(.5f, .28f, .19f, .09f), seconds * 25).ToArray(),
             (long)seconds * PlaybackFormat.SampleRate, PlaybackFormat.SampleRate / 25)
         { Rhythm = grid };
         string text = TrackAnalysisReport.Create("techno-example.mp3", waveform,
