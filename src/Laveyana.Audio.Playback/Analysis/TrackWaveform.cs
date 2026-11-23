@@ -12,6 +12,9 @@ public readonly record struct WaveformPoint(float Peak, float Low, float Mid, fl
 
 public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long TotalFrames, int FramesPerPoint)
 {
+    /// <summary>Estimated musical rhythm and detected transients, produced by the analysis pass.</summary>
+    public TrackBeatGrid? Rhythm { get; init; }
+
     /// <summary>Reads PCM in blocks and reduces it to a bounded set of display points.</summary>
     public static TrackWaveform Analyze(IPcmSource source, CancellationToken token)
     {
@@ -78,7 +81,8 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
             throw new InvalidDataException("В MP3 нет аудиоданных.");
         }
 
-        return new TrackWaveform(points.AsReadOnly(), totalFrames, framesPerPoint);
+        var waveform = new TrackWaveform(points.AsReadOnly(), totalFrames, framesPerPoint);
+        return waveform with { Rhythm = TrackRhythmAnalyzer.Analyze(waveform) };
     }
 
     private static WaveformPoint ToPoint(Vector4 peak) => new(peak.X, peak.Y, peak.Z, peak.W);

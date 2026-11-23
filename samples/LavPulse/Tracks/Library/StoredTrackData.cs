@@ -11,8 +11,10 @@ internal sealed record StoredPcmReference(string? PcmFile);
 internal sealed record StoredAnalysis(long TotalFrames, int FramesPerPoint, WaveformPoint[] Points,
     TrackAudioInfo? AudioInfo, string? PcmFile)
 {
+    public TrackBeatGrid? Rhythm { get; init; }
+
     [JsonIgnore]
-    public TrackWaveform Waveform => new(Array.AsReadOnly(Points), TotalFrames, FramesPerPoint);
+    public TrackWaveform Waveform => new(Array.AsReadOnly(Points), TotalFrames, FramesPerPoint) { Rhythm = Rhythm };
 }
 
 [JsonSerializable(typeof(StoredQueue))]

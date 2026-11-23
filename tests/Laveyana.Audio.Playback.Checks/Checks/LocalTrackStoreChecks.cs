@@ -32,7 +32,7 @@ internal static class LocalTrackStoreChecks
             ReferenceEquals(current, tracks[1]), "Queue order or current track changed after reopening.");
         Require(reopened.HasAnalysis(tracks[0]), "Compact analysis was not indexed after reopening.");
         var cached = await reopened.ReadAnalysisAsync(tracks[1], default);
-        Require(cached is not null && reopened.FindPcm(cached) == ready.Path,
+        Require(cached is not null && cached.Rhythm is not null && reopened.FindPcm(cached) == ready.Path,
             "Completed PCM was lost or replaced by a compact scan.");
         Require(await reopened.ReadTrackStorageSizeAsync(tracks[0], default) ==
                 tracks[0].SizeBytes + AnalysisBytes(tracks[0]) &&
@@ -71,7 +71,7 @@ internal static class LocalTrackStoreChecks
         Console.WriteLine("OK: durable track copies, queue restore, saved waveform reuse and ordered analysis.");
         Console.WriteLine("OK: track storage sizes, including analysis and PCM cache eviction.");
 
-        long AnalysisBytes(TrackFile file) => new FileInfo(Path.Combine(root, "analysis-v1",
+        long AnalysisBytes(TrackFile file) => new FileInfo(Path.Combine(root, "analysis-v2",
             Path.GetFileNameWithoutExtension(file.LocalPath) + ".json")).Length;
     }
 
