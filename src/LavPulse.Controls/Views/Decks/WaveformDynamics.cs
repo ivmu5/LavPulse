@@ -19,7 +19,8 @@ internal sealed class WaveformDynamics
         for (int i = 0; i < points.Count; i++) peaks[i] = Math.Max(0, points[i].Peak);
         Array.Sort(peaks);
         // A single unusually loud sample must not flatten all the other columns.
-        _referencePeak = points.Count == 0 ? 1 : Math.Max(.08f, peaks[(int)Math.Floor((peaks.Length - 1) * .95)]);
+        _referencePeak = points.Count == 0 ? 1 : Math.Max(.08f,
+            Math.Max(peaks[(int)Math.Ceiling(peaks.Length * .95) - 1], peaks[^1] * .65f));
 
         // Comparing bass amplitude against the preceding ~200 ms highlights the attack of
         // a kick while leaving a sustained bass note at its natural height.
