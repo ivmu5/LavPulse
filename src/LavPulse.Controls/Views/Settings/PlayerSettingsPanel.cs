@@ -4,8 +4,10 @@ namespace Laveyana.LavPulse.Controls;
 public sealed partial class PlayerSettingsPanel : ContentView
 {
     private readonly Action<PlayerSettings>? _previewAppearance;
-    private readonly ContentView[] _sectionHosts = new ContentView[7];
-    private readonly Button[] _sectionButtons = new Button[7];
+    private readonly ContentView[] _sectionHosts = new ContentView[8];
+    private readonly Button[] _sectionButtons = new Button[8];
+    private readonly IReadOnlyList<LibraryStorageOption> _storageOptions;
+    private readonly Func<Task<string?>>? _pickStorageFolder;
     private readonly List<NumericSettingInput> _visibleNumbers = [];
     private readonly Grid _settingsLayout;
     private readonly ContentView _paletteEditorHost = new() { IsVisible = false };
@@ -14,9 +16,13 @@ public sealed partial class PlayerSettingsPanel : ContentView
     private bool _loading;
 
     public PlayerSettingsPanel(PlayerSettings settings, Action<PlayerSettings> apply, Action dismiss,
-        Action<PlayerSettings>? previewAppearance = null)
+        Action<PlayerSettings>? previewAppearance = null,
+        IReadOnlyList<LibraryStorageOption>? storageOptions = null,
+        Func<Task<string?>>? pickStorageFolder = null)
     {
         _settings = settings;
+        _storageOptions = storageOptions ?? [];
+        _pickStorageFolder = pickStorageFolder;
         _previewAppearance = previewAppearance;
         var heading = MixerStyle.Label("Настройки", MixerStyle.PhoneFont(23, 20), bold: true);
         SemanticProperties.SetHeadingLevel(heading, SemanticHeadingLevel.Level1);
@@ -33,7 +39,7 @@ public sealed partial class PlayerSettingsPanel : ContentView
 
         var sections = new VerticalStackLayout { Spacing = 8 };
         string[] names = ["Воспроизведение", "Деки", "Цвета", "Интерфейс и FPS", "Мастер-спектр", "Яркость спектра",
-            "Анализ треков"];
+            "Анализ треков", "Хранилище"];
         for (int index = 0; index < names.Length; index++)
         {
             int section = index;
@@ -104,7 +110,8 @@ public sealed partial class PlayerSettingsPanel : ContentView
             3 => CreateFrameRateSection(),
             4 => CreateSpectrumSection(),
             5 => CreateBrightnessSection(),
-            _ => CreateAnalysisSection()
+            6 => CreateAnalysisSection(),
+            _ => CreateStorageSection()
         };
         for (int section = 0; section < _sectionButtons.Length; section++)
         {

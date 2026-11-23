@@ -107,7 +107,13 @@ internal static class LibraryStorageMigration
         }
         // The source tree is intentionally not deleted here: the caller must first commit
         // the destination path to durable preferences.
-        File.Delete(marker);
+        // The marker is removed only after the new active location has been committed.
+    }
+
+    internal static void Confirm(string destinationRoot)
+    {
+        string marker = Path.Combine(Path.GetFullPath(destinationRoot), MarkerName);
+        if (File.Exists(marker)) File.Delete(marker);
     }
 
     private static async Task<bool> FilesEqualAsync(string source, string target, CancellationToken token)

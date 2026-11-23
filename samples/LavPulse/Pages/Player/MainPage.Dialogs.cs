@@ -41,7 +41,8 @@ public sealed partial class MainPage
     private bool OpenSettings()
     {
         var settings = OpenPanel(() =>
-            new PlayerSettingsPanel(_settings, value => ApplySettings(value), ClosePanel, PreviewAppearance));
+            new PlayerSettingsPanel(_settings, value => ApplySettings(value), ClosePanel, PreviewAppearance,
+                GetStorageOptions(), PickStorageFolderAsync));
         if (settings is null) return false;
         settings.PaletteEditingChanged += editing =>
         {
