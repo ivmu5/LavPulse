@@ -26,10 +26,12 @@ internal sealed class WaveformDrawable : IDrawable
         {
             if (ReferenceEquals(_waveform, value)) return;
             _waveform = value;
+            _dynamics = value is { Points.Count: > 0 } ? new WaveformDynamics(value.Points) : null;
             ReleaseBands();
         }
     }
     private TrackWaveform? _waveform;
+    private WaveformDynamics? _dynamics;
     public bool Detailed { get; init; }
     public int DetailWindowSeconds { get; set; } = PlayerSettings.DefaultWaveformDetailSeconds;
     public long Position { get; set; }
@@ -103,7 +105,7 @@ internal sealed class WaveformDrawable : IDrawable
             ReleaseBands();
             // Two adjacent detail windows cover the viewport until the playhead crosses the next chunk.
             int meshWindows = Detailed ? 2 : 1;
-            _bands = BuildBands(waveform, meshStart, length * meshWindows, columns * meshWindows,
+            _bands = BuildBands(waveform, _dynamics!, meshStart, length * meshWindows, columns * meshWindows,
                 x, spacing, middle, bounds.Height / 2 - 4);
             _cachedBounds = bounds;
             _cachedStart = meshStart;
@@ -129,7 +131,7 @@ internal sealed class WaveformDrawable : IDrawable
         _bands = null;
     }
 
-    private static PathF[] BuildBands(TrackWaveform waveform, long start, long length,
+    private static PathF[] BuildBands(TrackWaveform waveform, WaveformDynamics dynamics, long start, long length,
         int columns, float x, float spacing, float middle, float scale)
     {
         PathF[] bands = [new(), new(), new()];
@@ -141,16 +143,20 @@ internal sealed class WaveformDrawable : IDrawable
             int from = (int)(fromFrame / waveform.FramesPerPoint);
             int to = (int)(Math.Max(fromFrame, toFrame - 1) / waveform.FramesPerPoint);
             WaveformPoint point = waveform.Points[from];
+            float bassAttack = dynamics.BassAttack(from);
             for (int index = from + 1; index <= to; index++)
             {
                 point = point.Combine(waveform.Points[index]);
+                bassAttack = Math.Max(bassAttack, dynamics.BassAttack(index));
             }
 
-            float sum = point.Low + point.Mid + point.High;
+            // Preserve the differences between quiet material and real transients. The former
+            // sqrt(Peak) curve raised weak intervals so much that drum hits looked almost flat.
+            float sum = point.Low * 1.35f + point.Mid + point.High * .8f;
             if (point.Peak < 0.001f || sum <= 0) continue;
 
-            float height = MathF.Sqrt(point.Peak) * scale;
-            float low = height * point.Low / sum;
+            float height = dynamics.Height(point.Peak, bassAttack) * scale;
+            float low = height * point.Low * 1.35f / sum;
             float mid = height * point.Mid / sum;
             float bar = x + spacing * (column + 0.5f);
             AddBand(bands[0], bar, middle, 0, low);
