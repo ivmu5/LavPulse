@@ -31,6 +31,12 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         Vector4 leftPeak = Vector4.Zero;
         Vector4 rightPeak = Vector4.Zero;
         int framesInPoint = 0;
+        // Rhythm uses 10 ms energy windows even when the 25 Hz display waveform is reduced.
+        // Keep this envelope only during analysis; the persisted result contains beat/onset positions.
+        int rhythmHopFrames = Math.Max(1, source.SampleRate / 100);
+        int framesInRhythmHop = 0;
+        Vector4 rhythmSum = Vector4.Zero;
+        var rhythmEnergy = new List<RhythmEnergy>();
         long totalFrames = 0;
 
         while (true)
@@ -50,8 +56,19 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
                 int end = (offset + count) * channels;
                 for (int sample = offset * channels; sample < end; sample += channels)
                 {
-                    leftPeak = Vector4.Max(leftPeak, left.Process(pcm[sample], bass, treble));
-                    rightPeak = Vector4.Max(rightPeak, right.Process(pcm[sample + 1], bass, treble));
+                    var leftBands = left.Process(pcm[sample], bass, treble);
+                    var rightBands = right.Process(pcm[sample + 1], bass, treble);
+                    leftPeak = Vector4.Max(leftPeak, leftBands);
+                    rightPeak = Vector4.Max(rightPeak, rightBands);
+                    rhythmSum += Vector4.Max(leftBands, rightBands);
+                    if (++framesInRhythmHop == rhythmHopFrames)
+                    {
+                        float inverse = 1f / framesInRhythmHop;
+                        rhythmEnergy.Add(new RhythmEnergy(rhythmSum.Y * inverse, rhythmSum.Z * inverse,
+                            rhythmSum.W * inverse));
+                        rhythmSum = Vector4.Zero;
+                        framesInRhythmHop = 0;
+                    }
                 }
                 offset += count;
                 framesInPoint += count;
@@ -75,6 +92,12 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         {
             points.Add(ToPoint(Vector4.Max(leftPeak, rightPeak)));
         }
+        if (framesInRhythmHop > 0)
+        {
+            float inverse = 1f / framesInRhythmHop;
+            rhythmEnergy.Add(new RhythmEnergy(rhythmSum.Y * inverse, rhythmSum.Z * inverse,
+                rhythmSum.W * inverse));
+        }
 
         if (totalFrames == 0)
         {
@@ -82,7 +105,10 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         }
 
         var waveform = new TrackWaveform(points.AsReadOnly(), totalFrames, framesPerPoint);
-        return waveform with { Rhythm = TrackRhythmAnalyzer.Analyze(waveform) };
+        return waveform with
+        {
+            Rhythm = TrackRhythmAnalyzer.AnalyzeEnergy(rhythmEnergy, rhythmHopFrames, totalFrames, token)
+        };
     }
 
     private static WaveformPoint ToPoint(Vector4 peak) => new(peak.X, peak.Y, peak.Z, peak.W);
