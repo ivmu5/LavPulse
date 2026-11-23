@@ -217,7 +217,8 @@ public static class TrackRhythmAnalyzer
             // These are real 9-second analysis windows, not the 2-second center spacing.
             long start = Math.Clamp(((long)index * stride - radius) * framesPerHop, 0, totalFrames);
             long end = Math.Clamp(((long)index * stride + radius) * framesPerHop, start, totalFrames);
-            windows[index] = new(start, end, hitsPerSlice[index] >= 5 ? selected[index] : 0,
+            windows[index] = new(start, end,
+                hitsPerSlice[index] >= 5 && quality[index] >= .28f ? selected[index] : 0,
                 quality[index], hitsPerSlice[index]);
         }
 
