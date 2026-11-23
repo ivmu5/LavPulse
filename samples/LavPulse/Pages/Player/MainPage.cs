@@ -95,6 +95,8 @@ public sealed partial class MainPage : ContentPage
         _systemPlayback.CommandReceived += OnSystemPlaybackCommand;
         _view.CurrentDeck.SeekRequested += Seek;
         _view.IncomingDeck.SeekRequested += Seek;
+        _view.CurrentDeck.AnalysisCopyRequested += CopyTrackAnalysisAsync;
+        _view.IncomingDeck.AnalysisCopyRequested += CopyTrackAnalysisAsync;
 
         _positions = Dispatcher.CreateTimer();
         _positions.Interval = VisibleRefreshInterval;

@@ -12,6 +12,19 @@ public sealed partial class DeckView : Border
     private readonly Label _name = MixerStyle.Label("", MixerStyle.PhoneFont(13, 12), bold: true);
     private readonly Label _time = MixerStyle.Label("", MixerStyle.PhoneFont(11, 10), MixerColor.Muted);
     private readonly Label _bpm = MixerStyle.Label("", MixerStyle.PhoneFont(11, 10), MixerColor.Accent);
+    // Temporary diagnostic control: keep it inside the deck, to the right of the time.
+    private readonly Button _copyAnalysis = new()
+    {
+        Text = "Копия",
+        FontFamily = "Inter",
+        FontSize = 10,
+        HeightRequest = 28,
+        MinimumHeightRequest = 28,
+        Padding = new Thickness(6, 0),
+        CornerRadius = 6,
+        VerticalOptions = LayoutOptions.Center,
+        IsVisible = false
+    };
     private readonly Label _previewLabel = MixerStyle.Label("", MixerStyle.PhoneFont(12, 11));
     private readonly WaveformDrawable _detailDrawable = new() { Detailed = true };
     private readonly WaveformDrawable _overviewDrawable = new() { UseProgressBar = true };
@@ -53,9 +66,17 @@ public sealed partial class DeckView : Border
         _previewLabel.InputTransparent = true;
         _previewLabel.IsVisible = false;
 
+        MixerStyle.UseColor(_copyAnalysis, VisualElement.BackgroundColorProperty, MixerColor.Button);
+        MixerStyle.UseColor(_copyAnalysis, Button.TextColorProperty, MixerColor.Text);
+        SemanticProperties.SetDescription(_copyAnalysis, "Скопировать диагностический отчёт по анализу трека");
+        _copyAnalysis.Clicked += (_, _) =>
+        {
+            if (_track is { } track) AnalysisCopyRequested?.Invoke(track);
+        };
         var header = new Grid
         {
-            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto)], ColumnSpacing = 8
+            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto),
+                new(GridLength.Auto)], ColumnSpacing = 6
         };
         _name.MaxLines = 1;
         _name.LineBreakMode = LineBreakMode.TailTruncation;
@@ -64,6 +85,7 @@ public sealed partial class DeckView : Border
         header.Add(_name);
         header.Add(_bpm, 1);
         header.Add(_time, 2);
+        header.Add(_copyAnalysis, 3);
         var detailLayer = new Grid { Children = { _detail, _detailCursor, _previewLabel } };
         MixerStyle.StyleCard(this, new VerticalStackLayout { Spacing = 5, Children = { header, detailLayer, _overviewLayer } });
         Padding = new Thickness(10, 7);
@@ -73,6 +95,7 @@ public sealed partial class DeckView : Border
     }
 
     public event Action<CachedTrack, long>? SeekRequested;
+    public event Action<CachedTrack>? AnalysisCopyRequested;
     internal CachedTrack? DisplayedTrack => _track;
     internal bool IsOverviewAnimating => _overviewAnimating;
     internal bool IsOverviewCollapsed => !_overviewAnimating && _overviewProgress <= .00001;
@@ -124,6 +147,7 @@ public sealed partial class DeckView : Border
         }
 
         IsVisible = playing.HasValue;
+        _copyAnalysis.IsVisible = playing.HasValue;
         if (playing is not { } deck)
         {
             SetOverview(false, animate: false);
@@ -150,8 +174,9 @@ public sealed partial class DeckView : Border
         bool snap = trackChanged || _snapPlayhead || !_animatePlayhead;
         _snapPlayhead = false;
         _position = deck.Position;
-        string tempo = deck.Track.Waveform.Rhythm is { HasBeatGrid: true } rhythm
-            ? $"≈{rhythm.BpmAt(_position):0.#} BPM" : "";
+        double localBpm = deck.Track.Waveform.Rhythm is { HasBeatGrid: true } rhythm
+            ? rhythm.BpmAt(_position) : 0;
+        string tempo = localBpm > 0 ? $"≈{localBpm:0.#} BPM" : "";
         if (_bpm.Text != tempo)
         {
             _bpm.Text = tempo;

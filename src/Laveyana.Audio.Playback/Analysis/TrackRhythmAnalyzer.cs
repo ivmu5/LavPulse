@@ -3,19 +3,43 @@ namespace Laveyana.Audio.Playback;
 /// <summary>Band energy averaged over a small, fixed PCM window; used only while analyzing a track.</summary>
 internal readonly record struct RhythmEnergy(float Low, float Mid, float High);
 
+/// <summary>An independently evaluated rhythmic region; gaps are deliberately left without grid marks.</summary>
+public sealed record TrackTempoSection(long StartFrame, long EndFrame, double Bpm, float Confidence,
+    int OnsetCount, int MatchedBeats);
+
+/// <summary>One local analysis window, including rejected windows for diagnostic export.</summary>
+public sealed record TrackTempoWindow(long StartFrame, long EndFrame, double Bpm, float Confidence, int OnsetCount);
+
+/// <summary>A percussive candidate preserved for diagnosing false detections and missing beats.</summary>
+public readonly record struct TrackOnsetDiagnostic(long Frame, float Strength, float Accent);
+
 /// <summary>Estimated tempo, measured attacks and a variable-tempo sequence of beat positions.</summary>
 /// <remarks>Beats are estimated musical pulses, not verified bar downbeats or phrase boundaries.</remarks>
 public sealed record TrackBeatGrid(double Bpm, long FirstBeatFrame, float Confidence, long[] TransientFrames)
 {
     /// <summary>Individually tracked beat positions (48 kHz PCM frame coordinates).</summary>
     public long[] BeatFrames { get; init; } = [];
+    public TrackTempoSection[] Sections { get; init; } = [];
+    public TrackTempoWindow[] Windows { get; init; } = [];
+    public int CandidateOnsets { get; init; }
+    public TrackOnsetDiagnostic[] OnsetDiagnostics { get; init; } = [];
+    public string AnalysisStatus { get; init; } = "";
 
-    public bool HasBeatGrid => Bpm >= 70 && Confidence >= .40f && BeatFrames.Length >= 4;
+    // A track can contain trustworthy rhythmic sections even if its intro/breakdown is unmetered.
+    public bool HasBeatGrid => BeatFrames.Length >= 4 &&
+        (Sections.Length > 0 || (Bpm >= 70 && Confidence >= .40f));
 
     /// <summary>Estimates the local BPM from neighboring beats instead of the track-wide median.</summary>
     public double BpmAt(long position)
     {
         if (!HasBeatGrid) return Bpm;
+        foreach (var section in Sections)
+        {
+            if (position >= section.StartFrame && position < section.EndFrame)
+                return section.Bpm;
+        }
+        // Gaps between reliable rhythmic regions have no trustworthy local BPM.
+        if (Sections.Length > 0) return 0;
         int index = Array.BinarySearch(BeatFrames, position);
         if (index < 0) index = ~index;
         int span = Math.Min(4, BeatFrames.Length - 1);
@@ -49,7 +73,23 @@ public static class TrackRhythmAnalyzer
         rhythm.TransientFrames is { Length: <= MaximumStoredTransients } onsets &&
         rhythm.BeatFrames is { Length: <= MaximumBeatFrames } beats &&
         (beats.Length == 0 || (beats.Length >= 4 && beats[0] == rhythm.FirstBeatFrame)) &&
-        IsAscending(onsets, totalFrames) && IsAscending(beats, totalFrames);
+        IsAscending(onsets, totalFrames) && IsAscending(beats, totalFrames) &&
+        rhythm.Sections is { Length: <= 4096 } sections &&
+        rhythm.Windows is { Length: <= 8192 } windows &&
+        sections.All(section => section.StartFrame >= 0 && section.StartFrame < section.EndFrame &&
+            section.EndFrame <= totalFrames && section.Bpm >= MinimumBpm &&
+            section.Bpm <= MaximumBpm && double.IsFinite(section.Bpm) &&
+            float.IsFinite(section.Confidence) && section.Confidence >= 0 && section.Confidence <= 1 &&
+            section.OnsetCount >= 0 && section.MatchedBeats >= 0) &&
+        windows.All(window => window.StartFrame >= 0 && window.StartFrame <= window.EndFrame &&
+            window.EndFrame <= totalFrames && window.Bpm >= 0 && window.Bpm <= MaximumBpm &&
+            double.IsFinite(window.Bpm) && float.IsFinite(window.Confidence) &&
+            window.Confidence >= 0 && window.Confidence <= 1 && window.OnsetCount >= 0) &&
+        rhythm.CandidateOnsets >= 0 &&
+        rhythm.OnsetDiagnostics is { Length: <= MaximumStoredTransients } diagnostics &&
+        diagnostics.All(hit => hit.Frame >= 0 && hit.Frame <= totalFrames &&
+            float.IsFinite(hit.Strength) && float.IsFinite(hit.Accent) &&
+            hit.Strength >= 0 && hit.Accent >= 0);
 
     private static bool IsAscending(long[] values, long limit)
     {
@@ -77,13 +117,21 @@ public static class TrackRhythmAnalyzer
         long totalFrames, CancellationToken cancellationToken = default)
     {
         if (framesPerHop <= 0) throw new ArgumentOutOfRangeException(nameof(framesPerHop));
-        if (totalFrames <= 0 || energy.Count < 16) return Empty();
+        if (totalFrames <= 0 || energy.Count < 16)
+            return Empty() with { AnalysisStatus = "Недостаточно аудиоданных для анализа" };
         double hopsPerSecond = PlaybackFormat.SampleRate / (double)framesPerHop;
         var onsets = DetectOnsets(energy, hopsPerSecond, cancellationToken);
         // Without reliable rhythm, show only exceptionally strong isolated accents.
         // Relax the visual threshold only after the grid is independently validated.
         long[] transients = StoreTransients(onsets, framesPerHop, totalFrames, .85f);
-        if (onsets.Count < 8) return Empty(transients);
+        TrackOnsetDiagnostic[] onsetDebug = SampleCandidates(onsets, framesPerHop, totalFrames);
+        if (onsets.Count < 8)
+            return Empty(transients) with
+            {
+                CandidateOnsets = onsets.Count,
+                OnsetDiagnostics = onsetDebug,
+                AnalysisStatus = "Недостаточно кандидатов ударов"
+            };
 
         int stride = Math.Max(1, (int)Math.Round(2 * hopsPerSecond));
         int radius = Math.Max(8, (int)Math.Round(4.5 * hopsPerSecond));
@@ -161,76 +209,155 @@ public static class TrackRhythmAnalyzer
             quality[window] = scores[window, bestLast];
             if (window > 0) bestLast = backtrack[window, bestLast];
         }
-        // Use repeated evidence from multiple windows rather than a single high score.
-        // This recovers real rhythms with extra syncopation without blindly drawing a grid.
-        var evidence = quality.Where((q, i) => hitsPerSlice[i] >= 8 && q >= .35f).ToArray();
-        if (evidence.Length < 2) return Empty(transients);
-        float coherence = evidence.Average();
-        if (coherence < .44f) return Empty(transients);
+        // Retain the result of EVERY analysis window, including rejected ones. This
+        // explains failures in exported reports instead of only reporting "BPM = 0".
+        var windows = new TrackTempoWindow[slices];
+        for (int index = 0; index < slices; index++)
+        {
+            // These are real 9-second analysis windows, not the 2-second center spacing.
+            long start = Math.Clamp(((long)index * stride - radius) * framesPerHop, 0, totalFrames);
+            long end = Math.Clamp(((long)index * stride + radius) * framesPerHop, start, totalFrames);
+            windows[index] = new(start, end,
+                hitsPerSlice[index] >= 5 && quality[index] >= .28f ? selected[index] : 0,
+                quality[index], hitsPerSlice[index]);
+        }
 
-        // Anchor the first beat from the phase of the earliest confident region.
-        int anchor = Array.FindIndex(quality, q => q >= .44f);
-        if (anchor < 0) return Empty(transients);
-        double anchorBpm = selected[anchor];
-        double angularSpeed = Math.Tau * anchorBpm / (60 * hopsPerSecond);
-        int anchorCenter = anchor * stride;
-        double re = 0, im = 0;
+        var sections = new List<TrackTempoSection>();
+        var beats = new List<long>();
+        int firstWindow = -1;
+        for (int index = 0; index <= slices; index++)
+        {
+            bool eligible = index < slices && hitsPerSlice[index] >= 5 && quality[index] >= .28f;
+            bool tempoChange = eligible && firstWindow >= 0 &&
+                Math.Abs(selected[index] - selected[firstWindow]) > 7.5 && index - firstWindow >= 2;
+            if ((!eligible || tempoChange || index == slices) && firstWindow >= 0)
+            {
+                // A single strong window may be a melody or a random repeating sound.
+                if (index - firstWindow >= 2)
+                    AnalyzeSection(firstWindow, index, selected, quality, onsets, stride, radius,
+                        hopsPerSecond, framesPerHop, totalFrames, sections, beats, cancellationToken);
+                firstWindow = -1;
+            }
+            if (eligible && firstWindow < 0) firstWindow = index;
+        }
+
+        if (beats.Count == 0)
+            return Empty(transients) with
+            {
+                Windows = windows,
+                CandidateOnsets = onsets.Count,
+                OnsetDiagnostics = onsetDebug,
+                AnalysisStatus = "Нет подтверждённых локальных участков с устойчивыми долями"
+            };
+
+        // Segments may be separated by a breakdown. In that case no artificial beats
+        // are inserted in the gap, and BPM belongs to the corresponding section.
+        var tempos = sections.Select(section => section.Bpm).OrderBy(value => value).ToArray();
+        double representative = tempos[tempos.Length / 2];
+        float confidence = sections.Average(section => section.Confidence);
+        return new TrackBeatGrid(representative, beats[0], confidence,
+            StoreTransients(onsets, framesPerHop, totalFrames, .65f))
+        {
+            BeatFrames = beats.ToArray(),
+            Sections = sections.ToArray(),
+            Windows = windows,
+            CandidateOnsets = onsets.Count,
+            OnsetDiagnostics = onsetDebug,
+            AnalysisStatus = $"Найдено участков: {sections.Count}"
+        };
+    }
+
+    private static void AnalyzeSection(int firstWindow, int endWindow, double[] tempos, float[] quality,
+        IReadOnlyList<Onset> onsets, int stride, int radius, double hopsPerSecond,
+        int hopFrames, long totalFrames, List<TrackTempoSection> sections, List<long> beats,
+        CancellationToken token)
+    {
+        double meanConfidence = 0;
+        var localTempos = new List<double>();
+        for (int i = firstWindow; i < endWindow; i++)
+        {
+            meanConfidence += quality[i];
+            localTempos.Add(tempos[i]);
+        }
+        meanConfidence /= endWindow - firstWindow;
+        if (meanConfidence < .33) return;
+        localTempos.Sort();
+        double bpm = localTempos[localTempos.Count / 2];
+        // Anchor phase close to the FIRST valid window. Starting from the middle of a long
+        // accelerando with the median tempo introduces a cumulative phase error at its start.
+        double anchorBpm = tempos[firstWindow];
+        double period = hopsPerSecond * 60 / anchorBpm;
+        double phaseSpeed = Math.Tau / period;
+        int center = firstWindow * stride;
+        double real = 0, imaginary = 0;
+        int onsetsInSection = 0;
         foreach (Onset onset in onsets)
         {
-            if (Math.Abs(onset.Index - anchorCenter) > radius) continue;
-            (double sine, double cosine) = Math.SinCos(onset.Index * angularSpeed);
-            re += onset.Strength * cosine;
-            im += onset.Strength * sine;
+            if (Math.Abs(onset.Index - center) <= radius)
+            {
+                (double sine, double cosine) = Math.SinCos(onset.Index * phaseSpeed);
+                real += onset.Strength * cosine;
+                imaginary += onset.Strength * sine;
+            }
         }
-        double angle = (Math.Atan2(im, re) + Math.Tau) % Math.Tau;
-        double period = 60 * hopsPerSecond / anchorBpm;
-        double position = angle / Math.Tau * period;
-        var beats = new List<long>();
-        int onsetCursor = 0, missed = 0, matched = 0;
-        while (position * framesPerHop < totalFrames && beats.Count < MaximumBeatFrames)
+        double phase = (Math.Atan2(imaginary, real) + Math.Tau) % Math.Tau;
+        double phaseInHops = phase / Math.Tau * period;
+        long startFrame = firstWindow == 0 ? 0 :
+            Math.Max(0L, ((long)firstWindow * stride - stride / 2) * hopFrames);
+        long endFrame = endWindow == tempos.Length ? totalFrames :
+            Math.Min(totalFrames, ((long)(endWindow - 1) * stride + stride / 2) * hopFrames);
+        if (startFrame >= endFrame) return;
+
+        double fromHop = startFrame / (double)hopFrames;
+        double position = phaseInHops + Math.Ceiling((fromHop - phaseInHops) / period) * period;
+        int onsetCursor = 0;
+        while (onsetCursor < onsets.Count && onsets[onsetCursor].Index < fromHop - period) onsetCursor++;
+
+        var localBeats = new List<long>();
+        int matched = 0, missed = 0;
+        while (position * hopFrames < endFrame && localBeats.Count < MaximumBeatFrames)
         {
-            if ((beats.Count & 1023) == 0) cancellationToken.ThrowIfCancellationRequested();
-            double currentBpm = TempoAt(position, selected, stride);
-            double spacing = 60 * hopsPerSecond / currentBpm;
-            double searchRadius = spacing * (missed >= 3 ? .32 : .16);
+            if ((localBeats.Count & 1023) == 0) token.ThrowIfCancellationRequested();
+            double localBpm = TempoAt(position, tempos, stride);
+            double spacing = 60 * hopsPerSecond / localBpm;
+            double searchRadius = spacing * (missed >= 3 ? .28 : .16);
             while (onsetCursor < onsets.Count && onsets[onsetCursor].Index < position - searchRadius)
                 onsetCursor++;
 
-            double bestOnset = position, bestMatch = 0;
+            double strongest = 0, nearest = position;
             for (int i = onsetCursor; i < onsets.Count && onsets[i].Index <= position + searchRadius; i++)
             {
                 double distance = Math.Abs(onsets[i].Index - position);
-                double match = onsets[i].Strength * (1 - distance / searchRadius);
-                if (match <= bestMatch) continue;
-                bestMatch = match;
-                bestOnset = onsets[i].Index;
+                double evidence = onsets[i].Strength * (1 - distance / searchRadius);
+                if (evidence <= strongest) continue;
+                strongest = evidence;
+                nearest = onsets[i].Index;
             }
             double correction = 0;
-            if (bestMatch >= .12)
+            if (strongest >= .12)
             {
-                correction = Math.Clamp((bestOnset - position) * (missed >= 3 ? .65 : .40),
-                    -spacing * .20, spacing * .20);
+                correction = Math.Clamp((nearest - position) * (missed >= 3 ? .65 : .4),
+                    -spacing * .2, spacing * .2);
                 matched++;
                 missed = 0;
             }
             else missed++;
 
-            long frame = Math.Clamp((long)Math.Round((position + correction) * framesPerHop), 0, totalFrames - 1);
-            if (beats.Count == 0 || frame > beats[^1]) beats.Add(frame);
+            long frame = Math.Clamp((long)Math.Round((position + correction) * hopFrames), startFrame, endFrame - 1);
+            if ((localBeats.Count == 0 || frame > localBeats[^1]) &&
+                (beats.Count == 0 || frame > beats[^1]))
+                localBeats.Add(frame);
             position += spacing + correction * .6;
         }
+        if (localBeats.Count < 4 || matched < Math.Max(3, localBeats.Count / 6)) return;
 
-        // A grid that cannot align with measured attacks should not be displayed.
-        if (beats.Count < 4 || matched < Math.Max(3, beats.Count / 8)) return Empty(transients);
-        double[] tempi = selected.Where((_, i) => hitsPerSlice[i] >= 8 && quality[i] >= .35f)
-            .OrderBy(b => b).ToArray();
-        double representativeBpm = tempi[tempi.Length / 2];
-        float confidence = (float)Math.Clamp(coherence * .82 + .18 * matched / Math.Max(1, beats.Count), 0, 1);
-        return new TrackBeatGrid(representativeBpm, beats[0], confidence,
-            StoreTransients(onsets, framesPerHop, totalFrames, .65f))
-        {
-            BeatFrames = beats.ToArray()
-        };
+        foreach (var onset in onsets)
+            if (onset.Index * (long)hopFrames >= startFrame && onset.Index * (long)hopFrames < endFrame)
+                onsetsInSection++;
+        float confidence = (float)Math.Clamp(.78 * meanConfidence +
+            .22 * matched / (double)localBeats.Count, 0, 1);
+        sections.Add(new(startFrame, endFrame, bpm, confidence, onsetsInSection, matched));
+        beats.AddRange(localBeats);
     }
 
     private static double TempoAt(double hop, double[] tempi, int stride)
@@ -308,6 +435,20 @@ public static class TrackRhythmAnalyzer
         int stride = Math.Max(1, (int)Math.Ceiling(accents.Count / (double)MaximumStoredTransients));
         return accents.Where((_, index) => index % stride == 0)
             .Select(hit => Math.Min(totalFrames - 1, (long)hit.Index * hopFrames)).ToArray();
+    }
+
+    private static TrackOnsetDiagnostic[] SampleCandidates(IReadOnlyList<Onset> onsets,
+        int framesPerHop, long totalFrames)
+    {
+        int step = Math.Max(1, (int)Math.Ceiling(onsets.Count / (double)MaximumStoredTransients));
+        var result = new List<TrackOnsetDiagnostic>();
+        for (int i = 0; i < onsets.Count; i += step)
+        {
+            var hit = onsets[i];
+            result.Add(new(Math.Min(totalFrames - 1, (long)hit.Index * framesPerHop),
+                hit.Strength, hit.Accent));
+        }
+        return result.ToArray();
     }
 
     private static TrackBeatGrid Empty(long[]? transients = null) => new(0, 0, 0, transients ?? []);
