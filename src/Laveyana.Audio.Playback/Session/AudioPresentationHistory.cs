@@ -13,7 +13,7 @@ internal sealed class AudioPresentationHistory
     private int _count = 1;
     private int _next = 1;
     private long _rendered;
-    private long _played;
+    private long _played = long.MaxValue; // In-memory outputs without a device counter use rendered time.
     private long _delay;
 
     public AudioPresentationHistory(QueueSnapshot initial) => _entries[0] = (0, initial);
@@ -40,12 +40,25 @@ internal sealed class AudioPresentationHistory
         }
     }
 
+    public long PresentedFrame
+    {
+        get
+        {
+            lock (_gate) return PresentedFrameUnsafe();
+        }
+    }
+
+    private long PresentedFrameUnsafe()
+    {
+        long output = _played == long.MaxValue ? _rendered : Math.Min(_played, _rendered);
+        return Math.Max(0, output - _delay);
+    }
+
     public QueueSnapshot Read()
     {
         lock (_gate)
         {
-            long output = _played == long.MaxValue ? _rendered : Math.Min(_played, _rendered);
-            long target = Math.Max(0, output - _delay);
+            long target = PresentedFrameUnsafe();
             int newest = (_next + Capacity - 1) % Capacity;
             for (int i = 0; i < _count; i++)
             {

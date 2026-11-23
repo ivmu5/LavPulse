@@ -32,6 +32,8 @@ internal static partial class Program
             CheckSingleInputMixer();
             CheckPcm16Conversion();
             Console.WriteLine("OK: ID3 artwork and PCM conversion and mixing.");
+            CheckAudioPresentationHistory(first, second);
+            await CheckAudibleQueueSnapshot(first, second);
             await CheckPauseAndResume(first, second, duringMix: false);
             await CheckPauseAndResume(first, second, duringMix: true);
             CheckShortTrack();

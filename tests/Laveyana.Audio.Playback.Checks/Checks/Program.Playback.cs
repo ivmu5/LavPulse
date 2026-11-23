@@ -73,6 +73,65 @@ internal static partial class Program
         }
     }
 
+    /// <summary>Playback-head measurements must gate both deck and spectrum presentation.</summary>
+    private static void CheckAudioPresentationHistory(CachedTrack first, CachedTrack second)
+    {
+        var start = new QueueSnapshot(new PlayingTrack(first, 0, Deck.A), null);
+        var timeline = new AudioPresentationHistory(start);
+        timeline.Append(Rate / 10, new(new(first, Rate / 10, Deck.A), null));
+        timeline.Append(Rate / 10, new(new(second, Rate / 10, Deck.B), null));
+        Require(timeline.Read().Current?.Track == second,
+            "A backend without a playback counter must use the last rendered state.");
+        timeline.ReportOutputPosition(0);
+        Require(timeline.Read().Current?.Position == 0 && timeline.PresentedFrame == 0,
+            "The playhead moved before the output began playing.");
+        timeline.ReportOutputPosition(Rate / 10);
+        Require(timeline.Read().Current?.Track == first && timeline.PresentedFrame == Rate / 10,
+            "The deck jumped to a successor still buffered by the device.");
+        timeline.ReportOutputPosition(Rate / 5);
+        Require(timeline.Read().Current?.Track == second,
+            "The deck failed to advance after the output actually reached the next track.");
+        timeline.SetDelay(Rate / 10);
+        Require(timeline.Read().Current?.Track == first && timeline.PresentedFrame == Rate / 10,
+            "Optional Bluetooth latency compensation did not delay the visual timeline.");
+        timeline.SetDelay(0);
+        Require(timeline.Read().Current?.Track == second,
+            "Resetting visual compensation did not restore the latest audible deck.");
+        Console.WriteLine("OK: device-head synchronized deck states and optional Bluetooth latency compensation.");
+    }
+
+    private static async Task CheckAudibleQueueSnapshot(CachedTrack first, CachedTrack second)
+    {
+        using var session = new QueuePlaybackSession();
+        session.SetFirst(first);
+        session.SetAutoMix(false);
+        session.SetCrossfadeDuration(0);
+        Require(session.SetNext(second), "Cannot queue a track for presentation test.");
+        var block = new float[BlockSize * PlaybackFormat.Channels];
+        await session.RunAsync(new InMemoryOutput(source =>
+        {
+            source.ReportOutputPosition(0);
+            Require(source.Render(block) == BlockSize && session.Snapshot.Current?.Position == BlockSize,
+                "Playback did not render ahead of the hardware clock.");
+            Require(session.PresentedSnapshot.Current?.Position == 0,
+                "Rendered PCM advanced the deck before the speaker consumed it.");
+            source.ReportOutputPosition(BlockSize);
+            Require(session.PresentedSnapshot.Current?.Position == BlockSize,
+                "Presented deck did not follow the native playback head.");
+            session.SetVisualDelay((int)Math.Round(BlockSize * 1000d / Rate));
+            Require(session.PresentedSnapshot.Current?.Position == 0,
+                "Queue presentation did not follow the changed latency setting.");
+            session.SetVisualDelay(0);
+            Require(session.RequestMix() && source.Render(block) == BlockSize && session.Snapshot.Current?.Track == second,
+                "Audio did not complete the immediate track transition.");
+            Require(session.PresentedSnapshot.Current?.Track == first,
+                "Visual presentation changed tracks while the successor was only buffered.");
+            source.ReportOutputPosition(2 * BlockSize);
+            Require(session.PresentedSnapshot.Current?.Track == second,
+                "Visual deck did not change after the output reached the next block.");
+        }), 0, CancellationToken.None);
+    }
+
     private static void CheckShortTrack()
     {
         var output = new TransportFadeSource(new ShortSource(), startMilliseconds: 0);

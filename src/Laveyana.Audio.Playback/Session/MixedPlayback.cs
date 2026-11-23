@@ -169,8 +169,8 @@ internal sealed class MixedPlayback : IAudioRenderSource, ISpectrumSource
     /// <summary>Presents the newest analyzed window whose center has reached the audio output.</summary>
     public bool TryReadSpectrum(Span<float> destination, ref long version)
     {
-        long played = Volatile.Read(ref _outputPosition);
-        if (played != long.MaxValue)
+        long played = _presentation?.PresentedFrame ?? Volatile.Read(ref _outputPosition);
+        if (_presentation is null && played != long.MaxValue)
             played = Math.Max(0, played - Volatile.Read(ref _visualDelayFrames));
         lock (_spectrumGate)
         {
