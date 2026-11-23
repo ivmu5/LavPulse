@@ -395,7 +395,13 @@ public static class TrackRhythmAnalyzer
                 localBeats.Add(frame);
             position += spacing + correction * .6;
         }
-        if (localBeats.Count < 4 || matched < Math.Max(3, localBeats.Count / 6)) return;
+        // A dense but irregular signal can fit a short tempo window by accident.
+        // Validate the independent beat positions against enough prominent attacks
+        // before publishing this section as an actual grid.
+        double minimumSupport = useStrong ? .48 : .35;
+        if (localBeats.Count < 4 ||
+            matched < Math.Max(3, (int)Math.Ceiling(localBeats.Count * minimumSupport)))
+            return;
 
         foreach (var onset in onsets)
             if (onset.Index * (long)hopFrames >= startFrame && onset.Index * (long)hopFrames < endFrame)
