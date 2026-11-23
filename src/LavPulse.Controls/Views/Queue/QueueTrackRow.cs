@@ -157,11 +157,12 @@ internal sealed class QueueTrackRow : TrackListRow
         public double Seconds { get; set; }
         public bool IsOverflowing { get; private set; }
         public event Action? OverflowChanged;
-        private readonly Dictionary<(string Text, Font Font, float Size), float> _widths = new();
+        private readonly record struct Fragment(string Text, float Width);
+        private readonly Dictionary<(string Text, Font Font, float Size), Fragment[]> _fragments = new();
 
         public void ResetWidths()
         {
-            _widths.Clear();
+            _fragments.Clear();
             IsOverflowing = false;
         }
 
@@ -203,25 +204,36 @@ internal sealed class QueueTrackRow : TrackListRow
         private void DrawLine(ICanvas canvas, RectF bounds, string value, Font font, float size, Color color)
         {
             var key = (value, font, size);
-            if (!_widths.TryGetValue(key, out float width))
+            if (!_fragments.TryGetValue(key, out var pieces))
             {
-                width = canvas.GetStringSize(value, font, size).Width + 1;
-                _widths[key] = width;
+                // Never hand a whole long title to a platform renderer. Some native
+                // text backends wrap it even with the baseline DrawString overload.
+                // Short, grapheme-safe spans prevent a second line from appearing.
+                pieces = QueueTextFragments.Split(value)
+                    .Select(part => new Fragment(part,
+                        Math.Max(0, canvas.GetStringSize(part, font, size).Width)))
+                    .ToArray();
+                _fragments[key] = pieces;
             }
-            float overflow = Math.Max(0, width - bounds.Width);
+            float total = 0;
+            foreach (var piece in pieces) total += piece.Width;
+            float overflow = Math.Max(0, total - bounds.Width);
             IsOverflowing |= overflow > 0;
-            // The DrawString rectangle overload can word-wrap a line when its measured width
-            // differs from the renderer's glyph layout by a pixel or two. Centering that
-            // wrapped text makes a long queue title jump vertically while it scrolls.
-            // The baseline overload never wraps: all marquee motion stays on the X axis.
             float offset = QueueMarqueeMotion.Offset(overflow, Seconds);
+            float baseline = QueueMarqueeMotion.Baseline(bounds.Center.Y, size);
             canvas.Font = font;
             canvas.FontSize = size;
             canvas.FontColor = color;
             canvas.SaveState();
             canvas.ClipRectangle(bounds);
-            canvas.DrawString(value, bounds.X - offset,
-                QueueMarqueeMotion.Baseline(bounds.Center.Y, size), HorizontalAlignment.Left);
+            float x = bounds.Left - offset;
+            foreach (var part in pieces)
+            {
+                if (x + part.Width >= bounds.Left && x <= bounds.Right)
+                    canvas.DrawString(part.Text, x, baseline, HorizontalAlignment.Left);
+                x += part.Width;
+                if (x > bounds.Right) break;
+            }
             canvas.RestoreState();
         }
     }

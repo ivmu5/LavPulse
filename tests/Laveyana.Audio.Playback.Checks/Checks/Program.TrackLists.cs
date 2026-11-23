@@ -73,7 +73,15 @@ internal static partial class Program
                 QueueMarqueeMotion.Baseline(centerY, fontSize) == baseline,
                 "Queue marquee motion changed the vertical baseline or exceeded the horizontal clip.");
         }
-        Console.WriteLine("OK: one-line queue marquee with fixed baseline and horizontal-only motion.");
+        string title = "Robbe, NIKSTER & ExtraGirl - Melody (Extended Mix)";
+        var chunks = QueueTextFragments.Split(title);
+        Require(chunks.Length > 2 && string.Concat(chunks) == title &&
+            chunks.All(chunk => chunk.Length > 0 && !chunk.Contains('\\n') && !chunk.Contains('\\r')),
+            "Long names must be rendered as short unbreakable fragments on the same baseline.");
+        string withEmoji = "Test 👩‍🎤🎧 on Windows and Android";
+        Require(string.Concat(QueueTextFragments.Split(withEmoji)) == withEmoji,
+            "Marquee segmentation corrupted a multi-codepoint Unicode grapheme.");
+        Console.WriteLine("OK: queue marquee does not wrap long titles or Unicode text.");
     }
 
     private static async Task CheckManualScanControlsAsync()
