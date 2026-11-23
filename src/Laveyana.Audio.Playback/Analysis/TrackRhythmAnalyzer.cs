@@ -10,6 +10,9 @@ public sealed record TrackTempoSection(long StartFrame, long EndFrame, double Bp
 /// <summary>One local analysis window, including rejected windows for diagnostic export.</summary>
 public sealed record TrackTempoWindow(long StartFrame, long EndFrame, double Bpm, float Confidence, int OnsetCount);
 
+/// <summary>A percussive candidate preserved for diagnosing false detections and missing beats.</summary>
+public readonly record struct TrackOnsetDiagnostic(long Frame, float Strength, float Accent);
+
 /// <summary>Estimated tempo, measured attacks and a variable-tempo sequence of beat positions.</summary>
 /// <remarks>Beats are estimated musical pulses, not verified bar downbeats or phrase boundaries.</remarks>
 public sealed record TrackBeatGrid(double Bpm, long FirstBeatFrame, float Confidence, long[] TransientFrames)
@@ -19,6 +22,7 @@ public sealed record TrackBeatGrid(double Bpm, long FirstBeatFrame, float Confid
     public TrackTempoSection[] Sections { get; init; } = [];
     public TrackTempoWindow[] Windows { get; init; } = [];
     public int CandidateOnsets { get; init; }
+    public TrackOnsetDiagnostic[] OnsetDiagnostics { get; init; } = [];
     public string AnalysisStatus { get; init; } = "";
 
     // A track can contain trustworthy rhythmic sections even if its intro/breakdown is unmetered.
@@ -80,7 +84,11 @@ public static class TrackRhythmAnalyzer
             window.EndFrame <= totalFrames && window.Bpm >= 0 && window.Bpm <= MaximumBpm &&
             double.IsFinite(window.Bpm) && float.IsFinite(window.Confidence) &&
             window.Confidence >= 0 && window.Confidence <= 1 && window.OnsetCount >= 0) &&
-        rhythm.CandidateOnsets >= 0;
+        rhythm.CandidateOnsets >= 0 &&
+        rhythm.OnsetDiagnostics is { Length: <= MaximumStoredTransients } diagnostics &&
+        diagnostics.All(hit => hit.Frame >= 0 && hit.Frame <= totalFrames &&
+            float.IsFinite(hit.Strength) && float.IsFinite(hit.Accent) &&
+            hit.Strength >= 0 && hit.Accent >= 0);
 
     private static bool IsAscending(long[] values, long limit)
     {
@@ -114,7 +122,14 @@ public static class TrackRhythmAnalyzer
         // Without reliable rhythm, show only exceptionally strong isolated accents.
         // Relax the visual threshold only after the grid is independently validated.
         long[] transients = StoreTransients(onsets, framesPerHop, totalFrames, .85f);
-        if (onsets.Count < 8) return Empty(transients);
+        TrackOnsetDiagnostic[] onsetDebug = SampleCandidates(onsets, framesPerHop, totalFrames);
+        if (onsets.Count < 8)
+            return Empty(transients) with
+            {
+                CandidateOnsets = onsets.Count,
+                OnsetDiagnostics = onsetDebug,
+                AnalysisStatus = "Недостаточно кандидатов ударов"
+            };
 
         int stride = Math.Max(1, (int)Math.Round(2 * hopsPerSecond));
         int radius = Math.Max(8, (int)Math.Round(4.5 * hopsPerSecond));
@@ -227,6 +242,7 @@ public static class TrackRhythmAnalyzer
             {
                 Windows = windows,
                 CandidateOnsets = onsets.Count,
+                OnsetDiagnostics = onsetDebug,
                 AnalysisStatus = "Нет подтверждённых локальных участков с устойчивыми долями"
             };
 
@@ -242,6 +258,7 @@ public static class TrackRhythmAnalyzer
             Sections = sections.ToArray(),
             Windows = windows,
             CandidateOnsets = onsets.Count,
+            OnsetDiagnostics = onsetDebug,
             AnalysisStatus = $"Найдено участков: {sections.Count}"
         };
     }
@@ -411,6 +428,20 @@ public static class TrackRhythmAnalyzer
         int stride = Math.Max(1, (int)Math.Ceiling(accents.Count / (double)MaximumStoredTransients));
         return accents.Where((_, index) => index % stride == 0)
             .Select(hit => Math.Min(totalFrames - 1, (long)hit.Index * hopFrames)).ToArray();
+    }
+
+    private static TrackOnsetDiagnostic[] SampleCandidates(IReadOnlyList<Onset> onsets,
+        int framesPerHop, long totalFrames)
+    {
+        int step = Math.Max(1, (int)Math.Ceiling(onsets.Count / (double)MaximumStoredTransients));
+        var result = new List<TrackOnsetDiagnostic>();
+        for (int i = 0; i < onsets.Count; i += step)
+        {
+            var hit = onsets[i];
+            result.Add(new(Math.Min(totalFrames - 1, (long)hit.Index * framesPerHop),
+                hit.Strength, hit.Accent));
+        }
+        return result.ToArray();
     }
 
     private static TrackBeatGrid Empty(long[]? transients = null) => new(0, 0, 0, transients ?? []);
