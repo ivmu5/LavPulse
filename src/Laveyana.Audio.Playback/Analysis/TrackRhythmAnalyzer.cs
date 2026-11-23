@@ -38,7 +38,8 @@ public sealed record TrackBeatGrid(double Bpm, long FirstBeatFrame, float Confid
             if (position >= section.StartFrame && position < section.EndFrame)
                 return section.Bpm;
         }
-        if (Sections.Length > 0) return Bpm;
+        // Gaps between reliable rhythmic regions have no trustworthy local BPM.
+        if (Sections.Length > 0) return 0;
         int index = Array.BinarySearch(BeatFrames, position);
         if (index < 0) index = ~index;
         int span = Math.Min(4, BeatFrames.Length - 1);
@@ -212,8 +213,9 @@ public static class TrackRhythmAnalyzer
         var windows = new TrackTempoWindow[slices];
         for (int index = 0; index < slices; index++)
         {
-            long start = Math.Clamp((long)(index * stride - stride / 2) * framesPerHop, 0, totalFrames);
-            long end = Math.Clamp((long)(index * stride + stride / 2) * framesPerHop, start, totalFrames);
+            // These are real 9-second analysis windows, not the 2-second center spacing.
+            long start = Math.Clamp(((long)index * stride - radius) * framesPerHop, 0, totalFrames);
+            long end = Math.Clamp(((long)index * stride + radius) * framesPerHop, start, totalFrames);
             windows[index] = new(start, end, hitsPerSlice[index] >= 5 ? selected[index] : 0,
                 quality[index], hitsPerSlice[index]);
         }
@@ -279,9 +281,12 @@ public static class TrackRhythmAnalyzer
         if (meanConfidence < .33) return;
         localTempos.Sort();
         double bpm = localTempos[localTempos.Count / 2];
-        double period = hopsPerSecond * 60 / bpm;
+        // Anchor phase close to the FIRST valid window. Starting from the middle of a long
+        // accelerando with the median tempo introduces a cumulative phase error at its start.
+        double anchorBpm = tempos[firstWindow];
+        double period = hopsPerSecond * 60 / anchorBpm;
         double phaseSpeed = Math.Tau / period;
-        int center = (firstWindow + (endWindow - firstWindow) / 2) * stride;
+        int center = firstWindow * stride;
         double real = 0, imaginary = 0;
         int onsetsInSection = 0;
         foreach (Onset onset in onsets)

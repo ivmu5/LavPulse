@@ -51,22 +51,22 @@ public static class TrackAnalysisReport
                 $"{Number(window.Confidence)} | {window.OnsetCount}");
 
         Add("");
-        Add("BEAT POSITIONS (seconds; locally tracked, max 2048 printed):");
-        Add(FormatTimes(rhythm.BeatFrames, 2048));
+        Add("BEAT POSITIONS (seconds; locally tracked, max 1024 printed):");
+        Add(FormatTimes(rhythm.BeatFrames, 1024));
         Add("");
-        Add("VISIBLE TRANSIENT POSITIONS (seconds; max 2048 printed):");
-        Add(FormatTimes(rhythm.TransientFrames, 2048));
+        Add("VISIBLE TRANSIENT POSITIONS (seconds; max 1024 printed):");
+        Add(FormatTimes(rhythm.TransientFrames, 1024));
         Add("");
-        Add("ONSET CANDIDATES (time seconds: strength / percussive accent, max 2048 printed):");
-        foreach (var onset in Sample(rhythm.OnsetDiagnostics, 2048))
+        Add("ONSET CANDIDATES (time seconds: strength / percussive accent, max 600 printed):");
+        foreach (var onset in Sample(rhythm.OnsetDiagnostics, 600))
             Add($"{Time(onset.Frame)}: {Number(onset.Strength)} / {Number(onset.Accent)}");
 
         Add("");
         Add("WAVEFORM BANDS: per-bin peak values of LOW (<220 Hz), MID (220-2400 Hz), HIGH (>2400 Hz).");
         Add("These are filter estimates, not separated kick, bass or vocal instrument tracks.");
-        Add("Time | peak | low | mid | high (up to 600 bins)");
+        Add("Time | peak | low | mid | high (up to 400 bins)");
         int count = waveform.Points.Count;
-        int binSize = Math.Max(1, (int)Math.Ceiling(count / 600d));
+        int binSize = Math.Max(1, (int)Math.Ceiling(count / 400d));
         for (int i = 0; i < count; i += binSize)
         {
             var peak = waveform.Points[i];

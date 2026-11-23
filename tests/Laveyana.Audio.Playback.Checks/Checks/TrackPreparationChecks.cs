@@ -8,6 +8,7 @@ internal static class TrackPreparationChecks
         CheckRhythmAnalysis();
         CheckHighResolutionRhythmAnalysis();
         CheckPercussiveFiltering();
+        CheckTempoSectionsAndReport();
         var input = TrackFile.FromStream("fixture.mp3", () => Task.FromResult<Stream>(CreateMp3()));
         var original = await new TrackPreparation(directory).ImportAsync(input, CancellationToken.None);
         byte[] expected = await File.ReadAllBytesAsync(original.Path);
@@ -235,6 +236,49 @@ internal static class TrackPreparationChecks
             "Irregular non-rhythmic energy was presented as continuous beat and accent markers.");
 
         Console.WriteLine("OK: percussive accents, hi-hat rejection, quiet beats and irregular-noise suppression.");
+    }
+
+    private static void CheckTempoSectionsAndReport()
+    {
+        const int hop = PlaybackFormat.SampleRate / 100;
+        const int seconds = 110;
+        var energy = new RhythmEnergy[seconds * 100];
+        Array.Fill(energy, new RhythmEnergy(.035f, .025f, .018f));
+
+        static void AddRhythm(RhythmEnergy[] values, double start, double end, double bpm)
+        {
+            for (double second = start + .25; second < end - .6; second += 60 / bpm)
+            {
+                int index = (int)Math.Round(second * 100);
+                values[index] = new RhythmEnergy(.95f, .47f, .28f);
+            }
+        }
+        AddRhythm(energy, 0, 30, 120);
+        // An unmetered 23-second breakdown must not invalidate two reliable techno sections.
+        AddRhythm(energy, 53, seconds, 140);
+        var grid = TrackRhythmAnalyzer.AnalyzeEnergy(energy, hop, (long)energy.Length * hop);
+        Require(grid.HasBeatGrid && grid.Sections.Length >= 2 &&
+            Math.Abs(grid.BpmAt(12 * PlaybackFormat.SampleRate) - 120) < 3 &&
+            Math.Abs(grid.BpmAt(82 * PlaybackFormat.SampleRate) - 140) < 3 &&
+            grid.BpmAt(40 * PlaybackFormat.SampleRate) == 0,
+            "Separate 120/140 BPM regions were lost or an artificial grid was drawn in the breakdown.");
+        Require(grid.OnsetDiagnostics.Length > 30 && grid.CandidateOnsets >= grid.OnsetDiagnostics.Length &&
+            grid.Windows.Length >= 40,
+            "The report omitted the per-window diagnostic evidence.");
+
+        var waveform = new TrackWaveform(
+            Enumerable.Repeat(new WaveformPoint(.5f, .28f, .19f, .09f), 500).ToArray(),
+            (long)seconds * PlaybackFormat.SampleRate, PlaybackFormat.SampleRate / 25)
+        { Rhythm = grid };
+        string text = TrackAnalysisReport.Create("techno-example.mp3", waveform,
+            new TrackAudioInfo("MP3", 48000, 320, false, TrackChannelMode.Stereo),
+            "Example techno", "Test artist");
+        Require(text.Contains("SECTIONS:") && text.Contains("ALL TEMPO WINDOWS:") &&
+            text.Contains("ONSET CANDIDATES") && text.Contains("WAVEFORM BANDS:") &&
+            text.Contains("140") && text.Contains("120") &&
+            !text.Contains("C:\\Users", StringComparison.OrdinalIgnoreCase),
+            "The copyable report omitted sections, timing evidence or accidentally exposed a local path.");
+        Console.WriteLine("OK: independent tempo sections, breakdown gaps and copyable analysis report.");
     }
 
     private static void CheckNativeRate()
