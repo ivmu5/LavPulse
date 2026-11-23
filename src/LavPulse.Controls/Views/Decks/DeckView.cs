@@ -113,7 +113,8 @@ public sealed partial class DeckView : Border
     public void SetBassTapEnabled(bool enabled)
     {
         _canTapBeats = enabled;
-        _markRhythm.IsEnabled = enabled && _track is not null;
+        bool active = enabled && _track is not null;
+        if (_markRhythm.IsEnabled != active) _markRhythm.IsEnabled = active;
     }
 
     private void TapBeatNow()
@@ -223,7 +224,8 @@ public sealed partial class DeckView : Border
 
         IsVisible = playing.HasValue;
         _markProblem.IsVisible = _markRhythm.IsVisible = playing.HasValue;
-        _markRhythm.IsEnabled = playing.HasValue && _canTapBeats;
+        bool active = playing.HasValue && _canTapBeats;
+        if (_markRhythm.IsEnabled != active) _markRhythm.IsEnabled = active;
         if (playing is not { } deck)
         {
             SetOverview(false, animate: false);

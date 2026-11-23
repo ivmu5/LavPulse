@@ -21,7 +21,12 @@ public sealed partial class MainPage
 
     private async void RecordBassTap(CachedTrack track, long frame)
     {
-        if (_closed || _worker is null || IsStopping || _view.Panel is not null) return;
+        if (_closed || _worker is null || IsStopping || _view.Panel is not null)
+        {
+            _view.CurrentDeck.DiscardFailedBassTap(track, frame);
+            _view.IncomingDeck.DiscardFailedBassTap(track, frame);
+            return;
+        }
         try
         {
             if (_library.Find(track) is not { LocalPath: { } path } || !File.Exists(path))
