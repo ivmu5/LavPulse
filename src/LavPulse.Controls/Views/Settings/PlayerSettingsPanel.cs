@@ -4,10 +4,14 @@ namespace Laveyana.LavPulse.Controls;
 public sealed partial class PlayerSettingsPanel : ContentView
 {
     private readonly Action<PlayerSettings>? _previewAppearance;
-    private readonly ContentView[] _sectionHosts = new ContentView[8];
-    private readonly Button[] _sectionButtons = new Button[8];
+    private readonly ContentView[] _sectionHosts = new ContentView[9];
+    private readonly Button[] _sectionButtons = new Button[9];
     private readonly IReadOnlyList<LibraryStorageOption> _storageOptions;
     private readonly Func<Task<string?>>? _pickStorageFolder;
+    private readonly Func<Task<string>>? _copyReport;
+    private readonly Func<Task<string?>>? _exportReportZip;
+    private readonly Func<Task<string>>? _reportSummary;
+    private readonly Func<Task<string>>? _clearReports;
     private readonly List<NumericSettingInput> _visibleNumbers = [];
     private readonly Grid _settingsLayout;
     private readonly ContentView _paletteEditorHost = new() { IsVisible = false };
@@ -18,9 +22,17 @@ public sealed partial class PlayerSettingsPanel : ContentView
     public PlayerSettingsPanel(PlayerSettings settings, Action<PlayerSettings> apply, Action dismiss,
         Action<PlayerSettings>? previewAppearance = null,
         IReadOnlyList<LibraryStorageOption>? storageOptions = null,
-        Func<Task<string?>>? pickStorageFolder = null)
+        Func<Task<string?>>? pickStorageFolder = null,
+        Func<Task<string>>? copyReport = null,
+        Func<Task<string?>>? exportReportZip = null,
+        Func<Task<string>>? reportSummary = null,
+        Func<Task<string>>? clearReports = null)
     {
         _settings = settings;
+        _copyReport = copyReport;
+        _exportReportZip = exportReportZip;
+        _reportSummary = reportSummary;
+        _clearReports = clearReports;
         _storageOptions = storageOptions ?? [];
         _pickStorageFolder = pickStorageFolder;
         _previewAppearance = previewAppearance;
@@ -39,7 +51,7 @@ public sealed partial class PlayerSettingsPanel : ContentView
 
         var sections = new VerticalStackLayout { Spacing = 8 };
         string[] names = ["Воспроизведение", "Деки", "Цвета", "Интерфейс и FPS", "Мастер-спектр", "Яркость спектра",
-            "Анализ треков", "Хранилище"];
+            "Анализ треков", "Хранилище", "Отчёты"];
         for (int index = 0; index < names.Length; index++)
         {
             int section = index;
@@ -111,7 +123,8 @@ public sealed partial class PlayerSettingsPanel : ContentView
             4 => CreateSpectrumSection(),
             5 => CreateBrightnessSection(),
             6 => CreateAnalysisSection(),
-            _ => CreateStorageSection()
+            7 => CreateStorageSection(),
+            _ => CreateReportSection()
         };
         for (int section = 0; section < _sectionButtons.Length; section++)
         {

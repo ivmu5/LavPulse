@@ -1,27 +1,153 @@
+using System.IO;
 using Laveyana.Audio.Playback;
+using Laveyana.LavPulse.Controls;
+using Laveyana.LavPulse.Tracks;
 using Microsoft.Maui.ApplicationModel.DataTransfer;
 
 namespace Laveyana.LavPulse;
 
 public sealed partial class MainPage
 {
-    /// <summary>Temporary user-initiated copy action on the right side of each deck header.</summary>
-    private async void CopyTrackAnalysisAsync(CachedTrack track)
+    private async void OpenReportMarker(CachedTrack track, long position, TrackMarkMode mode)
     {
-        if (_closed) return;
+        if (_closed || _view.Panel is not null) return;
+        if (mode == TrackMarkMode.StrongRhythm)
+        {
+            try
+            {
+                // Clicking "Ритм" is enough to include the original track in the next ZIP.
+                // The editor may be cancelled; any previously added sections remain intact.
+                if (_library.Find(track) is not { LocalPath: { } path } || !File.Exists(path))
+                    throw new FileNotFoundException("Оригинальный MP3 больше не доступен.");
+                string id = Path.GetFileNameWithoutExtension(path);
+                string analysis = await Task.Run(() => TrackAnalysisReport.Create(
+                    track.Name, track.Waveform, track.AudioInfo, track.Title, track.Artist, track.Album),
+                    _lifetime.Token);
+                bool added = await _reports.RegisterAsync(id, track.Name, track.Title,
+                    track.Artist, analysis, _lifetime.Token);
+                if (_closed) return;
+                _view.Status.Text = added
+                    ? $"«{track.Title}» автоматически добавлен в репорт"
+                    : $"«{track.Title}» уже находится в репорте";
+            }
+            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
+            catch (Exception ex)
+            {
+                if (!_closed) _view.Status.Text = "Не удалось добавить трек в репорт: " + ex.Message;
+                return;
+            }
+        }
+        OpenPanel(() => new TrackReportMarkPanel(track, position, mode,
+            mark => AddReportMarkAsync(track, mark), ClosePanel));
+    }
+
+    private async Task<bool> AddReportMarkAsync(CachedTrack track, TrackReportSelection selection)
+    {
+        if (_closed) return false;
         try
         {
-            string report = await Task.Run(() => TrackAnalysisReport.Create(
+            if (_library.Find(track) is not { LocalPath: { } path } || !File.Exists(path))
+                throw new FileNotFoundException("Оригинальный MP3 больше не доступен.");
+            string id = Path.GetFileNameWithoutExtension(path);
+            long end = track.Waveform.TotalFrames;
+            long startFrame = Math.Clamp(selection.StartFrame, 0, end);
+            long endFrame = Math.Clamp(selection.EndFrame, startFrame, end);
+            var kind = selection.Mode == TrackMarkMode.StrongRhythm
+                ? TrackReportMarkKind.StrongRhythm : TrackReportMarkKind.Problem;
+            string analysis = await Task.Run(() => TrackAnalysisReport.Create(
                 track.Name, track.Waveform, track.AudioInfo, track.Title, track.Artist, track.Album),
                 _lifetime.Token);
-            if (_closed) return;
-            await Clipboard.Default.SetTextAsync(report);
-            _view.Status.Text = $"Скопирован анализ «{track.Title}» ({report.Length:N0} символов)";
+            await _reports.AddAsync(id, track.Name, track.Title, track.Artist, analysis,
+                new TrackIssueMark(startFrame, endFrame, selection.Comment, DateTimeOffset.UtcNow, kind,
+                    selection.TimingToleranceMilliseconds, selection.PossibleMissingBeats,
+                    selection.SuggestedBpm), _lifetime.Token);
+            _view.Status.Text = selection.Mode == TrackMarkMode.StrongRhythm
+                ? $"Отмечен сильный ритм «{track.Title}»"
+                : $"Замечание добавлено в репорт «{track.Title}»";
+            return true;
         }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return false; }
         catch (Exception ex)
         {
-            if (!_closed) _view.Status.Text = $"Не удалось скопировать анализ: {ex.Message}";
+            _view.Status.Text = "Не удалось сохранить отметку: " + ex.Message;
+            return false;
         }
+    }
+
+    private async Task<string> ReportSummaryAsync()
+    {
+        var reports = await _reports.ReadAllAsync(_lifetime.Token);
+        return $"Треков: {reports.Length}; замечаний и ориентиров: {reports.Sum(r => r.Marks.Count)}";
+    }
+
+    private async Task<string> CopyReportTextAsync()
+    {
+        var reports = await _reports.ReadAllAsync(_lifetime.Token);
+        if (reports.Length == 0) throw new InvalidOperationException("Репорт пока пуст. Добавь отметку в деке.");
+        string report = await Task.Run(() => TrackReportArchive.RenderText(reports), _lifetime.Token);
+        await Clipboard.Default.SetTextAsync(report);
+        return $"Скопировано {report.Length:N0} символов из {reports.Length} треков.";
+    }
+
+    private async Task<string?> ExportReportZipAsync()
+    {
+        var reports = await _reports.ReadAllAsync(_lifetime.Token);
+        if (reports.Length == 0) throw new InvalidOperationException("Репорт пока пуст. Добавь отметку в деке.");
+        string suggested = "LavPulse_Report_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".zip";
+        string temporary = Path.Combine(FileSystem.CacheDirectory, Guid.NewGuid().ToString("N") + ".zip");
+        try
+        {
+            await TrackReportArchive.CreateAsync(reports, temporary, _trackStore.ReportAudioPath, _lifetime.Token);
+#if WINDOWS
+            if (Window?.Handler?.PlatformView is not Microsoft.UI.Xaml.Window native)
+                throw new InvalidOperationException("Системное окно сохранения недоступно.");
+            var picker = new Windows.Storage.Pickers.FileSavePicker
+            {
+                SuggestedFileName = Path.GetFileNameWithoutExtension(suggested)
+            };
+            picker.FileTypeChoices.Add("ZIP", new List<string> { ".zip" });
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(native));
+            var picked = await picker.PickSaveFileAsync();
+            if (picked is null) return null;
+            await using var input = File.OpenRead(temporary);
+            await using var output = new FileStream(picked.Path, FileMode.Create, FileAccess.Write,
+                FileShare.None, 128 * 1024, FileOptions.Asynchronous);
+            await input.CopyToAsync(output, _lifetime.Token);
+            return "ZIP сохранён: " + picked.Name;
+#elif ANDROID
+            if (Window?.Handler?.PlatformView is not MainActivity activity)
+                throw new InvalidOperationException("Выбор файла недоступен.");
+            var uri = await activity.PickReportDocumentAsync(suggested, _lifetime.Token);
+            if (uri is null) return null;
+            await using var source = File.OpenRead(temporary);
+            await using var target = Android.App.Application.Context.ContentResolver?.OpenOutputStream(uri, "w")
+                ?? throw new IOException("Не удалось открыть файл назначения.");
+            await source.CopyToAsync(target, _lifetime.Token);
+            return "ZIP сохранён через системный выбор файла.";
+#else
+            // Apple platforms export the ZIP through the native Share sheet / Save to Files.
+            await Share.Default.RequestAsync(new ShareFileRequest("Сохранить отчёт LavPulse",
+                new ShareFile(temporary)));
+            return "ZIP передан в системное меню экспорта.";
+#endif
+        }
+        finally
+        {
+#if IOS || MACCATALYST
+            // Share sheets may still be reading the temporary file when the call completes.
+#else
+            try { File.Delete(temporary); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+#endif
+        }
+    }
+
+    private async Task<string> ClearReportsAsync()
+    {
+        if (!await DisplayAlert("Очистить отчёты?",
+            "Все комментарии и отметки сильного ритма будут удалены. MP3 останутся нетронутыми.",
+            "Очистить", "Отмена"))
+            return "Очистка отменена.";
+        await _reports.ClearAsync(_lifetime.Token);
+        return "Сохранённые замечания удалены.";
     }
 }

@@ -20,6 +20,7 @@ public sealed partial class MainPage : ContentPage
     private SystemPlaybackState? _lastSystemState;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly LocalTrackStore _trackStore = new(AppLibraryStorage.Initialize());
+    private readonly TrackReportStore _reports = new(Path.Combine(FileSystem.AppDataDirectory, "track-reports-v1.json"));
     private readonly PlayerLibrary _library;
     private readonly IDispatcherTimer _positions;
     private readonly PlaybackQueue _queue = new();
@@ -95,8 +96,8 @@ public sealed partial class MainPage : ContentPage
         _systemPlayback.CommandReceived += OnSystemPlaybackCommand;
         _view.CurrentDeck.SeekRequested += Seek;
         _view.IncomingDeck.SeekRequested += Seek;
-        _view.CurrentDeck.AnalysisCopyRequested += CopyTrackAnalysisAsync;
-        _view.IncomingDeck.AnalysisCopyRequested += CopyTrackAnalysisAsync;
+        _view.CurrentDeck.ReportMarkRequested += OpenReportMarker;
+        _view.IncomingDeck.ReportMarkRequested += OpenReportMarker;
 
         _positions = Dispatcher.CreateTimer();
         _positions.Interval = VisibleRefreshInterval;
