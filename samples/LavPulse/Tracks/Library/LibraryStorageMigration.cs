@@ -32,14 +32,7 @@ internal static class LibraryStorageMigration
 
         cancellationToken.ThrowIfCancellationRequested();
         if (!Directory.Exists(source))
-        {
-            // An empty library on first launch is safe to relocate, but existing data must not
-            // silently disappear if a removable disk was disconnected.
-            if (Directory.Exists(destination))
-                throw new DirectoryNotFoundException("Исходная медиатека недоступна. Подключи прежний диск.");
-            Directory.CreateDirectory(destination);
-            return;
-        }
+            throw new DirectoryNotFoundException("Исходная медиатека недоступна. Подключи прежний накопитель.");
 
         string marker = Path.Combine(destination, MarkerName);
         if (Directory.Exists(destination))

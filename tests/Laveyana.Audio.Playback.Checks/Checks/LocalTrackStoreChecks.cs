@@ -13,6 +13,7 @@ internal static class LocalTrackStoreChecks
         var duplicate = await store.CopyAsync(Source("copy.mp3", 1), default);
         Require(first.LocalPath == duplicate.LocalPath, "Identical imports duplicated local media.");
         await CheckStreamedCopyAsync(store);
+        await CheckStorageMigrationAsync(directory);
         long mediaBytes = new FileInfo(first.LocalPath!).Length;
         Require(await store.ReadTrackStorageSizeAsync(first, default) == mediaBytes,
             "A track without cached data did not report its MP3 size.");
@@ -82,6 +83,59 @@ internal static class LocalTrackStoreChecks
 
         long AnalysisBytes(TrackFile file) => new FileInfo(Path.Combine(root, "analysis-v3",
             Path.GetFileNameWithoutExtension(file.LocalPath) + ".json")).Length;
+    }
+
+    private static async Task CheckStorageMigrationAsync(string directory)
+    {
+        string root = Path.Combine(directory, "moving-library");
+        string source = Path.Combine(root, "old", "library");
+        string newBase = Path.Combine(root, "sd-volume");
+        string target = LibraryStorageMigration.ResolveRoot(source, newBase);
+        Directory.CreateDirectory(Path.Combine(source, "media"));
+        Directory.CreateDirectory(Path.Combine(source, "analysis-v2"));
+        Directory.CreateDirectory(Path.Combine(source, "pcm-v1"));
+        await File.WriteAllBytesAsync(Path.Combine(source, "media", "one.mp3"), [1, 4, 9, 16]);
+        await File.WriteAllTextAsync(Path.Combine(source, "queue.json"), "{\\\"Tracks\\\":[]}");
+        await File.WriteAllBytesAsync(Path.Combine(source, "analysis-v2", "one.json"), [4, 3, 2]);
+        await File.WriteAllBytesAsync(Path.Combine(source, "pcm-v1", "one.pcm"), [7, 8, 9]);
+
+        using (var cancelled = new CancellationTokenSource())
+        {
+            cancelled.Cancel();
+            try
+            {
+                await LibraryStorageMigration.MigrateAsync(source, target, cancelled.Token);
+                throw new InvalidOperationException("A cancelled migration did not abort.");
+            }
+            catch (OperationCanceledException) { }
+        }
+        Require(Directory.Exists(source) && !Directory.Exists(target),
+            "Cancelled relocation modified the original library.");
+
+        // An interrupted transfer is resumable: preexisting incomplete files are overwritten.
+        Directory.CreateDirectory(Path.Combine(target, "media"));
+        await File.WriteAllBytesAsync(Path.Combine(target, "media", "one.mp3"), [0, 0]);
+        await File.WriteAllTextAsync(Path.Combine(target, ".lavpulse-transfer-source"), source);
+        await LibraryStorageMigration.MigrateAsync(source, target);
+        foreach (string file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+        {
+            string copy = Path.Combine(target, Path.GetRelativePath(source, file));
+            Require(File.Exists(copy) && (await File.ReadAllBytesAsync(file)).SequenceEqual(
+                await File.ReadAllBytesAsync(copy)), "Relocation lost or corrupted media, queue or cache.");
+        }
+        Require(Directory.Exists(source) && File.Exists(Path.Combine(target, ".lavpulse-transfer-source")),
+            "The source was deleted before the destination was committed.");
+        LibraryStorageMigration.Confirm(target);
+        Require(!File.Exists(Path.Combine(target, ".lavpulse-transfer-source")),
+            "Verified migration marker was not cleared.");
+        try
+        {
+            await LibraryStorageMigration.MigrateAsync(source, Path.Combine(source, "nested"));
+            throw new InvalidOperationException("Recursive relocation was accepted.");
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("вложить")) { }
+        Require(File.Exists(Path.Combine(source, "queue.json")), "Rejected relocation damaged the source.");
+        Console.WriteLine("OK: restart-based, verified media/queue/analysis/PCM relocation and rollback.");
     }
 
     private static void CheckMetadataCache()

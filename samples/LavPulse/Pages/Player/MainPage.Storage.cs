@@ -27,6 +27,8 @@ public sealed partial class MainPage
         {
             string? path = locations[index]?.AbsolutePath;
             if (string.IsNullOrEmpty(path)) continue;
+            if (Android.OS.Environment.GetExternalStorageState(locations[index]!) != Android.OS.Environment.MediaMounted)
+                continue;
             bool removable = Android.OS.Environment.IsExternalStorageRemovable(locations[index]!);
             choices.Add(new(path, removable ? "SD-карта (каталог LavPulse)" : "Общая память телефона (каталог LavPulse)"));
         }

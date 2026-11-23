@@ -36,18 +36,26 @@ internal static class AppLibraryStorage
         {
             try
             {
+                if (!Directory.Exists(activeRoot) && !string.IsNullOrWhiteSpace(activeDirectory))
+                    throw new DirectoryNotFoundException("Предыдущий накопитель недоступен. Подключи его для переноса.");
                 // There are no open playback handles or concurrent library writers here:
                 // MainPage and PlayerLibrary are created only after this completes.
-                Task.Run(() => LibraryStorageMigration.MigrateAsync(activeRoot, nextRoot))
-                    .GetAwaiter().GetResult();
+                if (Directory.Exists(activeRoot))
+                    Task.Run(() => LibraryStorageMigration.MigrateAsync(activeRoot, nextRoot))
+                        .GetAwaiter().GetResult();
+                else if (!Directory.Exists(nextRoot))
+                    Directory.CreateDirectory(nextRoot);
                 Preferences.Default.Set(ActivePreference, requestedDirectory);
-                LibraryStorageMigration.Confirm(nextRoot);
-                try { if (Directory.Exists(activeRoot)) Directory.Delete(activeRoot, recursive: true); }
+                activeRoot = nextRoot;
+                try { LibraryStorageMigration.Confirm(nextRoot); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    { System.Diagnostics.Debug.WriteLine($"LavPulse transfer marker cleanup: {ex}"); }
+                string oldRoot = LibraryStorageMigration.ResolveRoot(defaultRoot, activeDirectory);
+                try { if (Directory.Exists(oldRoot)) Directory.Delete(oldRoot, recursive: true); }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
                     System.Diagnostics.Debug.WriteLine($"Old LavPulse library cleanup: {ex}");
                 }
-                activeRoot = nextRoot;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
                                          ArgumentException or NotSupportedException)
