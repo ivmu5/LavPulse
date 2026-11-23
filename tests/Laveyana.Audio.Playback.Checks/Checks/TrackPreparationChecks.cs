@@ -9,6 +9,7 @@ internal static class TrackPreparationChecks
         CheckHighResolutionRhythmAnalysis();
         CheckPercussiveFiltering();
         CheckTempoSectionsAndReport();
+        CheckDenseTechnoOnsetRhythm();
         var input = TrackFile.FromStream("fixture.mp3", () => Task.FromResult<Stream>(CreateMp3()));
         var original = await new TrackPreparation(directory).ImportAsync(input, CancellationToken.None);
         byte[] expected = await File.ReadAllBytesAsync(original.Path);
@@ -279,6 +280,51 @@ internal static class TrackPreparationChecks
             !text.Contains("C:\\Users", StringComparison.OrdinalIgnoreCase),
             "The copyable report omitted sections, timing evidence or accidentally exposed a local path.");
         Console.WriteLine("OK: independent tempo sections, breakdown gaps and copyable analysis report.");
+    }
+
+    private static void CheckDenseTechnoOnsetRhythm()
+    {
+        // An approximately 150 BPM four-on-the-floor kick is mixed with dense,
+        // unaligned percussion and synth notes. Uniform onset phase coherence would
+        // dilute the actual kicks and reject the whole section.
+        const int hop = PlaybackFormat.SampleRate / 100;
+        var energy = new RhythmEnergy[80 * 100];
+        Array.Fill(energy, new RhythmEnergy(.04f, .03f, .025f));
+        var random = new Random(3925);
+        for (double second = .27; second < 79; second += .4)
+        {
+            int index = (int)Math.Round(second * 100);
+            energy[index] = new RhythmEnergy(.90f, .50f, .27f);
+        }
+        for (int i = 0; i < 1100; i++)
+        {
+            int index = random.Next(2, energy.Length - 2);
+            if (energy[index].Low > .6f) continue;
+            energy[index] = new RhythmEnergy(.04f + .02f * (float)random.NextDouble(),
+                .03f + .22f * (float)random.NextDouble(), .20f + .52f * (float)random.NextDouble());
+        }
+        var result = TrackRhythmAnalyzer.AnalyzeEnergy(energy, hop, (long)energy.Length * hop);
+        Require(result.HasBeatGrid && result.Sections.Length > 0 &&
+            result.Sections.Any(section => Math.Abs(section.Bpm - 150) < 2) &&
+            result.BeatFrames.Length > 80,
+            "Dense techno accompaniment concealed the repeating 150 BPM kick.");
+        Require(result.Windows.Any(window => window.Accepted &&
+            Math.Abs(window.Bpm - 150) < 2) &&
+            result.Windows.All(window => window.Bpm >= 0),
+            "Rejected tempo windows concealed their best BPM candidate in the diagnostic report.");
+
+        var noBeat = new RhythmEnergy[energy.Length];
+        Array.Fill(noBeat, new RhythmEnergy(.04f, .03f, .025f));
+        for (int i = 0; i < 1100; i++)
+        {
+            int index = random.Next(2, noBeat.Length - 2);
+            noBeat[index] = new RhythmEnergy(.06f + .1f * (float)random.NextDouble(),
+                .05f + .2f * (float)random.NextDouble(), .1f + .4f * (float)random.NextDouble());
+        }
+        Require(!TrackRhythmAnalyzer.AnalyzeEnergy(noBeat, hop,
+            (long)noBeat.Length * hop).HasBeatGrid,
+            "Random transients were mistaken for a regular techno beat.");
+        Console.WriteLine("OK: prominent 150 BPM kicks survive dense unrelated onsets without accepting noise.");
     }
 
     private static void CheckNativeRate()

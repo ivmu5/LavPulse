@@ -45,10 +45,10 @@ public static class TrackAnalysisReport
                 $"{Number(section.Confidence)} | {section.OnsetCount} | {section.MatchedBeats}");
 
         Add("");
-        Add("ALL TEMPO WINDOWS: start..end | BPM (0 = rejected) | phase confidence | onsets");
+        Add("ALL TEMPO WINDOWS: start..end | best candidate BPM (0 = insufficient attacks) | confidence | onsets | accepted");
         foreach (var window in rhythm.Windows)
             Add($"{Time(window.StartFrame)}..{Time(window.EndFrame)} | {Number(window.Bpm)} | " +
-                $"{Number(window.Confidence)} | {window.OnsetCount}");
+                $"{Number(window.Confidence)} | {window.OnsetCount} | {window.Accepted}");
 
         Add("");
         Add("BEAT POSITIONS (seconds; locally tracked, max 1024 printed):");

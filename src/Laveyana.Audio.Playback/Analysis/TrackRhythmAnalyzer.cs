@@ -8,7 +8,11 @@ public sealed record TrackTempoSection(long StartFrame, long EndFrame, double Bp
     int OnsetCount, int MatchedBeats);
 
 /// <summary>One local analysis window, including rejected windows for diagnostic export.</summary>
-public sealed record TrackTempoWindow(long StartFrame, long EndFrame, double Bpm, float Confidence, int OnsetCount);
+public sealed record TrackTempoWindow(long StartFrame, long EndFrame, double Bpm, float Confidence, int OnsetCount)
+{
+    /// <summary>A rejected window still reports its strongest tempo hypothesis for diagnostics.</summary>
+    public bool Accepted { get; init; }
+}
 
 /// <summary>A percussive candidate preserved for diagnosing false detections and missing beats.</summary>
 public readonly record struct TrackOnsetDiagnostic(long Frame, float Strength, float Accent);
@@ -65,6 +69,16 @@ public static class TrackRhythmAnalyzer
     // Tempo estimation needs permissive onset candidates, but the visual hit markers
     // should represent only prominent low/mid attacks.
     private readonly record struct Onset(int Index, float Strength, float Accent);
+
+    // Rich electronic productions contain many melody/hat/subdivision attacks per kick.
+    // Uniformly weighting every onset destroys the phase coherence of the actual beat.
+    // The positive-part squared accent focuses the tempo estimate on prominent bass/mid
+    // attacks, while retaining the unfiltered score as secondary corroboration.
+    private static double BeatWeight(Onset onset)
+    {
+        double accent = Math.Max(0, onset.Accent - .80f);
+        return accent * accent;
+    }
 
     public static bool IsValid(TrackBeatGrid rhythm, long totalFrames) =>
         rhythm.Bpm >= 0 && rhythm.Bpm <= MaximumBpm && double.IsFinite(rhythm.Bpm) &&
@@ -152,22 +166,40 @@ public static class TrackRhythmAnalyzer
             int hitCount = lastHit - firstHit;
             hitsPerSlice[window] = hitCount;
             if (hitCount < 8) continue;
-            double totalWeight = 0;
-            for (int i = firstHit; i < lastHit; i++) totalWeight += onsets[i].Strength;
+            double totalWeight = 0, strongWeight = 0, strongSquares = 0;
+            for (int i = firstHit; i < lastHit; i++)
+            {
+                totalWeight += onsets[i].Strength;
+                double weight = BeatWeight(onsets[i]);
+                strongWeight += weight;
+                strongSquares += weight * weight;
+            }
             if (totalWeight <= 0) continue;
+            // An isolated loud click must not dominate a window. Demand several
+            // independently weighted attacks (effective sample size >= 5).
+            bool canUseAccents = strongSquares > 0 && strongWeight * strongWeight / strongSquares >= 5;
             for (int candidate = 0; candidate < TempoCandidates; candidate++)
             {
                 double bpm = MinimumBpm + candidate * BpmResolution;
                 double anglePerHop = Math.Tau * bpm / (60 * hopsPerSecond);
-                double real = 0, imaginary = 0;
+                double allReal = 0, allImaginary = 0, strongReal = 0, strongImaginary = 0;
                 for (int i = firstHit; i < lastHit; i++)
                 {
                     Onset onset = onsets[i];
                     (double sine, double cosine) = Math.SinCos(onset.Index * anglePerHop);
-                    real += onset.Strength * cosine;
-                    imaginary += onset.Strength * sine;
+                    allReal += onset.Strength * cosine;
+                    allImaginary += onset.Strength * sine;
+                    if (!canUseAccents) continue;
+                    double weight = BeatWeight(onset);
+                    strongReal += weight * cosine;
+                    strongImaginary += weight * sine;
                 }
-                scores[window, candidate] = (float)(Math.Sqrt(real * real + imaginary * imaginary) / totalWeight);
+                double broad = Math.Sqrt(allReal * allReal + allImaginary * allImaginary) / totalWeight;
+                double prominent = canUseAccents
+                    ? Math.Sqrt(strongReal * strongReal + strongImaginary * strongImaginary) / strongWeight
+                    : broad;
+                scores[window, candidate] = (float)(canUseAccents
+                    ? .85 * prominent + .15 * broad : broad);
             }
         }
 
@@ -217,9 +249,11 @@ public static class TrackRhythmAnalyzer
             // These are real 9-second analysis windows, not the 2-second center spacing.
             long start = Math.Clamp(((long)index * stride - radius) * framesPerHop, 0, totalFrames);
             long end = Math.Clamp(((long)index * stride + radius) * framesPerHop, start, totalFrames);
-            windows[index] = new(start, end,
-                hitsPerSlice[index] >= 5 && quality[index] >= .28f ? selected[index] : 0,
-                quality[index], hitsPerSlice[index]);
+            windows[index] = new(start, end, hitsPerSlice[index] >= 5 ? selected[index] : 0,
+                quality[index], hitsPerSlice[index])
+            {
+                Accepted = hitsPerSlice[index] >= 5 && quality[index] >= .28f
+            };
         }
 
         var sections = new List<TrackTempoSection>();
@@ -289,17 +323,24 @@ public static class TrackRhythmAnalyzer
         double period = hopsPerSecond * 60 / anchorBpm;
         double phaseSpeed = Math.Tau / period;
         int center = firstWindow * stride;
-        double real = 0, imaginary = 0;
+        double allReal = 0, allImaginary = 0, strongReal = 0, strongImaginary = 0;
+        double strongTotal = 0, strongSquares = 0;
         int onsetsInSection = 0;
         foreach (Onset onset in onsets)
         {
-            if (Math.Abs(onset.Index - center) <= radius)
-            {
-                (double sine, double cosine) = Math.SinCos(onset.Index * phaseSpeed);
-                real += onset.Strength * cosine;
-                imaginary += onset.Strength * sine;
-            }
+            if (Math.Abs(onset.Index - center) > radius) continue;
+            (double sine, double cosine) = Math.SinCos(onset.Index * phaseSpeed);
+            allReal += onset.Strength * cosine;
+            allImaginary += onset.Strength * sine;
+            double weight = BeatWeight(onset);
+            strongReal += weight * cosine;
+            strongImaginary += weight * sine;
+            strongTotal += weight;
+            strongSquares += weight * weight;
         }
+        bool useStrong = strongSquares > 0 && strongTotal * strongTotal / strongSquares >= 5;
+        double real = useStrong ? strongReal : allReal;
+        double imaginary = useStrong ? strongImaginary : allImaginary;
         double phase = (Math.Atan2(imaginary, real) + Math.Tau) % Math.Tau;
         double phaseInHops = phase / Math.Tau * period;
         long startFrame = firstWindow == 0 ? 0 :
@@ -328,13 +369,18 @@ public static class TrackRhythmAnalyzer
             for (int i = onsetCursor; i < onsets.Count && onsets[i].Index <= position + searchRadius; i++)
             {
                 double distance = Math.Abs(onsets[i].Index - position);
-                double evidence = onsets[i].Strength * (1 - distance / searchRadius);
+                // Lock to the same prominent percussion used to determine the phase.
+                // Otherwise a nearby hi-hat can pull the grid off a real kick.
+                double weight = useStrong
+                    ? Math.Clamp((onsets[i].Accent - .76f) * 4, 0, 1.5)
+                    : onsets[i].Strength;
+                double evidence = weight * (1 - distance / searchRadius);
                 if (evidence <= strongest) continue;
                 strongest = evidence;
                 nearest = onsets[i].Index;
             }
             double correction = 0;
-            if (strongest >= .12)
+            if (strongest >= (useStrong ? .22 : .12))
             {
                 correction = Math.Clamp((nearest - position) * (missed >= 3 ? .65 : .4),
                     -spacing * .2, spacing * .2);
