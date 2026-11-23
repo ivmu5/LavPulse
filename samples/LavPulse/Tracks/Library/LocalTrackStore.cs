@@ -14,7 +14,7 @@ internal sealed partial class LocalTrackStore(string root)
     private readonly Dictionary<(string Id, string Name, string Folder), StoredLibraryTrack> _library = new();
     private readonly SemaphoreSlim _analysisWrites = new(1);
     private string MediaDirectory => Path.Combine(root, "media");
-    private string AnalysisDirectory => Path.Combine(root, "analysis-v4");
+    private string AnalysisDirectory => Path.Combine(root, "analysis-v5");
     private string QueuePath => Path.Combine(root, "queue.json");
     public string PcmDirectory => Path.Combine(root, "pcm-v1");
     public event Action<string>? TrackStorageChanged;
@@ -75,9 +75,9 @@ internal sealed partial class LocalTrackStore(string root)
 
     public async Task<(TrackFile[] Tracks, TrackFile? Current)> ReadQueueAsync(CancellationToken token)
     {
-        // Version 4 reanalyzes tracks with stricter percussive detection and a visible beat grid.
+        // Version 5 stores independent tempo sections and per-window confidence diagnostics.
         // MP3s, queue and PCM cache remain intact; only previous analysis manifests are removed.
-        foreach (string version in new[] { "analysis-v1", "analysis-v2", "analysis-v3" })
+        foreach (string version in new[] { "analysis-v1", "analysis-v2", "analysis-v3", "analysis-v4" })
         {
             try { Directory.Delete(Path.Combine(root, version), recursive: true); }
             catch (DirectoryNotFoundException) { }
