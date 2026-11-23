@@ -158,7 +158,7 @@ internal sealed class WaveformDrawable : IDrawable
         float lastX = float.NegativeInfinity;
         canvas.SaveState();
         canvas.ClipRectangle(x, bounds.Top, width, bounds.Height);
-        canvas.StrokeColor = Colors.Orange.WithAlpha(.95f);
+        canvas.StrokeColor = Microsoft.Maui.Graphics.Colors.Orange.WithAlpha(.95f);
         canvas.StrokeSize = 2;
         for (int drawn = 0; index < beats.Length && beats[index] <= start + length &&
              drawn < 1000; index++)
