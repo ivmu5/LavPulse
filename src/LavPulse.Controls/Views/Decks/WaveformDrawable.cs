@@ -143,24 +143,28 @@ internal sealed class WaveformDrawable : IDrawable
     private void DrawBeatGrid(ICanvas canvas, RectF bounds, TrackBeatGrid grid, long start,
         long length, float x, float width)
     {
-        double period = PlaybackFormat.SampleRate * 60d / grid.Bpm;
-        if (period <= 0 || !double.IsFinite(period)) return;
+        long[] beats = grid.BeatFrames;
+        if (beats.Length < 4) return;
+        int first = Array.BinarySearch(beats, start);
+        if (first < 0) first = ~first;
+        if (first >= beats.Length) return;
         int stride = 1;
         if (!Detailed)
         {
-            while (stride < 1024 && period * stride * width / length < 11) stride *= 2;
+            double averagePeriod = (beats[^1] - beats[0]) / (double)(beats.Length - 1);
+            while (stride < 1024 && averagePeriod * stride * width / length < 11) stride *= 2;
+            first = (first + stride - 1) / stride * stride;
         }
-        long first = (long)Math.Ceiling((start - grid.FirstBeatFrame) / period / stride) * stride;
-        long last = (long)Math.Floor((start + length - grid.FirstBeatFrame) / period);
         canvas.SaveState();
         canvas.ClipRectangle(x, bounds.Top, width, bounds.Height);
         canvas.StrokeColor = Colors.Accent.WithAlpha(Detailed ? .24f : .32f);
         canvas.StrokeSize = Detailed ? 1 : 1.5f;
-        for (long tick = first; tick <= last && tick - first < 300; tick += stride)
+        for (int index = first, drawn = 0;
+             index < beats.Length && beats[index] <= start + length && drawn < 300;
+             index += stride, drawn++)
         {
-            double frame = grid.FirstBeatFrame + tick * period;
-            if (frame < 0 || frame > (Waveform?.TotalFrames ?? 0)) continue;
-            float px = x + (float)((frame - start) * width / length);
+            // BeatFrames includes local tempo corrections; never reconstruct a constant-period grid.
+            float px = x + (float)((beats[index] - start) * (double)width / length);
             canvas.DrawLine(px, bounds.Top + 3, px, bounds.Bottom - 3);
         }
         canvas.RestoreState();

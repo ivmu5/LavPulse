@@ -14,7 +14,7 @@ internal sealed partial class LocalTrackStore(string root)
     private readonly Dictionary<(string Id, string Name, string Folder), StoredLibraryTrack> _library = new();
     private readonly SemaphoreSlim _analysisWrites = new(1);
     private string MediaDirectory => Path.Combine(root, "media");
-    private string AnalysisDirectory => Path.Combine(root, "analysis-v3");
+    private string AnalysisDirectory => Path.Combine(root, "analysis-v2");
     private string QueuePath => Path.Combine(root, "queue.json");
     public string PcmDirectory => Path.Combine(root, "pcm-v1");
     public event Action<string>? TrackStorageChanged;
@@ -75,15 +75,12 @@ internal sealed partial class LocalTrackStore(string root)
 
     public async Task<(TrackFile[] Tracks, TrackFile? Current)> ReadQueueAsync(CancellationToken token)
     {
-        // Rhythm analysis v2 replaces the former amplitude-only manifest. The media library
+        // Rhythm analysis v3 replaces fixed-tempo and amplitude-only manifests. The media library
         // and queue stay intact; obsolete manifests are discarded and scanned again as needed.
-        foreach (string version in new[] { "analysis-v1", "analysis-v2" })
-        {
-            try { Directory.Delete(Path.Combine(root, version), recursive: true); }
-            catch (DirectoryNotFoundException) { }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-        }
+        try { Directory.Delete(Path.Combine(root, "analysis-v1"), recursive: true); }
+        catch (DirectoryNotFoundException) { }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
         var manifest = await ReadAsync(QueuePath, TrackStoreJson.Default.StoredQueue, token).ConfigureAwait(false);
         foreach (var entry in manifest?.Library ?? manifest?.Tracks?.Select(track => new StoredLibraryTrack(track, [])).ToArray() ?? [])
         {
