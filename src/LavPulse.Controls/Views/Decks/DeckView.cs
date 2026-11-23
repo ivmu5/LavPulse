@@ -21,7 +21,7 @@ public sealed partial class DeckView : Border
     };
     private readonly Button _markRhythm = new()
     {
-        Text = "Ритм", FontFamily = "Inter", FontSize = 10,
+        Text = "Ритм", FontFamily = "Inter", FontSize = 10, WidthRequest = 50,
         HeightRequest = 28, MinimumHeightRequest = 28, Padding = new Thickness(5, 0),
         CornerRadius = 6, VerticalOptions = LayoutOptions.Center, IsVisible = false
     };
@@ -41,6 +41,9 @@ public sealed partial class DeckView : Border
     private long _detailStart = -1;
     private long _overviewPaintedPosition;
     private CachedTrack? _track;
+    private readonly List<long> _manualTaps = [];
+    private double _lastBeatPressTime = double.NegativeInfinity;
+    private bool _canTapBeats;
     private long _position;
     private long _displayPosition;
     private DeckPlayhead _playhead;
@@ -72,15 +75,14 @@ public sealed partial class DeckView : Border
             MixerStyle.UseColor(button, Button.TextColorProperty, MixerColor.Text);
         }
         SemanticProperties.SetDescription(_markProblem, "Добавить в репорт замечание по выделенному участку");
-        SemanticProperties.SetDescription(_markRhythm, "Отметить участок с хорошо слышимым ритмом");
+        SemanticProperties.SetDescription(_markRhythm,
+            "Нажимай на каждый слышимый басовый удар. Позиции сохраняются в отчёт, окно не открывается.");
         _markProblem.Clicked += (_, _) =>
         {
             if (_track is { } track) ReportMarkRequested?.Invoke(track, _displayPosition, TrackMarkMode.Problem);
         };
-        _markRhythm.Clicked += (_, _) =>
-        {
-            if (_track is { } track) ReportMarkRequested?.Invoke(track, _displayPosition, TrackMarkMode.StrongRhythm);
-        };
+        // Pressed is timestamped at contact/down, not on release after a human-held click.
+        _markRhythm.Pressed += (_, _) => TapBeatNow();
         var header = new Grid
         {
             ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto),
@@ -105,6 +107,55 @@ public sealed partial class DeckView : Border
 
     public event Action<CachedTrack, long>? SeekRequested;
     public event Action<CachedTrack, long, TrackMarkMode>? ReportMarkRequested;
+    public event Action<CachedTrack, long>? BassBeatTapped;
+
+    /// <summary>Manual timing is allowed only while the output is actually playing.</summary>
+    public void SetBassTapEnabled(bool enabled)
+    {
+        _canTapBeats = enabled;
+        _markRhythm.IsEnabled = enabled && _track is not null;
+    }
+
+    private void TapBeatNow()
+    {
+        if (!_canTapBeats || _track is not { } track) return;
+        double now = DeckPlayhead.Now;
+        // Debounce accidental double contacts/key repeat, not musical subdivisions.
+        if (now - _lastBeatPressTime < .075) return;
+        _lastBeatPressTime = now;
+        long frame = _animatePlayhead
+            ? _playhead.Advance(now, track.Waveform.TotalFrames)
+            : _displayPosition;
+        frame = Math.Clamp(frame, 0, track.Waveform.TotalFrames);
+        AddVisibleTap(frame);
+        BassBeatTapped?.Invoke(track, frame);
+    }
+
+    /// <summary>Restore already saved taps without losing presses made during the async read.</summary>
+    public void RestoreBassTaps(CachedTrack track, IReadOnlyList<long> frames)
+    {
+        if (!ReferenceEquals(track, _track)) return;
+        foreach (long frame in frames)
+        {
+            if (!_manualTaps.Contains(frame)) _manualTaps.Add(frame);
+        }
+        UpdateVisibleTapMarks();
+    }
+
+    private void AddVisibleTap(long frame)
+    {
+        _manualTaps.Add(frame);
+        UpdateVisibleTapMarks();
+    }
+
+    private void UpdateVisibleTapMarks()
+    {
+        _manualTaps.Sort();
+        long[] marks = [.. _manualTaps];
+        _detailDrawable.ManualBeatFrames = _overviewDrawable.ManualBeatFrames = marks;
+        _detail.Invalidate();
+        _overview.Invalidate();
+    }
     internal CachedTrack? DisplayedTrack => _track;
     internal bool IsOverviewAnimating => _overviewAnimating;
     internal bool IsOverviewCollapsed => !_overviewAnimating && _overviewProgress <= .00001;
@@ -157,10 +208,13 @@ public sealed partial class DeckView : Border
 
         IsVisible = playing.HasValue;
         _markProblem.IsVisible = _markRhythm.IsVisible = playing.HasValue;
+        _markRhythm.IsEnabled = playing.HasValue && _canTapBeats;
         if (playing is not { } deck)
         {
             SetOverview(false, animate: false);
             _track = null;
+            _manualTaps.Clear();
+            _detailDrawable.ManualBeatFrames = _overviewDrawable.ManualBeatFrames = [];
             _detailDrawable.Waveform = _overviewDrawable.Waveform = null;
             return;
         }
@@ -169,6 +223,9 @@ public sealed partial class DeckView : Border
         if (trackChanged)
         {
             _track = deck.Track;
+            _manualTaps.Clear();
+            _lastBeatPressTime = double.NegativeInfinity;
+            _detailDrawable.ManualBeatFrames = _overviewDrawable.ManualBeatFrames = [];
             _shownSecond = -1;
             _detailDrawable.Waveform = _overviewDrawable.Waveform = deck.Track.Waveform;
             InvalidateWaveGeometry();

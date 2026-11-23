@@ -8,37 +8,65 @@ namespace Laveyana.LavPulse;
 
 public sealed partial class MainPage
 {
-    private async void OpenReportMarker(CachedTrack track, long position, TrackMarkMode mode)
+    // Only the "В отчёт" action opens a range/comment editor. Manual rhythm taps are
+    // recorded directly by pressing "Ритм" without opening or replacing the player.
+    private void OpenReportMarker(CachedTrack track, long position, TrackMarkMode mode)
     {
         if (_closed || _view.Panel is not null) return;
-        if (mode == TrackMarkMode.StrongRhythm)
-        {
-            try
-            {
-                // Clicking "Ритм" is enough to include the original track in the next ZIP.
-                // The editor may be cancelled; any previously added sections remain intact.
-                if (_library.Find(track) is not { LocalPath: { } path } || !File.Exists(path))
-                    throw new FileNotFoundException("Оригинальный MP3 больше не доступен.");
-                string id = Path.GetFileNameWithoutExtension(path);
-                string analysis = await Task.Run(() => TrackAnalysisReport.Create(
-                    track.Name, track.Waveform, track.AudioInfo, track.Title, track.Artist, track.Album),
-                    _lifetime.Token);
-                bool added = await _reports.RegisterAsync(id, track.Name, track.Title,
-                    track.Artist, analysis, _lifetime.Token);
-                if (_closed) return;
-                _view.Status.Text = added
-                    ? $"«{track.Title}» автоматически добавлен в репорт"
-                    : $"«{track.Title}» уже находится в репорте";
-            }
-            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
-            catch (Exception ex)
-            {
-                if (!_closed) _view.Status.Text = "Не удалось добавить трек в репорт: " + ex.Message;
-                return;
-            }
-        }
         OpenPanel(() => new TrackReportMarkPanel(track, position, mode,
             mark => AddReportMarkAsync(track, mark), ClosePanel));
+    }
+
+    private readonly Dictionary<CachedTrack, Task<string>> _tapAnalysisReports = new();
+
+    private async void RecordBassTap(CachedTrack track, long frame)
+    {
+        if (_closed || _worker is null || IsStopping || _view.Panel is not null) return;
+        try
+        {
+            if (_library.Find(track) is not { LocalPath: { } path } || !File.Exists(path))
+                throw new FileNotFoundException("Оригинальный MP3 больше не доступен.");
+            string id = Path.GetFileNameWithoutExtension(path);
+            if (!_tapAnalysisReports.TryGetValue(track, out var analysisTask))
+            {
+                analysisTask = Task.Run(() => TrackAnalysisReport.Create(track.Name,
+                    track.Waveform, track.AudioInfo, track.Title, track.Artist, track.Album), _lifetime.Token);
+                _tapAnalysisReports[track] = analysisTask;
+            }
+            var tap = new ManualBeatTap(Math.Clamp(frame, 0, track.Waveform.TotalFrames),
+                DateTimeOffset.UtcNow, 180, _settings.VisualDelayMilliseconds);
+            string analysis = await analysisTask;
+            int count = await _reports.AppendBeatTapAsync(id, track.Name, track.Title, track.Artist,
+                analysis, tap, _lifetime.Token);
+            if (!_closed && count == 1) _view.Status.Text = $"«{track.Title}» добавлен в репорт. Отмечай басовые удары.";
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            if (_tapAnalysisReports.TryGetValue(track, out var task) && task.IsFaulted)
+                _tapAnalysisReports.Remove(track);
+            if (!_closed) _view.Status.Text = "Не удалось сохранить удар: " + ex.Message;
+        }
+    }
+
+    private async Task RestoreBassTapsAsync(CachedTrack track, DeckView deck)
+    {
+        try
+        {
+            var file = _library.Find(track);
+            if (file?.LocalPath is not { } path) return;
+            string id = Path.GetFileNameWithoutExtension(path);
+            var reports = await _reports.ReadAllAsync(_lifetime.Token);
+            if (_closed) return;
+            var saved = reports.FirstOrDefault(item => item.Id == id);
+            if (saved is not null)
+                deck.RestoreBassTaps(track, (saved.BeatTaps ?? []).Select(item => item.Frame).ToArray());
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            if (!_closed) System.Diagnostics.Debug.WriteLine("Could not restore manual beats: " + ex);
+        }
     }
 
     private async Task<bool> AddReportMarkAsync(CachedTrack track, TrackReportSelection selection)

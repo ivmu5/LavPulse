@@ -129,6 +129,7 @@ public sealed partial class MainPage
             bool animate = IsPlayerVisible && ReferenceEquals(_shownIncoming, current.Track);
             _shownIncoming = null;
             _shownCurrent = current.Track;
+            _ = RestoreBassTapsAsync(current.Track, _view.CurrentDeck);
             SetSelection(null, null);
             if (_library.Find(current.Track) is { } file)
             {
@@ -151,6 +152,7 @@ public sealed partial class MainPage
         if (snapshot.Incoming is { } incoming && !ReferenceEquals(_shownIncoming, incoming.Track))
         {
             _shownIncoming = incoming.Track;
+            _ = RestoreBassTapsAsync(incoming.Track, _view.IncomingDeck);
             if (IsPlayerVisible) _ = _view.BeginMixAsync(incoming.Track, _library.Find(incoming.Track));
             UpdateTransport();
         }
@@ -181,6 +183,9 @@ public sealed partial class MainPage
     private void UpdateDecks(QueueSnapshot snapshot)
     {
         if (!IsPlayerVisible) return;
+        bool allowTaps = !_closed && _worker is not null && !IsStopping;
+        _view.CurrentDeck.SetBassTapEnabled(allowTaps);
+        _view.IncomingDeck.SetBassTapEnabled(allowTaps);
         bool transitioning = IsTransitioning(snapshot);
         _view.ShowDecks(snapshot, !_closed && !IsStopping && !transitioning, showOverview: !transitioning);
     }

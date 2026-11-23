@@ -47,6 +47,8 @@ internal sealed class WaveformDrawable : IDrawable
     public int DetailWindowSeconds { get; set; } = PlayerSettings.DefaultWaveformDetailSeconds;
     public long Position { get; set; }
     public long? Preview { get; set; }
+    /// <summary>Manual human bass taps, not machine-generated beat-grid anchors.</summary>
+    public long[] ManualBeatFrames { get; set; } = [];
 
     private RectF _cachedBounds;
     private long _cachedStart;
@@ -89,6 +91,9 @@ internal sealed class WaveformDrawable : IDrawable
             {
                 canvas.FillColor = Theme[MixerColor.Border];
                 canvas.FillRoundedRectangle(bounds.Left + HorizontalInset, bounds.Center.Y - 3, bounds.Width - 2 * HorizontalInset, 6, 3);
+                if (Waveform is { TotalFrames: > 0 } overview)
+                    DrawManualBeatMarks(canvas, bounds, 0, overview.TotalFrames,
+                        bounds.X + HorizontalInset, bounds.Width - 2 * HorizontalInset);
             }
             return;
         }
@@ -140,6 +145,33 @@ internal sealed class WaveformDrawable : IDrawable
             DrawBeatGrid(canvas, bounds, rhythm, start, length, x, width);
         if (Mode == DeckWaveformMode.Transients && Detailed && waveform.Rhythm is { } transients)
             DrawOnsetMarks(canvas, bounds, transients.TransientFrames, start, length, x, width);
+        DrawManualBeatMarks(canvas, bounds, start, length, x, width);
+    }
+
+    private void DrawManualBeatMarks(ICanvas canvas, RectF bounds, long start, long length,
+        float x, float width)
+    {
+        var beats = ManualBeatFrames;
+        if (beats.Length == 0 || length <= 0 || width <= 0) return;
+        int index = Array.BinarySearch(beats, start);
+        if (index < 0) index = ~index;
+        float lastX = float.NegativeInfinity;
+        canvas.SaveState();
+        canvas.ClipRectangle(x, bounds.Top, width, bounds.Height);
+        canvas.StrokeColor = Colors.Orange.WithAlpha(.95f);
+        canvas.StrokeSize = 2;
+        for (int drawn = 0; index < beats.Length && beats[index] <= start + length &&
+             drawn < 1000; index++)
+        {
+            float marker = x + (float)((beats[index] - start) * (double)width / length);
+            if (marker - lastX < (Detailed ? 2 : 3)) continue;
+            // Distinct short orange ticks are user presses, never an inferred full grid.
+            canvas.DrawLine(marker, bounds.Top + 1, marker,
+                bounds.Top + (Detailed ? 12 : 10));
+            lastX = marker;
+            drawn++;
+        }
+        canvas.RestoreState();
     }
 
     /// <summary>Draws real rhythmic ticks, downsampled for a full-track overview to avoid visual noise.</summary>
