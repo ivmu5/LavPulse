@@ -33,6 +33,14 @@
     <ApplicationIcon Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">Platforms/Windows/lavpulse.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <!-- These publish properties belong to the executable, not the Controls library.
+       Use the MAUI RID override workaround without passing SelfContained to project references. -->
+  <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows' and '$(RuntimeIdentifierOverride)' != ''">
+    <RuntimeIdentifier>$(RuntimeIdentifierOverride)</RuntimeIdentifier>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
     <ProjectReference Include="../../src/Laveyana.Audio.Playback/Laveyana.Audio.Playback.csproj" />
