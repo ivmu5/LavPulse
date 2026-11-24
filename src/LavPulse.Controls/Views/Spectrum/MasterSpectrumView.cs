@@ -8,6 +8,7 @@ public sealed partial class MasterSpectrumView : ContentView
     private readonly float[] _levels = new float[PlaybackFormat.SpectrumBars];
     private readonly GraphicsView _graphics;
     private long _version;
+    private ISpectrumSource? _lastSource;
     private SpectrumFrameClock _frameClock;
     private int _framesPerSecond;
     private Func<ISpectrumSource?>? _getSource;
@@ -113,6 +114,7 @@ public sealed partial class MasterSpectrumView : ContentView
     private void ResetLevels()
     {
         _version = 0;
+        _lastSource = null;
         Array.Clear(_levels);
         _drawable.Reset();
     }
@@ -127,11 +129,18 @@ public sealed partial class MasterSpectrumView : ContentView
             return;
         }
 
+        bool sourceChanged = !ReferenceEquals(_lastSource, mix);
+        if (sourceChanged)
+        {
+            ResetLevels();
+            _lastSource = mix;
+        }
         mix.TryReadSpectrum(_levels, ref _version);
-        if (_drawable.Advance(_levels, elapsed, out bool barsChanged))
+        bool redraw = _drawable.Advance(_levels, elapsed, out bool barsChanged);
+        if (redraw || sourceChanged)
         {
             _graphics.Invalidate();
-            if (barsChanged) VisualizationChanged?.Invoke();
+            if (barsChanged || sourceChanged) VisualizationChanged?.Invoke();
         }
     }
 

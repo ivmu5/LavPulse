@@ -69,7 +69,7 @@ public sealed partial class MainPage
         try
         {
             await Task.WhenAll(_worker ?? Task.CompletedTask, _coverAnimation ?? Task.CompletedTask, _analysisWorker,
-                _restoreQueue ?? Task.CompletedTask, AwaitImportSavesAsync());
+                _restoreQueue ?? Task.CompletedTask, AwaitImportSavesAsync(), _pendingBeatWrites);
         }
         catch (Exception)
         {

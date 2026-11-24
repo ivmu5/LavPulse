@@ -1,4 +1,5 @@
 using System.IO;
+using System.Runtime.CompilerServices;
 using Laveyana.Audio.Playback;
 using Laveyana.LavPulse.Controls;
 using Laveyana.LavPulse.Tracks;
@@ -17,9 +18,11 @@ public sealed partial class MainPage
             mark => AddReportMarkAsync(track, mark), ClosePanel));
     }
 
-    private readonly Dictionary<CachedTrack, Task<string>> _tapAnalysisReports = new();
+    // Weak keys prevent diagnostic reports from keeping evicted PCM/waveform/artwork objects alive.
+    private readonly ConditionalWeakTable<CachedTrack, Task<string>> _tapAnalysisReports = new();
+    private Task _pendingBeatWrites = Task.CompletedTask;
 
-    private async void RecordBassTap(CachedTrack track, long frame)
+    private void RecordBassTap(CachedTrack track, long frame)
     {
         if (_closed || _worker is null || IsStopping || _view.Panel is not null)
         {
@@ -27,32 +30,41 @@ public sealed partial class MainPage
             _view.IncomingDeck.DiscardFailedBassTap(track, frame);
             return;
         }
+        // Capture the timestamp and calibration before any asynchronous work or queueing.
+        var tap = new ManualBeatTap(Math.Clamp(frame, 0, track.Waveform.TotalFrames),
+            DateTimeOffset.UtcNow, 180, _settings.VisualDelayMilliseconds);
+        _pendingBeatWrites = SaveBassTapAsync(_pendingBeatWrites, track, frame, tap);
+    }
+
+    private async Task SaveBassTapAsync(Task previous, CachedTrack track, long frame, ManualBeatTap tap)
+    {
         try
         {
-            if (_library.Find(track) is not { LocalPath: { } path } || !File.Exists(path))
+            if (_library.Find(track) is not { LocalPath: { } path })
                 throw new FileNotFoundException("Оригинальный MP3 больше не доступен.");
             string id = Path.GetFileNameWithoutExtension(path);
-            if (!_tapAnalysisReports.TryGetValue(track, out var analysisTask))
-            {
-                analysisTask = Task.Run(() => TrackAnalysisReport.Create(track.Name,
-                    track.Waveform, track.AudioInfo, track.Title, track.Artist, track.Album), _lifetime.Token);
-                _tapAnalysisReports[track] = analysisTask;
-            }
-            var tap = new ManualBeatTap(Math.Clamp(frame, 0, track.Waveform.TotalFrames),
-                DateTimeOffset.UtcNow, 180, _settings.VisualDelayMilliseconds);
+            await previous;
+            if (!File.Exists(path))
+                throw new FileNotFoundException("Оригинальный MP3 больше не доступен.");
+            var analysisTask = _tapAnalysisReports.GetValue(track, key => Task.Run(() =>
+                TrackAnalysisReport.Create(key.Name, key.Waveform, key.AudioInfo, key.Title, key.Artist, key.Album)));
             string analysis = await analysisTask;
-            int count = await _reports.AppendBeatTapAsync(id, track.Name, track.Title, track.Artist,
-                analysis, tap, _lifetime.Token);
+            // Do not serialize the growing report on the UI thread. Accepted taps are
+            // drained on normal shutdown, even after the playback lifetime is cancelled.
+            int count = await Task.Run(() => _reports.AppendBeatTapAsync(id, track.Name, track.Title, track.Artist,
+                analysis, tap, CancellationToken.None));
             if (!_closed && count == 1) _view.Status.Text = $"«{track.Title}» добавлен в репорт. Отмечай басовые удары.";
         }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception ex)
         {
-            _view.CurrentDeck.DiscardFailedBassTap(track, frame);
-            _view.IncomingDeck.DiscardFailedBassTap(track, frame);
             if (_tapAnalysisReports.TryGetValue(track, out var task) && task.IsFaulted)
                 _tapAnalysisReports.Remove(track);
-            if (!_closed) _view.Status.Text = "Не удалось сохранить удар: " + ex.Message;
+            if (!_closed)
+            {
+                _view.CurrentDeck.DiscardFailedBassTap(track, frame);
+                _view.IncomingDeck.DiscardFailedBassTap(track, frame);
+                _view.Status.Text = "Не удалось сохранить удар: " + ex.Message;
+            }
         }
     }
 
@@ -111,6 +123,7 @@ public sealed partial class MainPage
 
     private async Task<string> ReportSummaryAsync()
     {
+        await _pendingBeatWrites;
         var reports = await _reports.ReadAllAsync(_lifetime.Token);
         return $"Треков: {reports.Length}; комментариев и участков: {reports.Sum(r => r.Marks.Count)}; " +
             $"басовых нажатий: {reports.Sum(r => r.BeatTaps?.Count ?? 0)}";
@@ -118,6 +131,7 @@ public sealed partial class MainPage
 
     private async Task<string> CopyReportTextAsync()
     {
+        await _pendingBeatWrites;
         var reports = await _reports.ReadAllAsync(_lifetime.Token);
         if (reports.Length == 0) throw new InvalidOperationException("Репорт пока пуст. Добавь отметку в деке.");
         string report = await Task.Run(() => TrackReportArchive.RenderText(reports), _lifetime.Token);
@@ -127,6 +141,7 @@ public sealed partial class MainPage
 
     private async Task<string?> ExportReportZipAsync()
     {
+        await _pendingBeatWrites;
         var reports = await _reports.ReadAllAsync(_lifetime.Token);
         if (reports.Length == 0) throw new InvalidOperationException("Репорт пока пуст. Добавь отметку в деке.");
         string suggested = "LavPulse_Report_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".zip";
@@ -179,10 +194,11 @@ public sealed partial class MainPage
 
     private async Task<string> ClearReportsAsync()
     {
-        if (!await DisplayAlert("Очистить отчёты?",
+        if (!await DisplayAlertAsync("Очистить отчёты?",
             "Все комментарии и отметки сильного ритма будут удалены. MP3 останутся нетронутыми.",
             "Очистить", "Отмена"))
             return "Очистка отменена.";
+        await _pendingBeatWrites;
         await _reports.ClearAsync(_lifetime.Token);
         _view.CurrentDeck.ClearBassTaps();
         _view.IncomingDeck.ClearBassTaps();

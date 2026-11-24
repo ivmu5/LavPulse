@@ -4,15 +4,20 @@ namespace Laveyana.LavPulse.Tracks;
 
 internal sealed partial class PlayerLibrary
 {
-    public bool HasQueueMetadataRequest(TrackFile file) => _queueMetadata.ContainsKey(file);
+    public bool HasQueueMetadataRequest(TrackFile file)
+    {
+        lock (_cacheGate) return _queueMetadata.ContainsKey(file);
+    }
 
     public Task<TrackMetadata> ReadQueueMetadataAsync(TrackFile file)
     {
-        if (!_queueMetadata.TryGetValue(file, out var task))
+        lock (_cacheGate)
         {
-            _queueMetadata[file] = task = BuildQueueMetadataAsync(ReadMetadataAsync(file));
+            _thumbnailAccess[file] = ++_access;
+            if (!_queueMetadata.TryGetValue(file, out var task))
+                _queueMetadata[file] = task = BuildQueueMetadataAsync(ReadMetadataAsync(file));
+            return task;
         }
-        return task;
     }
 
     private async Task<TrackMetadata> BuildQueueMetadataAsync(Task<TrackMetadata> metadata)

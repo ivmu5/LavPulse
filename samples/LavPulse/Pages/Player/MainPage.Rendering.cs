@@ -25,7 +25,7 @@ public sealed partial class MainPage
         try { _systemPlayback.EnsureRunning(); }
         catch (Exception ex) { _view.Status.Text = $"Системный плеер недоступен: {ex.Message}"; }
         _positions.Start();
-        if (_windowVisible) _view.StartPlaybackVisuals(() => _playback.Spectrum);
+        if (IsPlayerVisible) _view.StartPlaybackVisuals(() => _playback.Spectrum);
         _view.Status.Text = "";
         _worker = _playback.RunAsync(new PlatformAudioOutput(), _settings.FadeInMilliseconds, stop.Token);
         UpdateQueueAnalysis();
@@ -78,7 +78,7 @@ public sealed partial class MainPage
         }
 
         if (IsPlayerVisible) RestorePlayer(snapshot);
-        if (_worker is not null) _view.StartPlaybackVisuals(() => _playback.Spectrum);
+        if (IsPlayerVisible && _worker is not null) _view.StartPlaybackVisuals(() => _playback.Spectrum);
         RefreshDisplayClock();
         ProcessSystemTrackRequests();
     }
@@ -100,7 +100,7 @@ public sealed partial class MainPage
     }
 
     private void UpdateSpectrumAnalysis() =>
-        _playback.SetSpectrumEnabled(_windowVisible && _settings.ShowSpectrum && _settings.SpectrumWidthPercent > 0);
+        _playback.SetSpectrumEnabled(IsPlayerVisible && _settings.ShowSpectrum && _settings.SpectrumWidthPercent > 0);
 
     internal void StopPlayback()
     {

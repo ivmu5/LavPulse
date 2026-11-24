@@ -143,7 +143,8 @@ public sealed partial class PlayerSettingsPanel
                 _settings = _settings with { SpectrumFrameRate = value };
                 _previewAppearance?.Invoke(_settings);
             }, maxColumns: 5);
-        var hint = MixerStyle.Label("Мастер-спектр, деки и очередь. В режиме «Авто» частоту задаёт дисплей.", 12, MixerColor.Muted);
+        var hint = MixerStyle.Label("Общий предел для спектра, волн, переходов дек, обложек, бегущих строк и анимаций очереди. " +
+            "Авто — частота дисплея. Реальная частота не может превышать возможности экрана и системы.", 12, MixerColor.Muted);
         return Section("Интерфейс и FPS", frameRate, hint);
     }
 
@@ -163,7 +164,16 @@ public sealed partial class PlayerSettingsPanel
         var bottom = Number("Отступ снизу", "полосы",
             new(0, PlayerSettings.MaximumSpectrumPaddingRows, defaults.SpectrumBottomPaddingRows, 1),
             _settings.SpectrumBottomPaddingRows, value => _settings = _settings with { SpectrumBottomPaddingRows = value });
-        return Section("Мастер-спектр", Pair(spectrum, peaks), width.Row, Pair(top.Row, bottom.Row));
+        return new VerticalStackLayout
+        {
+            Spacing = 8,
+            Children =
+            {
+                Section("Отображение", Pair(spectrum, peaks)),
+                Section("Размеры и отступы", width.Row, Pair(top.Row, bottom.Row)),
+                CreateBrightnessSection()
+            }
+        };
     }
 
     private View CreateBrightnessSection()

@@ -208,6 +208,7 @@ public sealed partial class PlayerView
 
     public void ResetAnimations()
     {
+        CancelPreviousHold();
         _uiFramesSuspended = true;
         Spectrum.Stop();
         SuspendPlayerAnimations();

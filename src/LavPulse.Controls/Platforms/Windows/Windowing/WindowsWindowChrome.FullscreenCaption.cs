@@ -101,12 +101,6 @@ public sealed partial class WindowsWindowChrome
     {
         double target = _captionVisible ? 0 : -ContentInset;
         double progress = Stopwatch.GetElapsedTime(_captionAnimationStart).TotalMilliseconds / CaptionAnimationMilliseconds;
-        if (progress >= 1)
-        {
-            CompleteCaptionAnimation(target);
-            return;
-        }
-
         int rate = _player?.Spectrum.FramesPerSecond ?? 0;
         if (_captionRate != rate)
         {
@@ -116,6 +110,11 @@ public sealed partial class WindowsWindowChrome
         if (args is not RenderingEventArgs frame ||
             !_captionClock.TryAdvance(frame.RenderingTime.TotalSeconds, rate, out _)) return;
 
+        if (progress >= 1)
+        {
+            CompleteCaptionAnimation(target);
+            return;
+        }
         double remaining = 1 - progress;
         _captionTranslation.Y = target + (_captionAnimationFrom - target) * remaining * remaining * remaining;
     }

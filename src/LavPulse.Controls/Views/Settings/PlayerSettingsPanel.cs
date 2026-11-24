@@ -4,8 +4,8 @@ namespace Laveyana.LavPulse.Controls;
 public sealed partial class PlayerSettingsPanel : ContentView
 {
     private readonly Action<PlayerSettings>? _previewAppearance;
-    private readonly ContentView[] _sectionHosts = new ContentView[9];
-    private readonly Button[] _sectionButtons = new Button[9];
+    private readonly ContentView[] _sectionHosts = new ContentView[8];
+    private readonly Button[] _sectionButtons = new Button[8];
     private readonly IReadOnlyList<LibraryStorageOption> _storageOptions;
     private readonly Func<Task<string?>>? _pickStorageFolder;
     private readonly Func<Task<string>>? _copyReport;
@@ -50,11 +50,25 @@ public sealed partial class PlayerSettingsPanel : ContentView
         header.Add(reset, 1);
 
         var sections = new VerticalStackLayout { Spacing = 8 };
-        string[] names = ["Воспроизведение", "Деки", "Цвета", "Интерфейс и FPS", "Мастер-спектр", "Яркость спектра",
+        string[] names = ["Воспроизведение", "Деки и волны", "Темы и цвета", "Интерфейс и FPS", "Мастер-спектр",
             "Анализ треков", "Хранилище", "Отчёты"];
         for (int index = 0; index < names.Length; index++)
         {
             int section = index;
+            string? group = index switch
+            {
+                0 => "Воспроизведение",
+                2 => "Внешний вид",
+                5 => "Медиатека и диагностика",
+                _ => null
+            };
+            if (group is not null)
+            {
+                var groupHeading = MixerStyle.Label(group, 12, MixerColor.Muted, bold: true);
+                groupHeading.Margin = new Thickness(0, index == 0 ? 0 : 8, 0, 0);
+                SemanticProperties.SetHeadingLevel(groupHeading, SemanticHeadingLevel.Level2);
+                sections.Children.Add(groupHeading);
+            }
             var button = MixerStyle.Button(names[index]);
             button.HorizontalOptions = LayoutOptions.Fill;
             button.Clicked += (_, _) => ShowSection(section, commit: true);
@@ -121,9 +135,8 @@ public sealed partial class PlayerSettingsPanel : ContentView
             2 => CreateColorSection(),
             3 => CreateFrameRateSection(),
             4 => CreateSpectrumSection(),
-            5 => CreateBrightnessSection(),
-            6 => CreateAnalysisSection(),
-            7 => CreateStorageSection(),
+            5 => CreateAnalysisSection(),
+            6 => CreateStorageSection(),
             _ => CreateReportSection()
         };
         for (int section = 0; section < _sectionButtons.Length; section++)

@@ -18,6 +18,16 @@ internal static class LibraryStorageMigration
         string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(a)),
             Path.TrimEndingDirectorySeparator(Path.GetFullPath(b)), PathComparison);
 
+    internal static bool PathsOverlap(string a, string b)
+    {
+        string first = Path.TrimEndingDirectorySeparator(Path.GetFullPath(a));
+        string second = Path.TrimEndingDirectorySeparator(Path.GetFullPath(b));
+        string firstPrefix = Path.EndsInDirectorySeparator(first) ? first : first + Path.DirectorySeparatorChar;
+        string secondPrefix = Path.EndsInDirectorySeparator(second) ? second : second + Path.DirectorySeparatorChar;
+        return SamePath(first, second) || first.StartsWith(secondPrefix, PathComparison) ||
+            second.StartsWith(firstPrefix, PathComparison);
+    }
+
     public static async Task MigrateAsync(string sourceRoot, string destinationRoot,
         CancellationToken cancellationToken = default)
     {
@@ -25,9 +35,7 @@ internal static class LibraryStorageMigration
         string destination = Path.TrimEndingDirectorySeparator(Path.GetFullPath(destinationRoot));
         if (SamePath(source, destination)) return;
 
-        string sourcePrefix = source + Path.DirectorySeparatorChar;
-        string targetPrefix = destination + Path.DirectorySeparatorChar;
-        if (destination.StartsWith(sourcePrefix, PathComparison) || source.StartsWith(targetPrefix, PathComparison))
+        if (PathsOverlap(source, destination))
             throw new InvalidOperationException("Каталог хранения нельзя вложить внутрь другой медиатеки.");
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -46,18 +54,35 @@ internal static class LibraryStorageMigration
                 throw new IOException("В выбранной папке уже находятся данные. Выбери пустое расположение.");
         }
 
-        // Never enumerate into reparse-point directories. Only regular files are migrated.
-        var files = Directory.EnumerateFiles(source, "*", new EnumerationOptions
+        // Skipping a symlink/junction and then deleting the source tree can lose data.
+        // Reject such trees before copying or writing any files.
+        var files = ValidateRegularTree(source, cancellationToken)
+            .OrderBy(file => Path.GetFileName(file).Equals("queue.json", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+            .ToArray();
+        if (Directory.Exists(destination)) ValidateRegularTree(destination, cancellationToken);
+        // Also reject a destination below an existing redirecting directory. Android's
+        // system storage aliases are resolved by the platform; check custom Windows paths.
+        if (OperatingSystem.IsWindows())
         {
-            RecurseSubdirectories = true,
-            AttributesToSkip = FileAttributes.ReparsePoint,
-            IgnoreInaccessible = false
-        }).OrderBy(file => Path.GetFileName(file).Equals("queue.json", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
-          .ToArray();
+            for (var parent = new DirectoryInfo(destination); parent is not null; parent = parent.Parent)
+                if (parent.Exists && (parent.Attributes & FileAttributes.ReparsePoint) != 0)
+                    throw new IOException("Путь назначения содержит символическую ссылку или junction.");
+        }
 
         // Reserve enough free space for full copy when moving between volumes. The source
         // remains available until every destination file has been verified.
-        long bytes = files.Sum(file => new FileInfo(file).Length);
+        // Resume may already contain most of the verified files. Count only missing
+        // or mismatching copies, otherwise a nearly completed move can never resume.
+        long bytes = 0;
+        var verified = new HashSet<string>();
+        foreach (string file in files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string target = Path.Combine(destination, Path.GetRelativePath(source, file));
+            if (!File.Exists(target) || !await FilesEqualAsync(file, target, cancellationToken).ConfigureAwait(false))
+                bytes += new FileInfo(file).Length;
+            else verified.Add(file);
+        }
         try
         {
             var drive = new DriveInfo(Path.GetPathRoot(destination)!);
@@ -75,8 +100,7 @@ internal static class LibraryStorageMigration
             string relative = Path.GetRelativePath(source, file);
             string target = Path.Combine(destination, relative);
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            if (File.Exists(target) && await FilesEqualAsync(file, target, cancellationToken).ConfigureAwait(false))
-                continue;
+            if (verified.Contains(file)) continue;
 
             string temporary = target + "." + Guid.NewGuid().ToString("N") + ".partial";
             try
@@ -101,6 +125,33 @@ internal static class LibraryStorageMigration
         // The source tree is intentionally not deleted here: the caller must first commit
         // the destination path to durable preferences.
         // The marker is removed only after the new active location has been committed.
+    }
+
+    internal static List<string> ValidateRegularTree(string root, CancellationToken token = default)
+    {
+        var files = new List<string>();
+        var pending = new Stack<string>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            token.ThrowIfCancellationRequested();
+            string directory = pending.Pop();
+            if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("Перенос каталога с символическими ссылками запрещён.");
+            foreach (string entry in Directory.EnumerateFileSystemEntries(directory, "*", new EnumerationOptions
+            {
+                AttributesToSkip = 0, IgnoreInaccessible = false, RecurseSubdirectories = false
+            }))
+            {
+                token.ThrowIfCancellationRequested();
+                var attributes = File.GetAttributes(entry);
+                if ((attributes & FileAttributes.ReparsePoint) != 0)
+                    throw new IOException("В медиатеке найдена символическая ссылка. Перенос отменён.");
+                if ((attributes & FileAttributes.Directory) != 0) pending.Push(entry);
+                else files.Add(entry);
+            }
+        }
+        return files;
     }
 
     internal static void Confirm(string destinationRoot)

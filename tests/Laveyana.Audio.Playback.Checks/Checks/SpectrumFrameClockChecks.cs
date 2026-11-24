@@ -19,6 +19,7 @@ internal static class SpectrumFrameClockChecks
         Require(clock.TryAdvance(2.017, 60, out elapsed) && Math.Abs(elapsed - .017f) < .0001f,
             "Smoothing must use the actual time since the last draw.");
         CheckMotionCadence();
+        CheckLongRunningCadence();
         CheckWaveformDynamics();
         Console.WriteLine("OK: spectrum frame limits, FPS-synchronized motion and waveform transient contrast.");
     }
@@ -44,6 +45,33 @@ internal static class SpectrumFrameClockChecks
             }
             Require(previous == 1 && frames >= rate, "The transition did not finish at the selected display cadence.");
         }
+    }
+
+    private static void CheckLongRunningCadence()
+    {
+        foreach (int limit in new[] { 30, 60, 90, 120, 144, 165, 240, 360 })
+        {
+            const int refresh = 360;
+            const int seconds = 120;
+            SpectrumFrameClock clock = default;
+            int count = 0;
+            double start = 24 * 60 * 60; // long-running monotonic clock, not a fresh application
+            for (int tick = 0; tick < refresh * seconds; tick++)
+            {
+                double timestamp = start + tick / (double)refresh;
+                if (clock.TryAdvance(timestamp, limit, out _)) count++;
+                Require(!clock.TryAdvance(timestamp, limit, out _),
+                    "A duplicate compositor callback rendered a second frame.");
+            }
+            Require(Math.Abs(count - limit * seconds) <= 1,
+                $"A long-running {limit} FPS animation drifted from its configured cadence: {count}.");
+        }
+
+        SpectrumFrameClock reset = default;
+        Require(reset.TryAdvance(30, 120, out _), "Initial display callback was lost.");
+        reset = default;
+        Require(reset.TryAdvance(30.001, 30, out _), "Changing the FPS limit retained an obsolete deadline.");
+        Require(!reset.TryAdvance(30.010, 30, out _), "The new FPS limit was not applied.");
     }
 
     private static void CheckWaveformDynamics()
