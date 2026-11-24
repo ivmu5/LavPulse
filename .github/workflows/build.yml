@@ -1,16 +1,55 @@
-name: Build
+name: Build and release
 
 on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish a release (master only)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+# Serialize release allocation through publication. Queue multiple merges rather
+# than cancelling an earlier pending release.
+concurrency:
+  group: lavpulse-build-${{ github.ref }}
+  queue: max
+
 jobs:
-  windows:
-    name: Windows
-    runs-on: windows-2025
-    timeout-minutes: 25
+  version:
+    name: Version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.allocate.outputs.version }}
+      tag: ${{ steps.allocate.outputs.tag }}
+      year: ${{ steps.allocate.outputs.year }}
+      month: ${{ steps.allocate.outputs.month }}
+      revision: ${{ steps.allocate.outputs.revision }}
+      publish: ${{ steps.allocate.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Test release numbering
+        run: python3 .github/scripts/version.py --test
+      - name: Allocate version
+        id: allocate
+        env:
+          PUBLISH_RELEASE: ${{ github.ref == 'refs/heads/master' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_release)) }}
+        run: python3 .github/scripts/version.py
+
+  checks:
+    name: Playback checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    needs: version
     steps:
       - uses: actions/checkout@v6
         with:
@@ -18,15 +57,56 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
-      - name: Install the Windows MAUI workload
-        run: dotnet workload install maui-windows
-      - name: Build the Windows app
-        run: dotnet build samples/LavPulse/LavPulse.csproj -c Debug
+      - run: dotnet run --project tests/Laveyana.Audio.Playback.Checks -c Release
+
+  windows:
+    name: Windows x64
+    runs-on: windows-2025
+    timeout-minutes: 40
+    needs: [version, checks]
+    env:
+      LavPulseVersionYear: ${{ needs.version.outputs.year }}
+      LavPulseVersionMonth: ${{ needs.version.outputs.month }}
+      LavPulseVersionRevision: ${{ needs.version.outputs.revision }}
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet workload install maui-windows
+      - name: Publish Windows (unpackaged, self-contained)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = Join-Path $env:RUNNER_TEMP 'windows-publish'
+          dotnet publish samples/LavPulse/LavPulse.csproj -c Release -p:RuntimeIdentifierOverride=win-x64 -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true -p:SelfContained=true -o $out
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Test-Path (Join-Path $out 'Laveyana.LavPulse.exe'))) { throw 'Windows executable is missing' }
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          Compress-Archive -Path "$out\*" -DestinationPath "artifacts/LavPulse-$($env:RELEASE_TAG)-windows-x64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: artifacts/*.zip
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
 
   android:
-    name: Android and playback checks
+    name: Android APK
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 40
+    needs: [version, checks]
+    outputs:
+      signing: ${{ steps.package.outputs.signing }}
+    env:
+      LavPulseVersionYear: ${{ needs.version.outputs.year }}
+      LavPulseVersionMonth: ${{ needs.version.outputs.month }}
+      LavPulseVersionRevision: ${{ needs.version.outputs.revision }}
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -38,22 +118,175 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Run the playback checks
-        run: dotnet run --project tests/Laveyana.Audio.Playback.Checks -c Release
-      - name: Install the Android MAUI workload
-        run: dotnet workload install maui-android
-      - name: Install the Android SDK components
+      - run: dotnet workload install maui-android
+      - name: Install Android SDK dependencies
         run: >-
           dotnet build samples/LavPulse/LavPulse.Android.csproj
           -t:InstallAndroidDependencies
           -p:AndroidSdkDirectory="$ANDROID_HOME"
           -p:JavaSdkDirectory="$JAVA_HOME"
           -p:AcceptAndroidSDKLicenses=true
-      - name: Build the Android app
+      - name: Publish and verify APK
+        id: package
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ needs.version.outputs.publish == 'true' && secrets.ANDROID_KEYSTORE_BASE64 || '' }}
+          KEY_ALIAS: ${{ needs.version.outputs.publish == 'true' && secrets.ANDROID_KEY_ALIAS || '' }}
+          KEY_PASS: ${{ needs.version.outputs.publish == 'true' && secrets.ANDROID_KEY_PASSWORD || '' }}
+          STORE_PASS: ${{ needs.version.outputs.publish == 'true' && secrets.ANDROID_KEYSTORE_PASSWORD || '' }}
+        run: |
+          set -euo pipefail
+          signing=debug-key
+          args=()
+          if [[ -n "$KEYSTORE_BASE64$KEY_ALIAS$KEY_PASS$STORE_PASS" ]]; then
+            : "${KEYSTORE_BASE64:?Missing ANDROID_KEYSTORE_BASE64}"
+            : "${KEY_ALIAS:?Missing ANDROID_KEY_ALIAS}"
+            : "${KEY_PASS:?Missing ANDROID_KEY_PASSWORD}"
+            : "${STORE_PASS:?Missing ANDROID_KEYSTORE_PASSWORD}"
+            key="$RUNNER_TEMP/lavpulse.keystore"
+            trap 'rm -f "$key"' EXIT
+            umask 077
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$key"
+            args=(-p:AndroidKeyStore=true "-p:AndroidSigningKeyStore=$key"
+              "-p:AndroidSigningKeyAlias=$KEY_ALIAS" -p:AndroidSigningKeyPass=env:KEY_PASS
+              -p:AndroidSigningStorePass=env:STORE_PASS)
+            signing=release-key
+          fi
+          dotnet publish samples/LavPulse/LavPulse.Android.csproj -c Release \
+            -p:AndroidSdkDirectory="$ANDROID_HOME" -p:JavaSdkDirectory="$JAVA_HOME" \
+            -p:AndroidPackageFormats=apk -p:EmbedAssembliesIntoApk=true \
+            -o "$RUNNER_TEMP/android-publish" "${args[@]}"
+          apk="$(find "$RUNNER_TEMP/android-publish" -type f -name '*-Signed.apk' -print -quit)"
+          test -n "$apk"
+          signer="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$signer"
+          "$signer" verify "$apk"
+          mkdir -p artifacts
+          cp "$apk" "artifacts/LavPulse-$RELEASE_TAG-android-$signing.apk"
+          echo "signing=$signing" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: artifacts/*.apk
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
+  ios:
+    name: iOS simulator x64
+    runs-on: macos-26-intel
+    timeout-minutes: 45
+    needs: [version, checks]
+    env:
+      LavPulseVersionYear: ${{ needs.version.outputs.year }}
+      LavPulseVersionMonth: ${{ needs.version.outputs.month }}
+      LavPulseVersionRevision: ${{ needs.version.outputs.revision }}
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet-apple
+        with:
+          dotnet-version: '10.0.203'
+      - name: Select Xcode and install workload
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.4.1.app/Contents/Developer
+          xcodebuild -version
+          dotnet workload install maui-ios --version 10.0.203.1
+      - name: Build iPhone simulator Release
         run: >-
-          dotnet build samples/LavPulse/LavPulse.Android.csproj
-          -c Debug
-          -p:AndroidSdkDirectory="$ANDROID_HOME"
-          -p:JavaSdkDirectory="$JAVA_HOME"
-          -p:AndroidPackageFormats=apk
-          -p:EmbedAssembliesIntoApk=true
+          dotnet build samples/LavPulse/LavPulse.csproj -c Release
+          -p:LavPulsePlatform=ios -p:RuntimeIdentifier=iossimulator-x64
+          -p:EnableCodeSigning=false
+      - name: Launch on iPhone simulator
+        run: bash .github/scripts/ios-smoke.sh
+      - name: Archive simulator app (not a device IPA)
+        run: |
+          set -euo pipefail
+          app="$(find samples/LavPulse/bin -type d -path '*/iossimulator-x64/Laveyana.LavPulse.app' -print -quit)"
+          test -n "$app"
+          mkdir -p artifacts
+          ditto -c -k --sequesterRsrc --keepParent "$app" "artifacts/LavPulse-$RELEASE_TAG-ios-simulator-x64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator
+          path: artifacts/*.zip
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
+  macos:
+    name: macOS Mac Catalyst
+    runs-on: macos-26-intel
+    timeout-minutes: 45
+    needs: [version, checks]
+    env:
+      LavPulseVersionYear: ${{ needs.version.outputs.year }}
+      LavPulseVersionMonth: ${{ needs.version.outputs.month }}
+      LavPulseVersionRevision: ${{ needs.version.outputs.revision }}
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet-apple
+        with:
+          dotnet-version: '10.0.203'
+      - name: Select Xcode and install workload
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.4.1.app/Contents/Developer
+          xcodebuild -version
+          dotnet workload install maui-maccatalyst --version 10.0.203.1
+      - name: Publish Mac Catalyst app
+        run: >-
+          dotnet publish samples/LavPulse/LavPulse.csproj -c Release
+          -p:LavPulsePlatform=maccatalyst -p:CreatePackage=false
+          -p:EnableCodeSigning=false
+      - name: Archive unsigned universal app
+        run: |
+          set -euo pipefail
+          app="$(find samples/LavPulse/bin -type d -path '*/net10.0-maccatalyst/Laveyana.LavPulse.app' -print -quit)"
+          if [[ -z "$app" ]]; then
+            app="$(find samples/LavPulse/bin -type d -path '*/net10.0-maccatalyst*/Laveyana.LavPulse.app' -print -quit)"
+          fi
+          test -n "$app"
+          executable="$app/Contents/MacOS/Laveyana.LavPulse"
+          test -f "$executable"
+          lipo -verify_arch x86_64 arm64 "$executable"
+          mkdir -p artifacts
+          ditto -c -k --sequesterRsrc --keepParent "$app" "artifacts/LavPulse-$RELEASE_TAG-macos-unsigned.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: artifacts/*.zip
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-24.04
+    needs: [version, checks, windows, android, ios, macos]
+    if: needs.version.outputs.publish == 'true' && github.ref == 'refs/heads/master'
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
+      ANDROID_SIGNING: ${{ needs.android.outputs.signing }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Verify and publish all release assets
+        shell: bash
+        run: bash .github/scripts/publish-release.sh

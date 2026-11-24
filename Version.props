@@ -1,0 +1,10 @@
+<Project>
+  <!-- Increment only for a new major release. CI assigns the calendar and monthly revision. -->
+  <PropertyGroup>
+    <LavPulseVersionMajor>1</LavPulseVersionMajor>
+    <LavPulseVersionYear Condition="'$(LavPulseVersionYear)' == ''">$([System.DateTime]::UtcNow.ToString('yy'))</LavPulseVersionYear>
+    <LavPulseVersionMonth Condition="'$(LavPulseVersionMonth)' == ''">$([System.DateTime]::UtcNow.ToString('MM'))</LavPulseVersionMonth>
+    <LavPulseVersionRevision Condition="'$(LavPulseVersionRevision)' == ''">00</LavPulseVersionRevision>
+    <LavPulseFullVersion>$(LavPulseVersionMajor).$(LavPulseVersionYear).$(LavPulseVersionMonth).$(LavPulseVersionRevision)</LavPulseFullVersion>
+  </PropertyGroup>
+</Project>

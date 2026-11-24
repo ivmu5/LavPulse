@@ -2,6 +2,7 @@ using Laveyana.LavPulse.Controls;
 using Laveyana.LavPulse.Settings;
 using Laveyana.Audio.Playback;
 using Microsoft.Maui.ApplicationModel;
+using System.Reflection;
 #if IOS
 using IosPage = Microsoft.Maui.Controls.PlatformConfiguration.iOSSpecific.Page;
 using IosStatusBarHiddenMode = Microsoft.Maui.Controls.PlatformConfiguration.iOSSpecific.StatusBarHiddenMode;
@@ -43,7 +44,8 @@ public sealed partial class MainPage
         var settings = OpenPanel(() =>
             new PlayerSettingsPanel(_settings, value => ApplySettings(value), ClosePanel, PreviewAppearance,
                 GetStorageOptions(), PickStorageFolderAsync,
-                CopyReportTextAsync, ExportReportZipAsync, ReportSummaryAsync, ClearReportsAsync));
+                CopyReportTextAsync, ExportReportZipAsync, ReportSummaryAsync, ClearReportsAsync,
+                typeof(MainPage).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion));
         if (settings is null) return false;
         settings.PaletteEditingChanged += editing =>
         {

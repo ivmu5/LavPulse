@@ -1,5 +1,6 @@
 <Project>
   <Import Project="../../MauiPlatforms.props" />
+  <Import Project="../../Version.props" />
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <RootNamespace>Laveyana.LavPulse</RootNamespace>
@@ -13,8 +14,19 @@
     <ApplicationTitle>LavPulse</ApplicationTitle>
     <!-- Preserve the installed package and its data across the project rename. -->
     <ApplicationId>com.laveyana.lavpulse.mixer</ApplicationId>
-    <ApplicationDisplayVersion>1.13</ApplicationDisplayVersion>
-    <ApplicationVersion>14</ApplicationVersion>
+    <Version>$(LavPulseFullVersion)</Version>
+    <AssemblyVersion>$(LavPulseFullVersion)</AssemblyVersion>
+    <FileVersion>$(LavPulseFullVersion)</FileVersion>
+    <InformationalVersion>$(LavPulseFullVersion)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <ApplicationDisplayVersion>$(LavPulseFullVersion)</ApplicationDisplayVersion>
+    <!-- Android requires a positive integer versionCode; calendar ordering is preserved. -->
+    <ApplicationVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">$(LavPulseVersionMajor)$(LavPulseVersionYear)$(LavPulseVersionMonth)$(LavPulseVersionRevision)</ApplicationVersion>
+    <!-- Windows consumes the four-part display version directly, not Android's integer code. -->
+    <ApplicationVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'"></ApplicationVersion>
+    <!-- Apple marketing versions must contain exactly three integer components. -->
+    <ApplicationDisplayVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' Or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">$(LavPulseVersionMajor).$(LavPulseVersionYear).$(LavPulseVersionMonth)</ApplicationDisplayVersion>
+    <ApplicationVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' Or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">$(LavPulseVersionYear).$(LavPulseVersionMonth).$(LavPulseVersionRevision)</ApplicationVersion>
     <CodesignEntitlements Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">Platforms/MacCatalyst/Entitlements.plist</CodesignEntitlements>
     <WindowsPackageType>None</WindowsPackageType>
     <DefineConstants Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
