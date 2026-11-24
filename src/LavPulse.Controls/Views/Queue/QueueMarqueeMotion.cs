@@ -12,7 +12,8 @@ internal static class QueueMarqueeMotion
         if (overflow <= 0 || !float.IsFinite(overflow) || !double.IsFinite(seconds)) return 0;
         double travel = overflow / Speed;
         double cycle = 2 * travel + 2 * EndpointPauseSeconds;
-        double phase = ((seconds % cycle) + cycle) % cycle;
+        double phase = seconds % cycle;
+        if (phase < 0) phase += cycle;
         return (float)Math.Clamp(
             Math.Min(phase - EndpointPauseSeconds, cycle - phase) * Speed, 0, overflow);
     }

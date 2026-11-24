@@ -76,7 +76,7 @@ internal static partial class Program
         string title = "Robbe, NIKSTER & ExtraGirl - Melody (Extended Mix)";
         var chunks = QueueTextFragments.Split(title);
         Require(chunks.Length > 2 && string.Concat(chunks) == title &&
-            chunks.All(chunk => chunk.Length > 0 && !chunk.Contains('\\n') && !chunk.Contains('\\r')),
+            chunks.All(chunk => chunk.Length > 0 && !chunk.Contains('\n') && !chunk.Contains('\r')),
             "Long names must be rendered as short unbreakable fragments on the same baseline.");
         string withEmoji = "Test 👩‍🎤🎧 on Windows and Android";
         Require(string.Concat(QueueTextFragments.Split(withEmoji)) == withEmoji,
