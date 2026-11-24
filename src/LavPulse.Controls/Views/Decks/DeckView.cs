@@ -61,8 +61,8 @@ public sealed partial class DeckView : Border
         _detailCursor = new PlaybackGraphicsView { Drawable = _detailDrawable.CreateCursor(), InputTransparent = true };
         _overviewCursor = new PlaybackGraphicsView { Drawable = _overviewDrawable.CreateCursor(), InputTransparent = true };
         _overviewLayer = new Grid { IsClippedToBounds = true, Children = { _overview, _overviewCursor } };
-        SemanticProperties.SetDescription(_detail, "Детальная волна. Удерживай и веди в сторону. Жест вверх отменяет перемотку.");
-        SemanticProperties.SetDescription(_overview, "Полоса прогресса. Нажми или перетащи к нужной позиции. Жест вверх отменяет перемотку.");
+        SemanticProperties.SetDescription(_detail, "Детальная волна. Горизонтальный жест — перемотка, жест вверх — отмена.");
+        SemanticProperties.SetDescription(_overview, "Полоса прогресса. Касание или перетаскивание — выбор позиции, жест вверх — отмена.");
         _previewLabel.HorizontalOptions = LayoutOptions.Center;
         _previewLabel.VerticalOptions = LayoutOptions.Center;
         _previewLabel.Padding = new Thickness(7, 3);
@@ -75,9 +75,9 @@ public sealed partial class DeckView : Border
             MixerStyle.UseColor(button, VisualElement.BackgroundColorProperty, MixerColor.Button);
             MixerStyle.UseColor(button, Button.TextColorProperty, MixerColor.Text);
         }
-        SemanticProperties.SetDescription(_markProblem, "Добавить в репорт замечание по выделенному участку");
+        SemanticProperties.SetDescription(_markProblem, "Добавить комментарий к участку трека");
         SemanticProperties.SetDescription(_markRhythm,
-            "Нажимай на каждый слышимый басовый удар. Позиции сохраняются в отчёт, окно не открывается.");
+            "Ручная отметка басового удара в отчёте");
         _markProblem.Clicked += (_, _) =>
         {
             if (_track is { } track) ReportMarkRequested?.Invoke(track, _displayPosition, TrackMarkMode.Problem);
@@ -353,8 +353,8 @@ public sealed partial class DeckView : Border
         {
             _overviewDrawable.UseProgressBar = progressBar;
             SemanticProperties.SetDescription(_overview, progressBar
-                ? "Полоса прогресса. Нажми или перетащи к нужной позиции. Жест вверх отменяет перемотку."
-                : "Обзорная волна. Нажми или перетащи к нужной позиции. Жест вверх отменяет перемотку.");
+                ? "Полоса прогресса. Касание или перетаскивание — выбор позиции, жест вверх — отмена."
+                : "Обзорная волна. Касание или перетаскивание — выбор позиции, жест вверх — отмена.");
         }
         InvalidateWaveGeometry();
         Redraw();

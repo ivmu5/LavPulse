@@ -58,9 +58,9 @@ internal sealed class NumericSettingInput : Grid
                 VerticalOptions = LayoutOptions.Center
             };
             MixerStyle.StyleSlider(_slider);
-            SemanticProperties.SetDescription(_slider, $"{name}, {unit}. Двойное нажатие сбрасывает значение.");
+            SemanticProperties.SetDescription(_slider, $"{name}, {unit}. Двойное нажатие — сброс значения.");
             var reset = MixerStyle.IconButton("player_reset.png", 32);
-            SemanticProperties.SetDescription(reset, $"Сбросить. {name}");
+            SemanticProperties.SetDescription(reset, $"Сбросить: {name}");
             reset.Clicked += (_, _) => Reset();
             if (vertical)
             {

@@ -53,7 +53,7 @@ public sealed partial class TrackLibraryPanel
         _tree.SetItems(_rows);
         _ = ReadFolderSizesAsync(root, listing);
         _heading.Text = local ? "Медиатека" : "Импорт папки";
-        _message.Text = listing is { Files.Count: 0, Children.Count: 0 } ? "Здесь пока нет MP3." : "";
+        _message.Text = listing is { Files.Count: 0, Children.Count: 0 } ? "Нет аудиофайлов MP3." : "";
         if (!preservePosition && _tree.ScrollY > 0) await _tree.ScrollToAsync(0, 0, animated: false);
     }
 

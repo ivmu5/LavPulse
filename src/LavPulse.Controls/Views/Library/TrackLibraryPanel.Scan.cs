@@ -11,8 +11,8 @@ public sealed partial class TrackLibraryPanel
     private readonly int _analysisParallelism;
     private readonly Grid _scanActions;
     private readonly Grid _scanPanel;
-    private readonly Button _rescan = MixerStyle.Button("Пересканировать");
-    private readonly Button _scanNew = MixerStyle.Button("Сканировать новые");
+    private readonly Button _rescan = MixerStyle.Button("Повторный анализ");
+    private readonly Button _scanNew = MixerStyle.Button("Анализ новых");
     private readonly Label _scanPosition = MixerStyle.Label("", 13, MixerColor.Accent, bold: true);
     private readonly ProgressBar _scanProgress = new() { HeightRequest = 6 };
     private readonly Button _stopScan = MixerStyle.Button("Остановить", icon: "player_cancel.png");
@@ -34,9 +34,9 @@ public sealed partial class TrackLibraryPanel
 
     private Grid CreateScanActions()
     {
-        _rescan.Clicked += async (_, _) => await RunAsync(() => ScanAsync(replaceAnalysis: true), "Не удалось пересканировать");
-        _scanNew.Clicked += async (_, _) => await RunAsync(() => ScanAsync(replaceAnalysis: false), "Не удалось сканировать");
-        SemanticProperties.SetDescription(_scanNew, "Сканировать только треки без сохранённого анализа");
+        _rescan.Clicked += async (_, _) => await RunAsync(() => ScanAsync(replaceAnalysis: true), "Не удалось повторить анализ");
+        _scanNew.Clicked += async (_, _) => await RunAsync(() => ScanAsync(replaceAnalysis: false), "Не удалось выполнить анализ");
+        SemanticProperties.SetDescription(_scanNew, "Анализ треков без сохранённых результатов");
         var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)], ColumnSpacing = 6 };
         actions.Add(_rescan);
         actions.Add(_scanNew, 1);
@@ -49,7 +49,7 @@ public sealed partial class TrackLibraryPanel
         _stopScan.Clicked += (_, _) =>
         {
             _scanRows.IsEnabled = _stopScan.IsEnabled = false;
-            _scanPosition.Text = "Останавливаю сканирование…";
+            _scanPosition.Text = "Остановка анализа…";
             _scanBatch?.Stop();
         };
         var panel = new Grid
@@ -72,7 +72,7 @@ public sealed partial class TrackLibraryPanel
         _scanActions.IsVisible = _tree.IsVisible = false;
         _scanPanel.IsVisible = true;
         _scanRows.IsEnabled = _stopScan.IsEnabled = true;
-        _scanPosition.Text = "Подготовка к сканированию…";
+        _scanPosition.Text = "Подготовка к анализу…";
         _scanProgress.Progress = 0;
         _message.Text = "";
         var completed = new HashSet<string>(StringComparer.Ordinal);
@@ -91,7 +91,7 @@ public sealed partial class TrackLibraryPanel
                 files = files.Where(file => !_hasAnalysis(file)).ToArray();
                 if (files.Count == 0)
                 {
-                    _message.Text = "Все выбранные треки уже просканированы.";
+                    _message.Text = "Все выбранные треки уже проанализированы.";
                     return;
                 }
             }
@@ -102,12 +102,12 @@ public sealed partial class TrackLibraryPanel
                     if (file.LocalPath is { } path) completed.Add(path);
                 });
             _token.ThrowIfCancellationRequested();
-            string summary = $"Готово: {result.Scanned} · Пропущено: {result.Skipped} · Ошибок: {result.Failed}";
+            string summary = $"Проанализировано: {result.Scanned} · Пропущено: {result.Skipped} · Ошибок: {result.Failed}";
             _message.Text = batch.Token.IsCancellationRequested ? $"Остановлено. {summary}" : summary;
         }
         catch (OperationCanceledException) when (batch.Token.IsCancellationRequested)
         {
-            if (!_token.IsCancellationRequested) _message.Text = "Сканирование остановлено.";
+            if (!_token.IsCancellationRequested) _message.Text = "Анализ остановлен.";
         }
         finally
         {

@@ -41,11 +41,11 @@ public sealed partial class MainPage
         try
         {
             if (_library.Find(track) is not { LocalPath: { } path })
-                throw new FileNotFoundException("Оригинальный MP3 больше не доступен.");
+                throw new FileNotFoundException("Оригинальный MP3 недоступен.");
             string id = Path.GetFileNameWithoutExtension(path);
             await previous;
             if (!File.Exists(path))
-                throw new FileNotFoundException("Оригинальный MP3 больше не доступен.");
+                throw new FileNotFoundException("Оригинальный MP3 недоступен.");
             var analysisTask = _tapAnalysisReports.GetValue(track, key => Task.Run(() =>
                 TrackAnalysisReport.Create(key.Name, key.Waveform, key.AudioInfo, key.Title, key.Artist, key.Album)));
             string analysis = await analysisTask;
@@ -53,7 +53,7 @@ public sealed partial class MainPage
             // drained on normal shutdown, even after the playback lifetime is cancelled.
             int count = await Task.Run(() => _reports.AppendBeatTapAsync(id, track.Name, track.Title, track.Artist,
                 analysis, tap, CancellationToken.None));
-            if (!_closed && count == 1) _view.Status.Text = $"«{track.Title}» добавлен в репорт. Отмечай басовые удары.";
+            if (!_closed && count == 1) _view.Status.Text = $"«{track.Title}» добавлен в отчёт.";
         }
         catch (Exception ex)
         {
@@ -94,7 +94,7 @@ public sealed partial class MainPage
         try
         {
             if (_library.Find(track) is not { LocalPath: { } path } || !File.Exists(path))
-                throw new FileNotFoundException("Оригинальный MP3 больше не доступен.");
+                throw new FileNotFoundException("Оригинальный MP3 недоступен.");
             string id = Path.GetFileNameWithoutExtension(path);
             long end = track.Waveform.TotalFrames;
             long startFrame = Math.Clamp(selection.StartFrame, 0, end);
@@ -110,7 +110,7 @@ public sealed partial class MainPage
                     selection.SuggestedBpm), _lifetime.Token);
             _view.Status.Text = selection.Mode == TrackMarkMode.StrongRhythm
                 ? $"Отмечен сильный ритм «{track.Title}»"
-                : $"Замечание добавлено в репорт «{track.Title}»";
+                : $"Комментарий добавлен в отчёт «{track.Title}»";
             return true;
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return false; }
@@ -126,14 +126,14 @@ public sealed partial class MainPage
         await _pendingBeatWrites;
         var reports = await _reports.ReadAllAsync(_lifetime.Token);
         return $"Треков: {reports.Length}; комментариев и участков: {reports.Sum(r => r.Marks.Count)}; " +
-            $"басовых нажатий: {reports.Sum(r => r.BeatTaps?.Count ?? 0)}";
+            $"ручных ударов: {reports.Sum(r => r.BeatTaps?.Count ?? 0)}";
     }
 
     private async Task<string> CopyReportTextAsync()
     {
         await _pendingBeatWrites;
         var reports = await _reports.ReadAllAsync(_lifetime.Token);
-        if (reports.Length == 0) throw new InvalidOperationException("Репорт пока пуст. Добавь отметку в деке.");
+        if (reports.Length == 0) throw new InvalidOperationException("Отчёт пуст. Нет сохранённых отметок или комментариев.");
         string report = await Task.Run(() => TrackReportArchive.RenderText(reports), _lifetime.Token);
         await Clipboard.Default.SetTextAsync(report);
         return $"Скопировано {report.Length:N0} символов из {reports.Length} треков.";
@@ -143,7 +143,7 @@ public sealed partial class MainPage
     {
         await _pendingBeatWrites;
         var reports = await _reports.ReadAllAsync(_lifetime.Token);
-        if (reports.Length == 0) throw new InvalidOperationException("Репорт пока пуст. Добавь отметку в деке.");
+        if (reports.Length == 0) throw new InvalidOperationException("Отчёт пуст. Нет сохранённых отметок или комментариев.");
         string suggested = "LavPulse_Report_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".zip";
         string temporary = Path.Combine(FileSystem.CacheDirectory, Guid.NewGuid().ToString("N") + ".zip");
         try
@@ -174,7 +174,7 @@ public sealed partial class MainPage
             await using var target = Android.App.Application.Context.ContentResolver?.OpenOutputStream(uri, "w")
                 ?? throw new IOException("Не удалось открыть файл назначения.");
             await source.CopyToAsync(target, _lifetime.Token);
-            return "ZIP сохранён через системный выбор файла.";
+            return "ZIP-архив сохранён.";
 #else
             // Apple platforms export the ZIP through the native Share sheet / Save to Files.
             await Share.Default.RequestAsync(new ShareFileRequest("Сохранить отчёт LavPulse",
@@ -195,7 +195,7 @@ public sealed partial class MainPage
     private async Task<string> ClearReportsAsync()
     {
         if (!await DisplayAlertAsync("Очистить отчёты?",
-            "Все комментарии и отметки сильного ритма будут удалены. MP3 останутся нетронутыми.",
+            "Будут удалены все комментарии и ручные отметки. Аудиофайлы сохранятся.",
             "Очистить", "Отмена"))
             return "Очистка отменена.";
         await _pendingBeatWrites;

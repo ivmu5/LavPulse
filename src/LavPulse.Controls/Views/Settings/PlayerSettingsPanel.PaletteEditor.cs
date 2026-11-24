@@ -38,7 +38,7 @@ public sealed partial class PlayerSettingsPanel
         private enum Role { Accent, Alternate, Low, Mid }
 
         private static readonly (Role Value, string Label)[] Roles =
-            [(Role.Accent, "Акцент"), (Role.Alternate, "Доп. цвет"), (Role.Low, "Низкие"), (Role.Mid, "Средние")];
+            [(Role.Accent, "Акцент"), (Role.Alternate, "Дополнительный цвет"), (Role.Low, "Низкие"), (Role.Mid, "Средние")];
         private static readonly string[] Channels = ["R", "G", "B"];
         private readonly BoxView[] _swatches = new BoxView[Roles.Length];
         private readonly Slider[] _channels = new Slider[Channels.Length];
@@ -51,7 +51,7 @@ public sealed partial class PlayerSettingsPanel
             FontFamily = "Inter",
             MinimumWidthRequest = 110
         };
-        private readonly Label _validation = MixerStyle.Label("Введите цвет в формате #RRGGBB.", 12, MixerColor.Preview);
+        private readonly Label _validation = MixerStyle.Label("Формат цвета: #RRGGBB", 12, MixerColor.Preview);
         private readonly Button _apply = MixerStyle.Button("Применить", primary: true);
         private readonly PlayerSettings _spectrumAppearance;
         private readonly PlayerSettings _appearance;
@@ -71,7 +71,7 @@ public sealed partial class PlayerSettingsPanel
             _preview = CreateSpectrumPreview(previewSettings, theme.Visualization, settings.SpectrumColors, out _spectrum, theme.IsLight);
             _preview.HeightRequest = 48;
 
-            var heading = MixerStyle.Label("Своя палитра", 20, bold: true);
+            var heading = MixerStyle.Label("Пользовательская палитра", 20, bold: true);
             SemanticProperties.SetHeadingLevel(heading, SemanticHeadingLevel.Level1);
             MixerStyle.StyleEntry(_hex);
             SemanticProperties.SetDescription(_hex, "Цвет в формате RGB HEX");
@@ -90,7 +90,7 @@ public sealed partial class PlayerSettingsPanel
             };
 
             var inputs = new VerticalStackLayout { Spacing = 7 };
-            inputs.Add(Select("Цвет для редактирования", Roles, Role.Accent, role =>
+            inputs.Add(Select("Цветовой элемент", Roles, Role.Accent, role =>
             {
                 var swatch = new BoxView { Color = ReadColor(role), CornerRadius = 4 };
                 _swatches[(int)role] = swatch;

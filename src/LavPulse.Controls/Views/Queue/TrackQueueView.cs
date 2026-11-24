@@ -51,7 +51,7 @@ internal sealed partial class TrackQueueView : Grid
             HeightRequest = TrackListLayout.RowHeight,
             IsVisible = false
         };
-        _recommendations.SetItems([], "В разработке");
+        _recommendations.SetItems([], "Рекомендации пока недоступны");
         Loaded += (_, _) =>
         {
             if (_focusWindow is null && Window is { } window)
@@ -239,8 +239,8 @@ internal sealed partial class TrackQueueView : Grid
     {
         StyleTab(_queueTab, !_showRecommendations);
         StyleTab(_recommendationsTab, _showRecommendations);
-        SemanticProperties.SetDescription(_queueTab, _showRecommendations ? "Открыть очередь" : "Очередь. Нажми для редактирования.");
-        SemanticProperties.SetDescription(_recommendationsTab, _showRecommendations ? "Рекомендации, выбраны" : "Рекомендации");
+        SemanticProperties.SetDescription(_queueTab, _showRecommendations ? "Открыть очередь" : "Редактировать очередь");
+        SemanticProperties.SetDescription(_recommendationsTab, _showRecommendations ? "Рекомендации (выбраны)" : "Рекомендации");
     }
 
     private static void StyleTab(Button button, bool selected)
@@ -316,14 +316,14 @@ internal sealed partial class TrackQueueView : Grid
 
     private void UpdateEditorActions()
     {
-        _deleteMode.Text = _deletingTracks ? "К порядку" : "Удаление";
+        _deleteMode.Text = _deletingTracks ? "Порядок" : "Удаление";
         MixerStyle.UseIcon(_deleteMode, Button.ImageSourceProperty, _deletingTracks ? "player_reorder.png" : "player_delete.png");
         SemanticProperties.SetDescription(_deleteMode, _deletingTracks
-            ? "Вернуться к перетаскиванию" : "Включить удаление треков");
+            ? "Изменение порядка треков" : "Режим удаления треков");
         MixerStyle.UseColor(_deleteMode, BackgroundColorProperty, _deletingTracks ? MixerColor.Selected : MixerColor.Button);
         _editorHint.Text = _deletingTracks
-            ? "Нажми корзину рядом с треком, чтобы убрать его из очереди."
-            : "Нажми на трек для воспроизведения или перетащи его за полоски справа.";
+            ? "Удаление треков из очереди"
+            : "Выбор трека — воспроизведение. Перетаскивание за ручку — изменение порядка.";
     }
 
     private void SetEditing(bool editing)

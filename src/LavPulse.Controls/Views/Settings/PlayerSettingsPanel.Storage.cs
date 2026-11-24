@@ -34,12 +34,12 @@ public sealed partial class PlayerSettingsPanel
         var container = new VerticalStackLayout
         {
             Spacing = 8,
-            Children = { MixerStyle.Label("Где сохранять MP3, очередь, анализ и PCM-кэш", 13), picker, location }
+            Children = { MixerStyle.Label("Хранение музыки, очереди, анализа и PCM-кэша", 13), picker, location }
         };
 #if WINDOWS
         if (_pickStorageFolder is not null)
         {
-            var choose = MixerStyle.Button("Выбрать произвольную папку");
+            var choose = MixerStyle.Button("Выбрать папку");
             choose.HorizontalOptions = LayoutOptions.Fill;
             choose.Clicked += async (_, _) =>
             {
@@ -69,14 +69,14 @@ public sealed partial class PlayerSettingsPanel
         }
 #endif
         var hint = MixerStyle.Label(
-            "Изменение применяется после перезапуска LavPulse. Существующая медиатека переносится целиком; " +
-            "старые файлы удаляются только после проверки переноса.", 11, MixerColor.Muted);
+            "Смена расположения применяется при следующем запуске. " +
+            "Исходные файлы удаляются после проверки переноса.", 11, MixerColor.Muted);
         container.Add(hint);
 #if ANDROID
         container.Add(MixerStyle.Label(
-            "Общая память и SD-карта используют каталог приложения в Android/data. " +
-            "Доступ к нему ограничен Android; при удалении приложения файлы также могут удалиться. " +
-            "Не извлекай SD-карту во время работы LavPulse.", 11, MixerColor.Muted));
+            "Хранение в каталоге приложения Android/data. " +
+            "При удалении приложения данные могут быть удалены. " +
+            "Извлечение SD-карты во время работы не поддерживается.", 11, MixerColor.Muted));
 #endif
         return Section("Хранение данных", container);
     }
