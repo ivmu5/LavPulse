@@ -6,12 +6,16 @@ case "$ANDROID_SIGNING" in
   debug-key|release-key) ;;
   *) echo "Invalid Android signing status"; exit 1 ;;
 esac
+cp LICENSE release-assets/LICENSE.txt
+cp LICENSES/previous-MIT.txt release-assets/PREVIOUS-MIT.txt
 cd release-assets
 assets=(
   "LavPulse-$tag-windows-x64.zip"
   "LavPulse-$tag-android-$ANDROID_SIGNING.apk"
   "LavPulse-$tag-ios-simulator-x64.zip"
   "LavPulse-$tag-macos-unsigned.zip"
+  "LICENSE.txt"
+  "PREVIOUS-MIT.txt"
 )
 for asset in "${assets[@]}"; do
   if [[ ! -s "$asset" ]]; then

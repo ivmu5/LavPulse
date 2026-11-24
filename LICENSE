@@ -1,21 +1,105 @@
-MIT License
-
+LavPulse Noncommercial Source License 1.0
 Copyright (c) 2026 ivmu5
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. Scope and definitions
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+"Licensor" means the copyright holder ivmu5, or a successor in title.
+"Software" means the original LavPulse code, documentation, and assets
+provided under these terms, excluding material governed by other licenses.
+"You" means the individual or organization exercising rights under this license.
+"Covered Work" means the Software, a modified version of it, or another work
+incorporating copyright-protected parts of the Software. Mere aggregation
+with independent works does not make those works Covered Works.
+"Corresponding Source" means the complete preferred form for modifying a
+Covered Work, including its changes, incorporated covered code, and scripts
+and instructions necessary to build the distributed version. It does not
+include general-purpose tools or independent third-party dependencies
+available separately under their own terms.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. Copyright and patent permissions
+
+Subject to these terms, the Licensor grants You a worldwide, royalty-free,
+nonexclusive license to use, inspect, reproduce, modify, and distribute
+the Software and Covered Works for Noncommercial Purposes. The Licensor
+also grants a patent license for claims the Licensor can license that
+would necessarily be infringed by exercising those permissions in the
+Software as provided. No other patent rights are granted.
+
+You may create private modifications without publishing them, provided
+Your use complies with these terms.
+
+3. Noncommercial Purposes
+
+A Noncommercial Purpose is one not directed toward monetary compensation
+or commercial advantage. Personal listening, learning, experimentation,
+and unpaid noncommercial development are permitted.
+
+Commercial use requires separate prior written permission from the
+Licensor. Commercial use includes selling or licensing the Software or a
+Covered Work for payment, using it to provide paid services, advertising
+or other monetization of the Software or a Covered Work, and use in the
+operation of a commercial business or other revenue-generating activity,
+even where the Software itself is supplied without charge.
+
+There is no blanket exception for companies, charities, educational
+institutions, public bodies, or other organizations: the purpose of
+the particular use determines whether it is permitted.
+
+4. Distribution and source availability
+
+You may distribute a Covered Work only for Noncommercial Purposes and
+under this same license, without adding restrictions to recipients'
+exercise of its permissions. Include this license, existing copyright
+and other required notices, and a prominent description of Your changes.
+Do not imply endorsement by the Licensor.
+
+If You distribute a Covered Work, including a fork or a compiled version,
+make its complete Corresponding Source publicly accessible, free of charge,
+under this same license, no later than the time of distribution. Provide
+a clear link to the exact source version with each distribution, or
+include the source itself and a public source location. Keep that source
+available while You distribute that version. A private fork that is not
+distributed is not required to be made public.
+
+These conditions apply only to rights governed by this license. They do
+not alter the licenses of independent dependencies or grant rights to
+third-party material. Retain all applicable third-party license notices.
+
+5. Rights reserved by the Licensor
+
+All rights not expressly granted are reserved. Nothing in these terms
+restricts the Licensor's exercise of rights the Licensor owns or has
+otherwise obtained. The Licensor may commercially use, sell, distribute,
+or license the Software, including under different terms, and may grant
+separate written commercial permissions. These terms grant no right to
+use the Licensor's trademarks or branding except as reasonably needed
+to identify the Software and its origin.
+
+Requests for commercial permission may be addressed to the repository
+owner at https://github.com/ivmu5/LavPulse.
+
+6. Termination
+
+Your permissions terminate automatically upon violation of these terms.
+If the violation is cured within 30 days after You first receive notice
+of it, Your permissions are reinstated, provided this is Your first
+notice of violation under this license. If You initiate a patent claim
+alleging that the Software infringes Your patent, the patent license
+granted to You under these terms terminates. Recipients who independently
+comply with these terms retain their own permissions.
+
+7. Previously granted and mandatory rights
+
+Nothing in this license revokes or restricts rights previously granted
+under MIT or any other license for material covered by those grants.
+See LICENSES/previous-MIT.txt. Nothing limits rights that applicable
+law does not permit the Licensor to restrict.
+
+8. Disclaimer and limitation of liability
+
+To the maximum extent permitted by applicable law, the Software is
+provided without warranties or conditions of any kind, express or
+implied, including merchantability, fitness for a particular purpose,
+and noninfringement. The Licensor and contributors are not liable for
+damages arising from the Software or these terms, whether in contract,
+tort, or otherwise, except where liability cannot lawfully be excluded.
