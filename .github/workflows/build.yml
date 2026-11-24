@@ -3,20 +3,18 @@ name: Build and release
 on:
   pull_request:
     branches: [master]
-  push:
-    branches: [master]
   workflow_dispatch:
     inputs:
       publish_release:
-        description: Publish a release (master only)
+        description: Publish a release (master only; disable for a build without publication)
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: read
 
-# Serialize release allocation through publication. Queue multiple merges rather
-# than cancelling an earlier pending release.
+# Serialize manually requested releases through publication. Never cancel an
+# earlier release when a new one is requested. PR checks are independent.
 concurrency:
   group: lavpulse-build-${{ github.ref }}
   queue: max
@@ -37,12 +35,17 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Validate manual release request
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release && github.ref != 'refs/heads/master'
+        run: |
+          echo "::error::Select master to publish a release, or disable publish_release to build another branch."
+          exit 1
       - name: Test release numbering
         run: python3 .github/scripts/version.py --test
       - name: Allocate version
         id: allocate
         env:
-          PUBLISH_RELEASE: ${{ github.ref == 'refs/heads/master' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_release)) }}
+          PUBLISH_RELEASE: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && inputs.publish_release }}
         run: python3 .github/scripts/version.py
 
   checks:
@@ -272,7 +275,7 @@ jobs:
     name: Publish GitHub Release
     runs-on: ubuntu-24.04
     needs: [version, checks, windows, android, ios, macos]
-    if: needs.version.outputs.publish == 'true' && github.ref == 'refs/heads/master'
+    if: github.event_name == 'workflow_dispatch' && needs.version.outputs.publish == 'true' && github.ref == 'refs/heads/master'
     permissions:
       contents: write
     env:

@@ -215,7 +215,7 @@ LavPulse is source-available under the [LavPulse Noncommercial Source License 1.
 
 ## Continuous integration and releases
 
-Every PR targeting `master` runs the playback checks and Release builds for Windows x64, Android, the iPhone x64 simulator, and universal Mac Catalyst. A push to `master` repeats these checks and publishes a GitHub Release only if every job succeeds. The simulator is also launched as a smoke test. The separate iPhone simulator workflow remains available for troubleshooting.
+Every PR targeting `master` runs the playback checks and Release builds for Windows x64, Android, the iPhone x64 simulator, and universal Mac Catalyst. These checks are advisory for merging; the repository owner can merge without waiting when branch rules do not require status checks. A push or merge into `master` does not start this workflow or publish a release. Release publication is manually triggered and still requires all tests, builds, and artifact validation to succeed. The simulator is also launched as a smoke test. The separate iPhone simulator workflow remains available for troubleshooting.
 
 The release tag and in-app version use `vMAJOR.YY.MM.REVISION`, e.g. `v1.26.11.01`. Set the major version in [Version.props](Version.props). The month and year use UTC; the revision increments from 01 within the month, including across major changes. CI reserves a tag only after all builds succeed. A retry for a tagged commit reuses its version; local/PR builds use revision 00. The Apple OS marketing version has three components, with the monthly revision in its build number; the complete version appears in Settings. Android uses a monotonically ordered integer version code.
 
@@ -223,7 +223,7 @@ The release tag and in-app version use `vMAJOR.YY.MM.REVISION`, e.g. `v1.26.11.0
 
 ### Android signing
 
-Without secrets, the APK is signed with the runner's debug key and the automatic release is marked as a pre-release. Such APKs cannot reliably update an installation signed with a different key. For stable APK updates, use the same persistent keystore used for the installed app, and configure repository **Settings → Secrets and variables → Actions**:
+Without secrets, the APK is signed with the runner's debug key and the release is marked as a pre-release. Such APKs cannot reliably update an installation signed with a different key. For stable APK updates, use the same persistent keystore used for the installed app, and configure repository **Settings → Secrets and variables → Actions**:
 
 | Secret | Value |
 |---|---|
@@ -234,4 +234,4 @@ Without secrets, the APK is signed with the runner's debug key and the automatic
 
 Keep the keystore and passwords backed up outside GitHub; do not commit them. All four secrets must be configured together. Only master release builds receive them. The workflow does not publish to app stores.
 
-Manual builds: Actions → Build and release → Run workflow. Select master and enable `publish_release` only to publish/retry a release. A tagged published commit is not overwritten. If a delayed retry collides with another release tag, rerun all jobs to allocate a fresh number. The release job needs repository permission to create tags and releases. To enforce checks before merging, configure required status checks in the master branch rules after the first workflow run.
+Manual releases: **Actions → Build and release → Run workflow → master → Run workflow**. The `publish_release` option is enabled by default; disable it to run a build without publication, including on another branch. A tagged published commit is not overwritten. If a delayed retry collides with another release tag, rerun all jobs to allocate a fresh number. The release job needs repository permission to create tags and releases. To retain immediate merging, leave required status checks disabled in the master branch rules. This does not bypass the release checks.
