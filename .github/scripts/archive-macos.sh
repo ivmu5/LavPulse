@@ -14,7 +14,7 @@ while IFS= read -r -d '' candidate; do
   executable="$candidate/Contents/MacOS/$name"
   [[ -f "$executable" ]] || continue
   echo "Candidate: $candidate ($(lipo -archs "$executable" 2>/dev/null || true))"
-  if lipo -verify_arch x86_64 arm64 "$executable"; then
+  if lipo "$executable" -verify_arch x86_64 arm64; then
     app="$candidate"
     break
   fi
