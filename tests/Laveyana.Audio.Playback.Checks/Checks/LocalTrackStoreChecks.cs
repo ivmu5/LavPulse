@@ -124,8 +124,11 @@ internal static class LocalTrackStoreChecks
         foreach (string file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
         {
             string copy = Path.Combine(target, Path.GetRelativePath(source, file));
-            Require(File.Exists(copy) && (await File.ReadAllBytesAsync(file)).SequenceEqual(
-                await File.ReadAllBytesAsync(copy)), "Relocation lost or corrupted media, queue or cache.");
+            Require(File.Exists(copy), "Relocation lost a media, queue or cache file.");
+            byte[] sourceBytes = await File.ReadAllBytesAsync(file);
+            byte[] copiedBytes = await File.ReadAllBytesAsync(copy);
+            Require(sourceBytes.AsSpan().SequenceEqual(copiedBytes),
+                "Relocation corrupted media, queue or cache.");
         }
         Require(Directory.Exists(source) && File.Exists(Path.Combine(target, ".lavpulse-transfer-source")),
             "The source was deleted before the destination was committed.");

@@ -15,9 +15,9 @@ internal static partial class Program
         var reports = new TrackReportStore(storage);
         bool first = await reports.RegisterAsync(id, "Original.mp3", "Tempo Mix", "DJ",
             "LAVPULSE TRACK DIAGNOSTICS v5", default);
-        bool second = await reports.RegisterAsync(id, "Original.mp3", "Tempo Mix", "DJ",
+        bool registeredAgain = await reports.RegisterAsync(id, "Original.mp3", "Tempo Mix", "DJ",
             "LAVPULSE TRACK DIAGNOSTICS v6", default);
-        Require(first && !second, "Opening the manual BPM editor created duplicate track reports.");
+        Require(first && !registeredAgain, "Opening the manual BPM editor created duplicate track reports.");
         var registered = await new TrackReportStore(storage).ReadAllAsync(default);
         Require(registered.Length == 1 && registered[0].Marks.Count == 0 &&
                 registered[0].Analysis.EndsWith("v6"),
