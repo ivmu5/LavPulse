@@ -268,7 +268,7 @@ public static class TrackRhythmAnalyzer
             {
                 // A single strong window may be a melody or a random repeating sound.
                 if (index - firstWindow >= 2)
-                    AnalyzeSection(firstWindow, index, selected, quality, onsets, stride, radius,
+                    AnalyzeSectionWithRecovery(firstWindow, index, selected, quality, onsets, stride, radius,
                         hopsPerSecond, framesPerHop, totalFrames, sections, beats, cancellationToken);
                 firstWindow = -1;
             }
@@ -301,10 +301,38 @@ public static class TrackRhythmAnalyzer
         };
     }
 
-    private static void AnalyzeSection(int firstWindow, int endWindow, double[] tempos, float[] quality,
+    // A single long-range phase lock can fail even when the tempo windows are
+    // coherent (e.g. changing kick timbre, a phase reset, or a syncopated break).
+    // Preserve every accepted original region. Only retry rejected regions in
+    // short independent blocks, using stronger confidence and the same support gate.
+    private static void AnalyzeSectionWithRecovery(int firstWindow, int endWindow,
+        double[] tempos, float[] quality, IReadOnlyList<Onset> onsets, int stride, int radius,
+        double hopsPerSecond, int hopFrames, long totalFrames,
+        List<TrackTempoSection> sections, List<long> beats, CancellationToken token)
+    {
+        if (AnalyzeSection(firstWindow, endWindow, tempos, quality, onsets, stride, radius,
+            hopsPerSecond, hopFrames, totalFrames, sections, beats, token))
+            return;
+        if (endWindow - firstWindow < 4) return;
+
+        const int blockWindows = 6; // approximately 12 seconds at the 2-second stride
+        for (int start = firstWindow; start < endWindow;)
+        {
+            token.ThrowIfCancellationRequested();
+            int end = Math.Min(start + blockWindows, endWindow);
+            if (endWindow - end < 3) end = endWindow; // avoid an unsupported tiny tail
+            if (end - start >= 3)
+                AnalyzeSection(start, end, tempos, quality, onsets, stride, radius,
+                    hopsPerSecond, hopFrames, totalFrames, sections, beats, token,
+                    recoverLocalPhase: true);
+            start = end;
+        }
+    }
+
+    private static bool AnalyzeSection(int firstWindow, int endWindow, double[] tempos, float[] quality,
         IReadOnlyList<Onset> onsets, int stride, int radius, double hopsPerSecond,
         int hopFrames, long totalFrames, List<TrackTempoSection> sections, List<long> beats,
-        CancellationToken token)
+        CancellationToken token, bool recoverLocalPhase = false)
     {
         double meanConfidence = 0;
         var localTempos = new List<double>();
@@ -314,15 +342,16 @@ public static class TrackRhythmAnalyzer
             localTempos.Add(tempos[i]);
         }
         meanConfidence /= endWindow - firstWindow;
-        if (meanConfidence < .33) return;
+        if (meanConfidence < (recoverLocalPhase ? .40 : .33)) return false;
         localTempos.Sort();
         double bpm = localTempos[localTempos.Count / 2];
         // Anchor phase close to the FIRST valid window. Starting from the middle of a long
         // accelerando with the median tempo introduces a cumulative phase error at its start.
-        double anchorBpm = tempos[firstWindow];
+        double anchorBpm = recoverLocalPhase ? bpm : tempos[firstWindow];
         double period = hopsPerSecond * 60 / anchorBpm;
         double phaseSpeed = Math.Tau / period;
-        int center = firstWindow * stride;
+        int anchorWindow = recoverLocalPhase ? firstWindow + (endWindow - firstWindow - 1) / 2 : firstWindow;
+        int center = anchorWindow * stride;
         double allReal = 0, allImaginary = 0, strongReal = 0, strongImaginary = 0;
         double strongTotal = 0, strongSquares = 0;
         int onsetsInSection = 0;
@@ -348,7 +377,7 @@ public static class TrackRhythmAnalyzer
             Math.Max(0L, ((long)firstWindow * stride - stride / 2) * hopFrames);
         long endFrame = endWindow == tempos.Length ? totalFrames :
             Math.Min(totalFrames, ((long)(endWindow - 1) * stride + stride / 2) * hopFrames);
-        if (startFrame >= endFrame) return;
+        if (startFrame >= endFrame) return false;
 
         double fromHop = startFrame / (double)hopFrames;
         double position = phaseInHops + Math.Ceiling((fromHop - phaseInHops) / period) * period;
@@ -401,7 +430,7 @@ public static class TrackRhythmAnalyzer
         double minimumSupport = useStrong ? .48 : .35;
         if (localBeats.Count < 4 ||
             matched < Math.Max(3, (int)Math.Ceiling(localBeats.Count * minimumSupport)))
-            return;
+            return false;
 
         onsetsInSection = LowerBound(onsets, endFrame / (double)hopFrames) -
             LowerBound(onsets, startFrame / (double)hopFrames);
@@ -409,6 +438,7 @@ public static class TrackRhythmAnalyzer
             .22 * matched / (double)localBeats.Count, 0, 1);
         sections.Add(new(startFrame, endFrame, bpm, confidence, onsetsInSection, matched));
         beats.AddRange(localBeats);
+        return true;
     }
 
     private static int LowerBound(IReadOnlyList<Onset> onsets, double index)
