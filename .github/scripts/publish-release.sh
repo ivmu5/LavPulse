@@ -14,13 +14,17 @@ assets=(
   "LavPulse-$tag-macos-unsigned.zip"
 )
 for asset in "${assets[@]}"; do
-  test -s "$asset"
+  if [[ ! -s "$asset" ]]; then
+    echo "::error::Missing or empty release asset: $asset"
+    exit 1
+  fi
 done
 sha256sum "${assets[@]}" > SHA256SUMS.txt
 cd ..
 
 # A failed upload leaves a draft and a tag reserved for this exact commit.
 # A retry must never overwrite a published release or another commit's tag.
+gh auth setup-git
 git fetch origin --tags
 if git rev-parse --verify "refs/tags/$tag" >/dev/null 2>&1; then
   test "$(git rev-list -n 1 "$tag")" = "$GITHUB_SHA" || {

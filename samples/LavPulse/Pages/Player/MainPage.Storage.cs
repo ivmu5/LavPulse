@@ -23,13 +23,15 @@ public sealed partial class MainPage
         // Android's scoped-storage rules allow direct FileStream access only in per-app
         // directories on shared/internal and removable external volumes.
         var locations = Android.App.Application.Context.GetExternalFilesDirs(null);
-        for (int index = 0; index < locations.Length; index++)
+        foreach (var location in locations ?? [])
         {
-            string? path = locations[index]?.AbsolutePath;
+            if (location is null) continue;
+            using var volume = location;
+            string? path = volume.AbsolutePath;
             if (string.IsNullOrEmpty(path)) continue;
-            if (Android.OS.Environment.GetExternalStorageState(locations[index]!) != Android.OS.Environment.MediaMounted)
+            if (Android.OS.Environment.GetExternalStorageState(volume) != Android.OS.Environment.MediaMounted)
                 continue;
-            bool removable = Android.OS.Environment.IsExternalStorageRemovable(locations[index]!);
+            bool removable = Android.OS.Environment.InvokeIsExternalStorageRemovable(volume);
             choices.Add(new(path, removable ? "SD-карта (каталог LavPulse)" : "Общая память телефона (каталог LavPulse)"));
         }
 #endif
