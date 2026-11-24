@@ -6,6 +6,10 @@ internal sealed class WaveformDrawable : IDrawable
 {
     private PlayerColors _colors = MixerTheme.Default.Visualization;
     private Color _overviewHighlight = MixerTheme.Default.Visualization.Accent.WithAlpha(.16f);
+    private Color _detailGridColor = MixerTheme.Default.Visualization.Accent.WithAlpha(.72f);
+    private Color _overviewGridColor = MixerTheme.Default.Visualization.Accent.WithAlpha(.58f);
+    private Color _onsetColor = MixerTheme.Default.Visualization.Alternate.WithAlpha(.94f);
+    private static readonly Color ManualBeatColor = Microsoft.Maui.Graphics.Colors.Orange.WithAlpha(.95f);
 
     public PlayerColors Colors
     {
@@ -14,6 +18,9 @@ internal sealed class WaveformDrawable : IDrawable
         {
             _colors = value;
             _overviewHighlight = value.Accent.WithAlpha(.16f);
+            _detailGridColor = value.Accent.WithAlpha(.72f);
+            _overviewGridColor = value.Accent.WithAlpha(.58f);
+            _onsetColor = value.Alternate.WithAlpha(.94f);
         }
     }
     internal MixerTheme Theme { get; set; } = MixerTheme.Default;
@@ -158,7 +165,7 @@ internal sealed class WaveformDrawable : IDrawable
         float lastX = float.NegativeInfinity;
         canvas.SaveState();
         canvas.ClipRectangle(x, bounds.Top, width, bounds.Height);
-        canvas.StrokeColor = Microsoft.Maui.Graphics.Colors.Orange.WithAlpha(.95f);
+        canvas.StrokeColor = ManualBeatColor;
         canvas.StrokeSize = 2;
         for (int drawn = 0; index < beats.Length && beats[index] <= start + length &&
              drawn < 1000; index++)
@@ -192,7 +199,7 @@ internal sealed class WaveformDrawable : IDrawable
         }
         canvas.SaveState();
         canvas.ClipRectangle(x, bounds.Top, width, bounds.Height);
-        canvas.StrokeColor = Colors.Accent.WithAlpha(Detailed ? .72f : .58f);
+        canvas.StrokeColor = Detailed ? _detailGridColor : _overviewGridColor;
         canvas.StrokeSize = Detailed ? 1.2f : 1.5f;
         for (int index = first, drawn = 0;
              index < beats.Length && beats[index] <= start + length && drawn < 300;
@@ -213,7 +220,7 @@ internal sealed class WaveformDrawable : IDrawable
         if (first < 0) first = ~first;
         canvas.SaveState();
         canvas.ClipRectangle(x, bounds.Top, width, bounds.Height);
-        canvas.StrokeColor = Colors.Alternate.WithAlpha(.94f);
+        canvas.StrokeColor = _onsetColor;
         canvas.StrokeSize = 1.5f;
         for (int i = first; i < onsets.Length && onsets[i] <= start + length; i++)
         {

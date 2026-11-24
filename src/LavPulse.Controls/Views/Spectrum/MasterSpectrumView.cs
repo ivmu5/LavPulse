@@ -129,16 +129,18 @@ public sealed partial class MasterSpectrumView : ContentView
             return;
         }
 
-        if (!ReferenceEquals(_lastSource, mix))
+        bool sourceChanged = !ReferenceEquals(_lastSource, mix);
+        if (sourceChanged)
         {
             ResetLevels();
             _lastSource = mix;
         }
         mix.TryReadSpectrum(_levels, ref _version);
-        if (_drawable.Advance(_levels, elapsed, out bool barsChanged))
+        bool redraw = _drawable.Advance(_levels, elapsed, out bool barsChanged);
+        if (redraw || sourceChanged)
         {
             _graphics.Invalidate();
-            if (barsChanged) VisualizationChanged?.Invoke();
+            if (barsChanged || sourceChanged) VisualizationChanged?.Invoke();
         }
     }
 
