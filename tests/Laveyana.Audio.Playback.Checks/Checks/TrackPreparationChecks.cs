@@ -10,6 +10,7 @@ internal static class TrackPreparationChecks
         CheckPercussiveFiltering();
         CheckTempoSectionsAndReport();
         CheckDenseTechnoOnsetRhythm();
+        CheckRhythmPhaseChanges();
         var input = TrackFile.FromStream("fixture.mp3", () => Task.FromResult<Stream>(CreateMp3()));
         var original = await new TrackPreparation(directory).ImportAsync(input, CancellationToken.None);
         byte[] expected = await File.ReadAllBytesAsync(original.Path);
@@ -325,6 +326,40 @@ internal static class TrackPreparationChecks
             (long)noBeat.Length * hop).HasBeatGrid,
             "Random transients were mistaken for a regular techno beat.");
         Console.WriteLine("OK: prominent 150 BPM kicks survive dense unrelated onsets without accepting noise.");
+    }
+
+    private static void CheckRhythmPhaseChanges()
+    {
+        // Generated music-like envelope, not a copy of a user's MP3. Repeated
+        // phrase boundaries change the kick phase while the pulse stays near 142 BPM.
+        const int hop = PlaybackFormat.SampleRate / 100;
+        var energy = new RhythmEnergy[12000];
+        Array.Fill(energy, new RhythmEnergy(.04f, .03f, .025f));
+        for (int phrase = 0; phrase < 10; phrase++)
+        {
+            double start = 12 * phrase + .2 + (phrase % 2) * .18;
+            for (double time = start; time < 12 * (phrase + 1) - .1; time += 60d / 142)
+            {
+                int index = (int)Math.Round(time * 100);
+                energy[index] = new RhythmEnergy(.85f, .48f, .28f);
+                int offbeat = index + (int)Math.Round(3000d / 142);
+                if (offbeat < energy.Length)
+                    energy[offbeat] = new RhythmEnergy(.38f, .26f, .28f);
+            }
+        }
+        for (int i = 0; i < 900; i++)
+        {
+            int index = 1 + (i * 7919 + i * i * 13) % 11997;
+            if (energy[index].Low <= .1f) energy[index] = new RhythmEnergy(.04f, .12f, .55f);
+        }
+        long total = (long)energy.Length * hop;
+        var grid = TrackRhythmAnalyzer.AnalyzeEnergy(energy, hop, total);
+        Require(grid.HasBeatGrid && TrackRhythmAnalyzer.IsValid(grid, total) &&
+            Math.Abs(grid.Bpm - 142) < 4 && grid.BeatFrames.Length > 180,
+            "Phrase phase changes destroyed a locally supported rhythm.");
+        Require(grid.Sections.Zip(grid.Sections.Skip(1), (a, b) => a.EndFrame <= b.StartFrame).All(value => value),
+            "Recovered tempo regions overlapped.");
+        Console.WriteLine("OK: sustained tempo with changing phrase phase and independent rhythmic regions.");
     }
 
     private static void CheckNativeRate()
