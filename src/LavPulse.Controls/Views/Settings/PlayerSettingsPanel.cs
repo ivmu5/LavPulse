@@ -26,7 +26,8 @@ public sealed partial class PlayerSettingsPanel : ContentView
         Func<Task<string>>? copyReport = null,
         Func<Task<string?>>? exportReportZip = null,
         Func<Task<string>>? reportSummary = null,
-        Func<Task<string>>? clearReports = null)
+        Func<Task<string>>? clearReports = null,
+        string? appVersion = null)
     {
         _settings = settings;
         _copyReport = copyReport;
@@ -77,6 +78,13 @@ public sealed partial class PlayerSettingsPanel : ContentView
             _sectionHosts[index] = content;
             sections.Children.Add(button);
             sections.Children.Add(content);
+        }
+
+        if (!string.IsNullOrWhiteSpace(appVersion))
+        {
+            var version = MixerStyle.Label("LavPulse v" + appVersion, 11, MixerColor.Muted);
+            version.HorizontalTextAlignment = TextAlignment.Center;
+            sections.Children.Add(version);
         }
 
         var save = MixerStyle.Button("Сохранить", primary: true, icon: "player_confirm.png");
