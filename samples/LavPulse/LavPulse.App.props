@@ -21,7 +21,9 @@
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <ApplicationDisplayVersion>$(LavPulseFullVersion)</ApplicationDisplayVersion>
     <!-- Android requires a positive integer versionCode; calendar ordering is preserved. -->
-    <ApplicationVersion>$(LavPulseVersionMajor)$(LavPulseVersionYear)$(LavPulseVersionMonth)$(LavPulseVersionRevision)</ApplicationVersion>
+    <ApplicationVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">$(LavPulseVersionMajor)$(LavPulseVersionYear)$(LavPulseVersionMonth)$(LavPulseVersionRevision)</ApplicationVersion>
+    <!-- Windows consumes the four-part display version directly, not Android's integer code. -->
+    <ApplicationVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'"></ApplicationVersion>
     <!-- Apple marketing versions must contain exactly three integer components. -->
     <ApplicationDisplayVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' Or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">$(LavPulseVersionMajor).$(LavPulseVersionYear).$(LavPulseVersionMonth)</ApplicationDisplayVersion>
     <ApplicationVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' Or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">$(LavPulseVersionYear).$(LavPulseVersionMonth).$(LavPulseVersionRevision)</ApplicationVersion>
