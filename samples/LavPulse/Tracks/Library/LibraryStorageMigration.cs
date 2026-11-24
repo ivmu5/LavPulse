@@ -18,6 +18,16 @@ internal static class LibraryStorageMigration
         string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(a)),
             Path.TrimEndingDirectorySeparator(Path.GetFullPath(b)), PathComparison);
 
+    internal static bool PathsOverlap(string a, string b)
+    {
+        string first = Path.TrimEndingDirectorySeparator(Path.GetFullPath(a));
+        string second = Path.TrimEndingDirectorySeparator(Path.GetFullPath(b));
+        string firstPrefix = Path.EndsInDirectorySeparator(first) ? first : first + Path.DirectorySeparatorChar;
+        string secondPrefix = Path.EndsInDirectorySeparator(second) ? second : second + Path.DirectorySeparatorChar;
+        return SamePath(first, second) || first.StartsWith(secondPrefix, PathComparison) ||
+            second.StartsWith(firstPrefix, PathComparison);
+    }
+
     public static async Task MigrateAsync(string sourceRoot, string destinationRoot,
         CancellationToken cancellationToken = default)
     {
@@ -25,9 +35,7 @@ internal static class LibraryStorageMigration
         string destination = Path.TrimEndingDirectorySeparator(Path.GetFullPath(destinationRoot));
         if (SamePath(source, destination)) return;
 
-        string sourcePrefix = source + Path.DirectorySeparatorChar;
-        string targetPrefix = destination + Path.DirectorySeparatorChar;
-        if (destination.StartsWith(sourcePrefix, PathComparison) || source.StartsWith(targetPrefix, PathComparison))
+        if (PathsOverlap(source, destination))
             throw new InvalidOperationException("Каталог хранения нельзя вложить внутрь другой медиатеки.");
 
         cancellationToken.ThrowIfCancellationRequested();

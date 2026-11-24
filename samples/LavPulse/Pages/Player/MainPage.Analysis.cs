@@ -22,7 +22,9 @@ public sealed partial class MainPage
         if (!IsLoadingFirst)
         {
             var snapshot = _playback.Snapshot;
-            _library.Trim(snapshot.Current?.Track, snapshot.Incoming?.Track, _selected, _armed, upcoming);
+            var presented = _playback.PresentedSnapshot;
+            _library.Trim(snapshot.Current?.Track, snapshot.Incoming?.Track, _selected, _armed, upcoming,
+                presented.Current?.Track, presented.Incoming?.Track, _shownCurrent, _shownIncoming);
         }
 
         // Give the initial deck its selected track before starting the lookahead.

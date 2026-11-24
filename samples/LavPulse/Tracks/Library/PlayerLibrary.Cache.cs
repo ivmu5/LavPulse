@@ -6,14 +6,26 @@ internal sealed partial class PlayerLibrary
 {
     /// <summary>Evicts older entries. The occupied decks and upcoming tracks remain cached for playback.</summary>
     public void Trim(CachedTrack? current, CachedTrack? incoming, TrackFile? selected, TrackFile? armed,
-        IReadOnlyCollection<TrackFile> upcoming)
+        IReadOnlyCollection<TrackFile> upcoming, CachedTrack? presentedCurrent = null,
+        CachedTrack? presentedIncoming = null, CachedTrack? shownCurrent = null, CachedTrack? shownIncoming = null)
     {
-        lock (_cacheGate) TrimCache(current, incoming, selected, armed, upcoming);
+        lock (_cacheGate) TrimCache(current, incoming, selected, armed, upcoming,
+            presentedCurrent, presentedIncoming, shownCurrent, shownIncoming);
     }
 
     private void TrimCache(CachedTrack? current, CachedTrack? incoming, TrackFile? selected, TrackFile? armed,
-        IReadOnlyCollection<TrackFile> upcoming)
+        IReadOnlyCollection<TrackFile> upcoming, CachedTrack? presentedCurrent, CachedTrack? presentedIncoming,
+        CachedTrack? shownCurrent, CachedTrack? shownIncoming)
     {
+        // Failed/cancelled preparations do not consume PCM bytes, so a byte-only
+        // budget would retain their exception graphs and tasks forever.
+        foreach (var file in _prepared.Where(entry => entry.Value.Work.IsFaulted || entry.Value.Work.IsCanceled)
+                     .Select(entry => entry.Key).ToArray())
+        {
+            if (file == selected || file == armed || upcoming.Contains(file)) continue;
+            _prepared.Remove(file);
+            _pcmAccess.Remove(file);
+        }
         long totalBytes = 0;
         long coverBytes = 0;
         foreach (var entry in _prepared.Values)
@@ -30,7 +42,9 @@ internal sealed partial class PlayerLibrary
             {
                 if (totalBytes <= LocalTrackStore.PcmBudgetBytes && coverBytes <= ArtworkBudgetBytes) break;
                 if (file == selected || file == armed || upcoming.Contains(file) || GetPrepared(file) is not { } track ||
-                    ReferenceEquals(track, current) || ReferenceEquals(track, incoming)) continue;
+                    ReferenceEquals(track, current) || ReferenceEquals(track, incoming) ||
+                    ReferenceEquals(track, presentedCurrent) || ReferenceEquals(track, presentedIncoming) ||
+                    ReferenceEquals(track, shownCurrent) || ReferenceEquals(track, shownIncoming)) continue;
 
                 _prepared.Remove(file);
                 _pcmAccess.Remove(file);
@@ -49,16 +63,21 @@ internal sealed partial class PlayerLibrary
     private static void TrimArtwork(Dictionary<TrackFile, Task<TrackMetadata>> metadata,
         Dictionary<TrackFile, long> access, long budget)
     {
+        // Queue rows are virtualized. Keep a generous recent-entry limit even when
+        // tracks have no artwork, without evicting in-flight requests.
+        const int entryBudget = 1024;
         long total = metadata.Values.Where(task => task.IsCompletedSuccessfully).Sum(task => (long)task.Result.Artwork.Length);
-        if (total <= budget) return;
+        if (total <= budget && metadata.Count <= entryBudget) return;
 
         foreach (var file in metadata.Keys.OrderBy(file => access.GetValueOrDefault(file)).ToArray())
         {
-            if (total <= budget) break;
+            if (total <= budget && metadata.Count <= entryBudget) break;
             var tags = metadata[file];
-            if (!tags.IsCompletedSuccessfully || tags.Result.Artwork.IsEmpty) continue;
-
-            total -= tags.Result.Artwork.Length;
+            if (!tags.IsCompleted) continue;
+            long bytes = tags.IsCompletedSuccessfully ? tags.Result.Artwork.Length : 0;
+            // A text-only entry cannot help satisfy the artwork byte budget.
+            if (metadata.Count <= entryBudget && bytes == 0) continue;
+            total -= bytes;
             metadata.Remove(file);
             access.Remove(file);
         }

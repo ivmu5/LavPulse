@@ -79,7 +79,7 @@ internal static class AppLibraryStorage
         try
         {
             // The previous library can only be removed after the active destination exists.
-            if (Directory.Exists(activeRoot) && !LibraryStorageMigration.SamePath(pending, activeRoot))
+            if (Directory.Exists(activeRoot) && !LibraryStorageMigration.PathsOverlap(pending, activeRoot))
             {
                 if (Directory.Exists(pending))
                 {

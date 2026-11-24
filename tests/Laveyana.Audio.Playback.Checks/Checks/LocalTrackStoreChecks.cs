@@ -98,6 +98,7 @@ internal static class LocalTrackStoreChecks
         Directory.CreateDirectory(Path.Combine(source, "analysis-v4"));
         Directory.CreateDirectory(Path.Combine(source, "pcm-v1"));
         await File.WriteAllBytesAsync(Path.Combine(source, "media", "one.mp3"), [1, 4, 9, 16]);
+        await File.WriteAllTextAsync(Path.Combine(source, ".hidden-data"), "retain hidden library files");
         await File.WriteAllTextAsync(Path.Combine(source, "queue.json"), "{\"Tracks\":[]}");
         await File.WriteAllBytesAsync(Path.Combine(source, "analysis-v4", "one.json"), [4, 3, 2]);
         await File.WriteAllBytesAsync(Path.Combine(source, "pcm-v1", "one.pcm"), [7, 8, 9]);
@@ -138,6 +139,36 @@ internal static class LocalTrackStoreChecks
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("вложить")) { }
         Require(File.Exists(Path.Combine(source, "queue.json")), "Rejected relocation damaged the source.");
+        Require(LibraryStorageMigration.PathsOverlap(source, Path.Combine(source, "nested")) &&
+            LibraryStorageMigration.PathsOverlap(Path.Combine(source, "nested"), source) &&
+            !LibraryStorageMigration.PathsOverlap(source, source + "-other"),
+            "Path overlap protection rejected unrelated sibling paths or allowed nested paths.");
+
+        string link = Path.Combine(source, "linked-directory");
+        string external = Path.Combine(root, "outside-library");
+        Directory.CreateDirectory(external);
+        await File.WriteAllTextAsync(Path.Combine(external, "untouched.txt"), "external data");
+        bool linkCreated = false;
+        try
+        {
+            Directory.CreateSymbolicLink(link, external);
+            linkCreated = true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            // Windows may disallow symlink creation without Developer Mode.
+        }
+        if (linkCreated)
+        {
+            string rejected = Path.Combine(root, "rejected-transfer");
+            bool refused = false;
+            try { await LibraryStorageMigration.MigrateAsync(source, rejected); }
+            catch (IOException) { refused = true; }
+            finally { Directory.Delete(link); }
+            Require(refused && !Directory.Exists(rejected) &&
+                File.Exists(Path.Combine(external, "untouched.txt")),
+                "Relocation silently skipped or traversed a redirected directory.");
+        }
         Console.WriteLine("OK: restart-based, verified media/queue/analysis/PCM relocation and rollback.");
     }
 
