@@ -209,7 +209,9 @@ For a manual iOS check, import two MP3s from Files, exercise mixing, EQ and seek
 
 ## Dependencies and license
 
-LavPulse is licensed under [MIT](LICENSE). Main external dependencies are [NLayer 3.0.1](https://www.nuget.org/packages/NLayer/3.0.1) (MP3 decoding, MIT), [NAudio.WinMM 2.2.1](https://www.nuget.org/packages/NAudio.WinMM/2.2.1) (Windows WaveOut, MIT), and [Microsoft.Maui.Controls](https://github.com/dotnet/maui) (cross-platform UI, MIT). The bundled Inter font uses the SIL Open Font License, with its text at [`Inter-OFL.txt`](samples/LavPulse/Resources/Fonts/Inter-OFL.txt). Retain third-party copyright/license notices when redistributing dependencies or fonts.
+LavPulse is source-available under the [LavPulse Noncommercial Source License 1.0](LICENSE). Personal use, study, modification and noncommercial redistribution are permitted; distributed forks and binaries must have their corresponding source publicly available under the same terms. Commercial use by third parties requires separate written permission from the copyright holder. The copyright holder retains the right to commercialize and separately license material they own or have rights to license. Rights previously granted under MIT remain effective; see [historical MIT notice](LICENSES/previous-MIT.txt). Contributions are governed by [CONTRIBUTING.md](CONTRIBUTING.md). This is not an OSI-approved open-source license. 
+
+ Main external dependencies are [NLayer 3.0.1](https://www.nuget.org/packages/NLayer/3.0.1) (MP3 decoding, MIT), [NAudio.WinMM 2.2.1](https://www.nuget.org/packages/NAudio.WinMM/2.2.1) (Windows WaveOut, MIT), and [Microsoft.Maui.Controls](https://github.com/dotnet/maui) (cross-platform UI, MIT). The bundled Inter font uses the SIL Open Font License, with its text at [`Inter-OFL.txt`](samples/LavPulse/Resources/Fonts/Inter-OFL.txt). Retain third-party copyright/license notices when redistributing dependencies or fonts.
 
 ## Continuous integration and releases
 
