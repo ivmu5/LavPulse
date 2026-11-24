@@ -247,8 +247,8 @@ public sealed partial class PlayerView : Grid
             if (!_previousWasHeld) PreviousRequested?.Invoke();
         };
         _next.Clicked += (_, _) => NextRequested?.Invoke();
-        SemanticProperties.SetDescription(_next, "Свести со следующим треком");
-        SemanticProperties.SetDescription(_previous, "Нажать: предыдущий трек. Удерживать: начало текущего трека.");
+        SemanticProperties.SetDescription(_next, "Переход к следующему треку");
+        SemanticProperties.SetDescription(_previous, "Предыдущий трек. Долгое нажатие — начало текущего трека.");
         SemanticProperties.SetDescription(_equalizer, "Открыть эквалайзер");
         SemanticProperties.SetDescription(_equalizerToggle, "Эквалайзер");
         _equalizer.RemoveDynamicResource(BackgroundColorProperty);

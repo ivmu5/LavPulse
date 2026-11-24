@@ -20,12 +20,12 @@ public sealed class TrackReportMarkPanel : ContentView
     private readonly GraphicsView _selectionView;
     private readonly SelectionDrawable _selection = new();
     private readonly Label _interval = MixerStyle.Label("", 12, MixerColor.Accent);
-    private readonly Entry _bpm = new() { Keyboard = Keyboard.Numeric, Placeholder = "Например, 150 (необязательно)" };
+    private readonly Entry _bpm = new() { Keyboard = Keyboard.Numeric, Placeholder = "150" };
     private readonly Editor _comment = new()
     {
         AutoSize = EditorAutoSizeOption.TextChanges,
         HeightRequest = 90,
-        Placeholder = "Опиши наблюдение"
+        Placeholder = "Комментарий"
     };
     private bool _setting;
     private bool _nextTapSetsEnd;
@@ -45,8 +45,8 @@ public sealed class TrackReportMarkPanel : ContentView
         MixerStyle.UseColor(_comment, Editor.TextColorProperty, MixerColor.Text);
         MixerStyle.UseColor(_comment, VisualElement.BackgroundColorProperty, MixerColor.Overlay);
         _comment.Placeholder = mode == TrackMarkMode.StrongRhythm
-            ? "Что хорошо слышно: бочка, доли, ускорение, переход? (необязательно)"
-            : "Что именно не так: BPM, положение сетки, ложные удары?";
+            ? "Особенности ритма (необязательно)"
+            : "Описание проблемы: BPM, сетка долей, лишние удары";
         _selection.From = (float)(_start.Value / totalSeconds);
         _selection.To = (float)(_end.Value / totalSeconds);
         var drawable = new WaveformDrawable
@@ -95,8 +95,8 @@ public sealed class TrackReportMarkPanel : ContentView
                 MixerStyle.Label(mode == TrackMarkMode.StrongRhythm ? "Сильный ритм" : "Замечание по треку",
                     MixerStyle.PhoneFont(21, 19), MixerColor.Accent, bold: true),
                 MixerStyle.Label(track.Title + (track.Artist is { } artist ? " — " + artist : ""), 13),
-                MixerStyle.Label("Выбери участок на волне двумя касаниями: сначала начало, затем конец. " +
-                    "Ползунки ниже позволяют уточнить границы.", 11, MixerColor.Muted),
+                MixerStyle.Label("Два касания волны задают начало и конец участка. " +
+                    "Ползунки уточняют границы.", 11, MixerColor.Muted),
                 waveformLayer,
                 _interval,
                 MixerStyle.Label("Начало", 12),
@@ -107,17 +107,15 @@ public sealed class TrackReportMarkPanel : ContentView
         };
         if (mode == TrackMarkMode.StrongRhythm)
         {
-            main.Add(MixerStyle.Label("Трек уже добавлен в отчёт автоматически. Сохраняй участки по мере " +
-                "прослушивания — отдельно добавлять трек не нужно.", 11, MixerColor.Muted));
+            main.Add(MixerStyle.Label("Ручные участки сохраняются в отчёте трека.", 11, MixerColor.Muted));
             main.Add(MixerStyle.Label("Предполагаемый BPM (необязательно)", 12));
             main.Add(_bpm);
-            main.Add(MixerStyle.Label("Ручная разметка неточная: границы ±250 мс. " +
-                "На смене темпа допускается 1–3 пропущенных удара; эти данные не будут " +
-                "автоматически считаться истинным BeatGrid.", 11, MixerColor.Muted));
+            main.Add(MixerStyle.Label("Допуск границ: ±250 мс. Допустимый пропуск при смене темпа: до 3 ударов. " +
+                "Ручные отметки не изменяют автоматическую сетку долей.", 11, MixerColor.Muted));
         }
         main.Add(MixerStyle.Label(mode == TrackMarkMode.Problem ? "Комментарий" : "Наблюдение", 12));
         main.Add(_comment);
-        var saveButton = MixerStyle.Button("Добавить в репорт", primary: true);
+        var saveButton = MixerStyle.Button("Добавить в отчёт", primary: true);
         var cancel = MixerStyle.Button("Отмена");
         cancel.Clicked += (_, _) => dismiss();
         saveButton.Clicked += async (_, _) =>
@@ -130,7 +128,7 @@ public sealed class TrackReportMarkPanel : ContentView
                         NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) ||
                     !double.IsFinite(parsed) || parsed is < 40 or > 300)
                 {
-                    await ShowErrorAsync("Укажи BPM в диапазоне 40–300 или оставь поле пустым.");
+                    await ShowErrorAsync("Допустимый BPM: 40–300. Поле необязательное.");
                     return;
                 }
                 bpm = parsed;
@@ -138,12 +136,12 @@ public sealed class TrackReportMarkPanel : ContentView
             var comment = (_comment.Text ?? "").Trim();
             if (mode == TrackMarkMode.Problem && comment.Length == 0)
             {
-                await ShowErrorAsync("Опиши проблему, прежде чем добавлять её в репорт.");
+                await ShowErrorAsync("Комментарий обязателен.");
                 return;
             }
             if (comment.Length > 3000)
             {
-                await ShowErrorAsync("Комментарий не должен превышать 3000 символов.");
+                await ShowErrorAsync("Максимальная длина комментария — 3000 символов.");
                 return;
             }
             saveButton.IsEnabled = false;

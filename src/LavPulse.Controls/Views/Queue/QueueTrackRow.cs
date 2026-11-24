@@ -108,7 +108,7 @@ internal sealed class QueueTrackRow : TrackListRow
         var muted = theme[MixerColor.Muted];
         _text.Color = played ? Gray(muted) : theme[MixerColor.Text];
         _text.ArtistColor = played ? Gray(muted) : muted;
-        _text.Status = current ? "Играет" : null;
+        _text.Status = current ? "Воспроизводится" : null;
         _text.StatusColor = accent;
         Stroke = current ? accent : Colors.Transparent;
         BackgroundColor = current ? theme[MixerColor.Selected] :
@@ -116,10 +116,10 @@ internal sealed class QueueTrackRow : TrackListRow
         CoverOpacity = played ? .55 : 1;
         if (!_loading) Opacity = current || played || item.IsLoaded ? 1 : .56;
 
-        string status = current ? "Играет" :
-            played ? "Прослушан. Нажми, чтобы начать отсюда." :
-            _loading ? "Загружается" :
-            item.IsLoaded ? "Загружен" : "Не загружен";
+        string status = current ? "Воспроизводится" :
+            played ? "Прослушан" :
+            _loading ? "Подготовка" :
+            item.IsLoaded ? "Готов" : "Не подготовлен";
         SemanticProperties.SetDescription(this, string.Join(". ", new[] { item.Title, item.Artist, status }
             .Where(text => !string.IsNullOrWhiteSpace(text))));
         _graphics.Invalidate();

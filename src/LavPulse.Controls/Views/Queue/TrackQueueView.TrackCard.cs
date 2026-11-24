@@ -89,7 +89,7 @@ internal sealed partial class TrackQueueView
                     details.IsVisible = track?.AudioInfo is not null;
                 }
             }
-            _title.Text = track?.Title ?? "Выбери трек";
+            _title.Text = track?.Title ?? "Трек не выбран";
             _artist.Text = track is null ? "" : track.Artist ?? "Неизвестный исполнитель";
             _artist.IsVisible = track is not null;
             _state.Text = state;

@@ -13,37 +13,37 @@ public sealed partial class PlayerSettingsPanel
             .. Enumerable.Range(TrackAnalysisParallelism.Minimum, maximum).Select(count => (count, count.ToString()))
         ];
         int selected = Math.Clamp(_settings.AnalysisParallelism, TrackAnalysisParallelism.Automatic, maximum);
-        var parallelism = Select("Потоки анализа", options, selected, preview: null,
+        var parallelism = Select("Параллельные задачи анализа", options, selected, preview: null,
             value => _settings = _settings with { AnalysisParallelism = value }, maxColumns: 4);
-        return Section("Параллельное сканирование", parallelism);
+        return Section("Производительность анализа", parallelism);
     }
 
     private View CreatePlaybackSection()
     {
         var defaults = new PlayerSettings();
-        var fadeIn = Number("Плавный старт", "мс", new(0, 3000, defaults.FadeInMilliseconds, 50),
+        var fadeIn = Number("Нарастание громкости при запуске", "мс", new(0, 3000, defaults.FadeInMilliseconds, 50),
             _settings.FadeInMilliseconds, value => _settings = _settings with { FadeInMilliseconds = value });
-        var fadeOut = Number("Затухание при паузе", "мс", new(0, 3000, defaults.FadeOutMilliseconds, 50),
+        var fadeOut = Number("Затухание громкости при паузе", "мс", new(0, 3000, defaults.FadeOutMilliseconds, 50),
             _settings.FadeOutMilliseconds, value => _settings = _settings with { FadeOutMilliseconds = value });
         var crossfade = Number("Длительность перехода", "мс", new(0, 12000, defaults.CrossfadeMilliseconds, 100),
             _settings.CrossfadeMilliseconds, value => _settings = _settings with { CrossfadeMilliseconds = value });
         var autoMix = Toggle("Автомикс", _settings.AutoMix, value => _settings = _settings with { AutoMix = value });
-        var visualDelay = Number("Компенсация задержки звука", "мс", new(0, 1500, defaults.VisualDelayMilliseconds, 10),
+        var visualDelay = Number("Задержка визуализации", "мс", new(0, 1500, defaults.VisualDelayMilliseconds, 10),
             _settings.VisualDelayMilliseconds, value => _settings = _settings with { VisualDelayMilliseconds = value });
-        var delayHint = MixerStyle.Label("Если басы или удары слышны позже, чем появляются на экране (особенно через Bluetooth), " +
-            "увеличь значение. Настройка сдвигает только визуализацию, а не звук.", 11, MixerColor.Muted);
+        var delayHint = MixerStyle.Label("Дополнительная задержка волн и спектра для синхронизации со звуком, в том числе через Bluetooth. " +
+            "Не влияет на воспроизведение аудио.", 11, MixerColor.Muted);
         var sections = new VerticalStackLayout
         {
             Spacing = 8,
             Children =
             {
-                Section("Плавный старт и пауза", Pair(fadeIn.Row, fadeOut.Row)),
+                Section("Плавное воспроизведение", Pair(fadeIn.Row, fadeOut.Row)),
                 Section("Переход между треками", autoMix, crossfade.Row),
                 Section("Синхронизация со звуком", visualDelay.Row, delayHint)
             }
         };
 #if ANDROID
-        var lockScreen = Toggle("Показывать плеер поверх экрана блокировки", _settings.ShowOnLockScreen,
+        var lockScreen = Toggle("Плеер на экране блокировки", _settings.ShowOnLockScreen,
             value => _settings = _settings with { ShowOnLockScreen = value });
         sections.Add(Section("Экран блокировки", lockScreen));
 #endif
@@ -53,22 +53,22 @@ public sealed partial class PlayerSettingsPanel
     private View CreateDeckSection()
     {
         var defaults = new PlayerSettings();
-        var detail = Number("Длительность верхней волны", "с",
+        var detail = Number("Временной диапазон детальной волны", "с",
             new(PlayerSettings.MinimumWaveformDetailSeconds, PlayerSettings.MaximumWaveformDetailSeconds,
                 defaults.WaveformDetailSeconds, 1), _settings.WaveformDetailSeconds,
             value => _settings = _settings with { WaveformDetailSeconds = value });
-        var detailed = Select("Верхняя волна",
+        var detailed = Select("Детальная волна",
             [(DeckWaveformMode.Color, "Цветная"), (DeckWaveformMode.BeatGrid, "Сетка долей"),
-             (DeckWaveformMode.Transients, "Удары + сетка")],
+             (DeckWaveformMode.Transients, "Удары и сетка")],
             _settings.DetailedWaveform, CreateDetailedTimelinePreview,
             mode => _settings = _settings with { DetailedWaveform = mode });
         int overviewChoice = !_settings.WaveformOverview ? 0 : _settings.WaveformOverviewBeatGrid ? 2 : 1;
-        var overview = Select("Нижняя дорожка", [(0, "Прогресс"), (1, "Цветная"), (2, "Цветная + сетка")],
+        var overview = Select("Обзорная волна", [(0, "Полоса прогресса"), (1, "Цветная"), (2, "Цветная с сеткой")],
             overviewChoice, CreateTimelinePreview,
             value => _settings = _settings with { WaveformOverview = value != 0, WaveformOverviewBeatGrid = value == 2 });
-        var hint = MixerStyle.Label("Метки долей показываются только при уверенном определении BPM. " +
-            "Вариант «Удары + сетка» также выделяет найденные транзиенты.", 11, MixerColor.Muted);
-        return Section("Дорожки деки", detail.Row, detailed, overview, hint);
+        var hint = MixerStyle.Label("Сетка долей отображается на участках с определённым темпом. " +
+            "Режим «Удары и сетка» дополнительно отображает обнаруженные атаки.", 11, MixerColor.Muted);
+        return Section("Отображение волн", detail.Row, detailed, overview, hint);
     }
 
     private View CreateColorSection()
@@ -88,7 +88,7 @@ public sealed partial class PlayerSettingsPanel
             }
         }
 
-        var themeOptions = Select("Режим", [(PlayerTheme.System, "Системная"), (PlayerTheme.Dark, "Тёмная"),
+        var themeOptions = Select("Тема", [(PlayerTheme.System, "Системная"), (PlayerTheme.Dark, "Тёмная"),
             (PlayerTheme.Light, "Светлая")], _settings.Theme,
             mode => ThemePreview(() => _settings with { Theme = mode }, mode == PlayerTheme.System, samples),
             mode => Preview(_settings with { Theme = mode }));
@@ -107,10 +107,10 @@ public sealed partial class PlayerSettingsPanel
                 return view;
             }, mode => Preview(_settings with { SpectrumColors = mode }));
         var palette = Select("Палитра", [(PlayerPalette.LavPulse, "LavPulse"), (PlayerPalette.Ocean, "Океан"),
-            (PlayerPalette.Warm, "Тёплая"), (PlayerPalette.Custom, "Своя")], _settings.Palette,
+            (PlayerPalette.Warm, "Тёплая"), (PlayerPalette.Custom, "Пользовательская")], _settings.Palette,
             choice => CreatePalettePreview(PlayerColors.For(_settings with { Palette = choice })),
             choice => Preview(_settings with { Palette = choice }));
-        var edit = MixerStyle.Button("Настроить свою палитру");
+        var edit = MixerStyle.Button("Редактор палитры");
         edit.HorizontalOptions = LayoutOptions.Fill;
         edit.Clicked += (_, _) => TryOpenPaletteEditor();
         var sections = new VerticalStackLayout
@@ -143,17 +143,17 @@ public sealed partial class PlayerSettingsPanel
                 _settings = _settings with { SpectrumFrameRate = value };
                 _previewAppearance?.Invoke(_settings);
             }, maxColumns: 5);
-        var hint = MixerStyle.Label("Общий предел для спектра, волн, переходов дек, обложек, бегущих строк и анимаций очереди. " +
-            "Авто — частота дисплея. Реальная частота не может превышать возможности экрана и системы.", 12, MixerColor.Muted);
+        var hint = MixerStyle.Label("Максимальная частота обновления анимаций плеера. Авто — частота дисплея. " +
+            "Фактическая частота зависит от производительности устройства.", 12, MixerColor.Muted);
         return Section("Интерфейс и FPS", frameRate, hint);
     }
 
     private View CreateSpectrumSection()
     {
         var defaults = new PlayerSettings();
-        var spectrum = Toggle("Показывать мастер-спектр", _settings.ShowSpectrum,
+        var spectrum = Toggle("Мастер-спектр", _settings.ShowSpectrum,
             value => _settings = _settings with { ShowSpectrum = value });
-        var peaks = Toggle("Показывать пиковые метки", _settings.ShowPeaks,
+        var peaks = Toggle("Пиковые метки", _settings.ShowPeaks,
             value => _settings = _settings with { ShowPeaks = value });
         var width = Number("Ширина с каждой стороны", "%",
             new(0, PlayerSettings.MaximumSpectrumWidthPercent, defaults.SpectrumWidthPercent, 1),
@@ -182,7 +182,7 @@ public sealed partial class PlayerSettingsPanel
         var brightness = Number("Минимальная яркость", "%",
             new(0, 100, defaults.SpectrumMinimumBrightnessPercent, 1), _settings.SpectrumMinimumBrightnessPercent,
             value => _settings = _settings with { SpectrumMinimumBrightnessPercent = value });
-        var full = Number("Уровень сигнала для полной яркости", "%",
+        var full = Number("Уровень сигнала для максимальной яркости", "%",
             new(1, 100, defaults.SpectrumFullBrightnessPercent, 1), _settings.SpectrumFullBrightnessPercent,
             value => _settings = _settings with { SpectrumFullBrightnessPercent = value });
         var brightnessOptions = new VerticalStackLayout
@@ -192,7 +192,7 @@ public sealed partial class PlayerSettingsPanel
         };
         var adaptive = new CheckBox { IsChecked = _settings.SpectrumLevelBrightness };
         MixerStyle.UseColor(adaptive, CheckBox.ColorProperty, MixerColor.Accent);
-        SemanticProperties.SetDescription(adaptive, "Яркость по уровню частоты");
+        SemanticProperties.SetDescription(adaptive, "Яркость по уровню сигнала");
         adaptive.CheckedChanged += (_, args) =>
         {
             if (_loading) return;
@@ -202,6 +202,6 @@ public sealed partial class PlayerSettingsPanel
             brightnessOptions.IsEnabled = args.Value;
         };
         return Section("Яркость мастер-спектра",
-            ControlRow("Яркость по уровню частоты", adaptive), brightnessOptions);
+            ControlRow("Яркость по уровню сигнала", adaptive), brightnessOptions);
     }
 }

@@ -40,7 +40,7 @@ internal static class LibraryStorageMigration
 
         cancellationToken.ThrowIfCancellationRequested();
         if (!Directory.Exists(source))
-            throw new DirectoryNotFoundException("Исходная медиатека недоступна. Подключи прежний накопитель.");
+            throw new DirectoryNotFoundException("Исходная медиатека недоступна: накопитель не подключён.");
 
         string marker = Path.Combine(destination, MarkerName);
         if (Directory.Exists(destination))
@@ -51,7 +51,7 @@ internal static class LibraryStorageMigration
                     throw new IOException("В выбранной папке обнаружен незавершённый перенос другой медиатеки.");
             }
             else if (Directory.EnumerateFileSystemEntries(destination).Any())
-                throw new IOException("В выбранной папке уже находятся данные. Выбери пустое расположение.");
+                throw new IOException("Для переноса требуется пустая папка.");
         }
 
         // Skipping a symlink/junction and then deleting the source tree can lose data.

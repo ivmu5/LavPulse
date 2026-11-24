@@ -22,7 +22,7 @@ public sealed partial class TrackLibraryPanel : ContentView
     private readonly Label _message = MixerStyle.Label("", 11, MixerColor.Muted);
     private readonly Label _heading = MixerStyle.Label("Медиатека", MixerStyle.PhoneFont(23, 20), bold: true);
     private readonly Button _pick = MixerStyle.Button("Папка", icon: "player_folder.png");
-    private readonly Button _saved = MixerStyle.Button("К сохранённым");
+    private readonly Button _saved = MixerStyle.Button("Медиатека");
     private readonly Button _edit = MixerStyle.Button("Редактирование", icon: "player_edit.png");
     private readonly TapGestureRecognizer _outsideSwipe = new();
     private LibraryTreeItem? _revealed;
@@ -171,12 +171,12 @@ public sealed partial class TrackLibraryPanel : ContentView
         return RunAsync(async () =>
         {
             var selection = SelectionFor(row);
-            _message.Text = addToQueue && _local ? "Добавляю в очередь…" : "Сохраняю MP3…";
+            _message.Text = addToQueue && _local ? "Добавление в очередь…" : "Импорт аудиофайлов…";
             int count = await _import(selection, addToQueue);
             _token.ThrowIfCancellationRequested();
             _message.Text = addToQueue
-                ? count > 0 ? $"Добавлено в очередь: {count}" : "Нет новых треков для очереди."
-                : count > 0 ? $"Сохранено в медиатеке: {count}" : "Нет новых треков для импорта.";
+                ? count > 0 ? $"Добавлено в очередь: {count}" : "Новых треков для добавления нет."
+                : count > 0 ? $"Сохранено в медиатеке: {count}" : "Новых треков для импорта нет.";
         }, addToQueue ? "Не удалось добавить треки" : "Не удалось импортировать треки");
     }
 
@@ -190,7 +190,7 @@ public sealed partial class TrackLibraryPanel : ContentView
             int count = await _remove(SelectionFor(row));
             if (count == 0 || _token.IsCancellationRequested) return;
             await ShowRootAsync(await _openLibrary(), local: true, preservePosition: true);
-            _message.Text = $"Убрано из медиатеки: {count}";
+            _message.Text = $"Удалено из медиатеки: {count}";
         }, "Не удалось удалить из медиатеки");
     }
 
@@ -268,6 +268,6 @@ public sealed partial class TrackLibraryPanel : ContentView
         _scanActions.IsVisible = _local && _scanBatch is null;
         _scanActions.IsEnabled = !_busy && _selected is not null;
         foreach (var view in _tree.RealizedRows) view.UpdateRow();
-        SemanticProperties.SetDescription(_rescan, folder ? "Пересканировать папку" : "Пересканировать трек");
+        SemanticProperties.SetDescription(_rescan, folder ? "Повторный анализ папки" : "Повторный анализ трека");
     }
 }

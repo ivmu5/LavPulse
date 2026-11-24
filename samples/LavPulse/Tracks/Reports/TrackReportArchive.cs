@@ -65,7 +65,7 @@ internal static class TrackReportArchive
     internal static async Task CreateAsync(IReadOnlyList<TrackIssueReport> reports, string destination,
         Func<string, string> mp3Path, CancellationToken token)
     {
-        if (reports.Count == 0) throw new InvalidOperationException("Добавь хотя бы одно замечание в репорт.");
+        if (reports.Count == 0) throw new InvalidOperationException("Отчёт пуст. Нет сохранённых треков.");
         // Fail before writing the ZIP if a track disappeared or the selected SD card was removed.
         var audioFiles = reports.Select(report =>
         {

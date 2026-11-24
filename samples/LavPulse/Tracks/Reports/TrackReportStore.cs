@@ -64,7 +64,7 @@ internal sealed class TrackReportStore(string filePath)
             mark.Comment.Length > 3000 || mark.TimingToleranceMilliseconds is < 0 or > 1500 ||
             mark.PossibleMissingBeats is < 0 or > 3 ||
             (mark.SuggestedBpm is double bpm && (!double.IsFinite(bpm) || bpm is < 40 or > 300)))
-            throw new ArgumentException("Укажи корректный диапазон и комментарий.", nameof(mark));
+            throw new ArgumentException("Некорректный диапазон или комментарий.", nameof(mark));
 
         await _gate.WaitAsync(token).ConfigureAwait(false);
         try

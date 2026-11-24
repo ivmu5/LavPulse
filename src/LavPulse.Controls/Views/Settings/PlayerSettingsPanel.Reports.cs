@@ -4,12 +4,12 @@ public sealed partial class PlayerSettingsPanel
 {
     private View CreateReportSection()
     {
-        var summary = MixerStyle.Label("Загрузка сохранённых отметок…", 12, MixerColor.Muted);
+        var summary = MixerStyle.Label("Загрузка отчётов…", 12, MixerColor.Muted);
         var message = MixerStyle.Label("", 12, MixerColor.Accent);
         message.LineBreakMode = LineBreakMode.WordWrap;
         var clipboard = MixerStyle.Button("Скопировать текстовый отчёт");
-        var archive = MixerStyle.Button("Экспортировать ZIP с оригиналами MP3", primary: true);
-        var clear = MixerStyle.Button("Очистить собранные отметки");
+        var archive = MixerStyle.Button("Экспорт ZIP с MP3", primary: true);
+        var clear = MixerStyle.Button("Очистить отчёты");
         foreach (var control in new[] { clipboard, archive, clear })
             control.HorizontalOptions = LayoutOptions.Fill;
         clipboard.IsEnabled = _copyReport is not null;
@@ -49,13 +49,11 @@ public sealed partial class PlayerSettingsPanel
         clear.Clicked += async (_, _) =>
             await RunAsync(clear, async () => _clearReports is null ? null : await _clearReports());
 
-        var help = MixerStyle.Label("Нажимай «Ритм» в такт слышимым басовым ударам: каждое нажатие " +
-            "сразу сохраняет позицию без открытия окна и автоматически добавляет трек в репорт. " +
-            "«В отчёт» открывает редактор замечаний. " +
-            "ZIP содержит отдельные позиции ручных ударов, диагностику, комментарии и оригинальные MP3. " +
-            "Ничего не отправляется в интернет автоматически. На Windows выбирается папка/имя ZIP, " +
-            "на Android — место сохранения через системный проводник.", 11, MixerColor.Muted);
-        var result = Section("Диагностический репорт", summary, help, clipboard, archive, clear, message);
+        var help = MixerStyle.Label("«Ритм» — ручная отметка басового удара и автоматическое добавление трека в отчёт. " +
+            "«В отчёт» — комментарий к выбранному участку. " +
+            "ZIP включает результаты анализа, ручные отметки, комментарии и оригинальные MP3. " +
+            "Экспорт выполняется локально, без автоматической отправки данных.", 11, MixerColor.Muted);
+        var result = Section("Диагностические отчёты", summary, help, clipboard, archive, clear, message);
         // Open only this section on demand, so no background reads happen during playback.
         _ = Refresh();
         return result;

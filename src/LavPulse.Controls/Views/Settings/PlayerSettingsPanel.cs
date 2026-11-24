@@ -57,7 +57,7 @@ public sealed partial class PlayerSettingsPanel : ContentView
             int section = index;
             string? group = index switch
             {
-                0 => "Воспроизведение",
+                0 => "Плеер",
                 2 => "Внешний вид",
                 5 => "Медиатека и диагностика",
                 _ => null
