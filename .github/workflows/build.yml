@@ -63,7 +63,7 @@ jobs:
     name: Windows x64
     runs-on: windows-2025
     timeout-minutes: 40
-    needs: [version, checks]
+    needs: version
     env:
       LavPulseVersionYear: ${{ needs.version.outputs.year }}
       LavPulseVersionMonth: ${{ needs.version.outputs.month }}
@@ -99,7 +99,7 @@ jobs:
     name: Android APK
     runs-on: ubuntu-24.04
     timeout-minutes: 40
-    needs: [version, checks]
+    needs: version
     outputs:
       signing: ${{ steps.package.outputs.signing }}
     env:
@@ -176,7 +176,7 @@ jobs:
     name: iOS simulator x64
     runs-on: macos-26-intel
     timeout-minutes: 45
-    needs: [version, checks]
+    needs: version
     env:
       LavPulseVersionYear: ${{ needs.version.outputs.year }}
       LavPulseVersionMonth: ${{ needs.version.outputs.month }}
@@ -222,7 +222,7 @@ jobs:
     name: macOS Mac Catalyst
     runs-on: macos-26-intel
     timeout-minutes: 45
-    needs: [version, checks]
+    needs: version
     env:
       LavPulseVersionYear: ${{ needs.version.outputs.year }}
       LavPulseVersionMonth: ${{ needs.version.outputs.month }}

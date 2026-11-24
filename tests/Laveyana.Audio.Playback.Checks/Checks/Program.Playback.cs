@@ -304,7 +304,9 @@ internal static partial class Program
         Require(boosted.Spectrum > dry.Spectrum && dry.Spectrum > cutResult.Spectrum, "The master spectrum did not follow the filtered output.");
         Require(Math.Abs(raised.Rms / dry.Rms - Math.Pow(10, 6d / 20)) < .02 && raised.Spectrum > dry.Spectrum,
             "The overall gain did not reach both the audio output and the FFT.");
-        Require(bypassed.Rms == dry.Rms && bypassed.Spectrum == dry.Spectrum, "The disabled equalizer still applied overall gain.");
+        Require(bypassed.Rms == dry.Rms, "The disabled equalizer still applied overall gain to PCM.");
+        Require(bypassed.Spectrum == dry.Spectrum,
+            $"The disabled equalizer changed the spectrum for the same PCM window: dry={dry.Spectrum:R}, bypass={bypassed.Spectrum:R}.");
 
         async Task<(double Rms, float Spectrum)> Measure(EqualizerSettings settings)
         {
@@ -316,9 +318,16 @@ internal static partial class Program
             double rms = 0;
             await session.RunAsync(new InMemoryOutput(source =>
             {
-                for (int i = 0; i < 50; i++)
+                // The asynchronous spectrum worker publishes only the newest captured
+                // window. Rendering the entire track in a tight loop makes different
+                // measurements observe different FFT windows, including trailing silence.
+                // Wait for each hop after the initial 2048-frame window. Stop well
+                // before EOF so every profile is measured on the same full-tone block.
+                long version = 0;
+                const int blocks = 40;
+                for (int i = 0; i < blocks; i++)
                 {
-                    if (source.Render(block) != BlockSize) break;
+                    Require(source.Render(block) == BlockSize, "The equalizer test tone ended prematurely.");
                     double sum = 0;
                     for (int sample = 0; sample < block.Length; sample += 2)
                     {
@@ -326,10 +335,12 @@ internal static partial class Program
                         sum += block[sample] * block[sample];
                     }
                     rms = Math.Sqrt(sum / BlockSize);
+                    if (i >= 1)
+                    {
+                        Require(SpinWait.SpinUntil(() => session.Spectrum!.TryReadSpectrum(levels, ref version),
+                            TimeSpan.FromSeconds(5)), $"No master spectrum snapshot for tone block {i + 1}.");
+                    }
                 }
-                long version = 0;
-                Require(SpinWait.SpinUntil(() => session.Spectrum!.TryReadSpectrum(levels, ref version), TimeSpan.FromSeconds(2)),
-                    "No master spectrum snapshot was published.");
             }), 0, CancellationToken.None);
             return (rms, levels.Max());
         }
