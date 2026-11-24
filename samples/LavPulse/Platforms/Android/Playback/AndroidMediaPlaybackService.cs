@@ -162,10 +162,10 @@ internal sealed class AndroidMediaPlaybackService : Service
         using var previous = CreateAction(Previous, 1);
         using var pause = CreateAction(state.Playing ? Pause : Play, 2);
         using var next = CreateAction(Next, 3);
-        builder.AddAction(Android.Resource.Drawable.IcMediaPrevious, "Назад", previous);
+        builder.AddAction(Android.Resource.Drawable.IcMediaPrevious, "Предыдущий", previous);
         builder.AddAction(state.Playing ? Android.Resource.Drawable.IcMediaPause : Android.Resource.Drawable.IcMediaPlay,
-            state.Playing ? "Пауза" : "Играть", pause);
-        builder.AddAction(Android.Resource.Drawable.IcMediaNext, "Далее", next);
+            state.Playing ? "Пауза" : "Воспроизвести", pause);
+        builder.AddAction(Android.Resource.Drawable.IcMediaNext, "Следующий", next);
         return builder.Build();
     }
 

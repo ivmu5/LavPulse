@@ -21,7 +21,7 @@ public sealed partial class PlayerSettingsPanel
     private View CreatePlaybackSection()
     {
         var defaults = new PlayerSettings();
-        var fadeIn = Number("Нарастание громкости", "мс", new(0, 3000, defaults.FadeInMilliseconds, 50),
+        var fadeIn = Number("Нарастание громкости при запуске", "мс", new(0, 3000, defaults.FadeInMilliseconds, 50),
             _settings.FadeInMilliseconds, value => _settings = _settings with { FadeInMilliseconds = value });
         var fadeOut = Number("Затухание громкости при паузе", "мс", new(0, 3000, defaults.FadeOutMilliseconds, 50),
             _settings.FadeOutMilliseconds, value => _settings = _settings with { FadeOutMilliseconds = value });
@@ -37,13 +37,13 @@ public sealed partial class PlayerSettingsPanel
             Spacing = 8,
             Children =
             {
-                Section("Нарастание громкости и пауза", Pair(fadeIn.Row, fadeOut.Row)),
+                Section("Плавное воспроизведение", Pair(fadeIn.Row, fadeOut.Row)),
                 Section("Переход между треками", autoMix, crossfade.Row),
                 Section("Синхронизация со звуком", visualDelay.Row, delayHint)
             }
         };
 #if ANDROID
-        var lockScreen = Toggle("Показывать плеер поверх экрана блокировки", _settings.ShowOnLockScreen,
+        var lockScreen = Toggle("Плеер на экране блокировки", _settings.ShowOnLockScreen,
             value => _settings = _settings with { ShowOnLockScreen = value });
         sections.Add(Section("Экран блокировки", lockScreen));
 #endif
@@ -63,7 +63,7 @@ public sealed partial class PlayerSettingsPanel
             _settings.DetailedWaveform, CreateDetailedTimelinePreview,
             mode => _settings = _settings with { DetailedWaveform = mode });
         int overviewChoice = !_settings.WaveformOverview ? 0 : _settings.WaveformOverviewBeatGrid ? 2 : 1;
-        var overview = Select("Обзорная волна", [(0, "Прогресс"), (1, "Цветная"), (2, "Цветная с сеткой")],
+        var overview = Select("Обзорная волна", [(0, "Полоса прогресса"), (1, "Цветная"), (2, "Цветная с сеткой")],
             overviewChoice, CreateTimelinePreview,
             value => _settings = _settings with { WaveformOverview = value != 0, WaveformOverviewBeatGrid = value == 2 });
         var hint = MixerStyle.Label("Сетка долей отображается на участках с определённым темпом. " +
@@ -107,7 +107,7 @@ public sealed partial class PlayerSettingsPanel
                 return view;
             }, mode => Preview(_settings with { SpectrumColors = mode }));
         var palette = Select("Палитра", [(PlayerPalette.LavPulse, "LavPulse"), (PlayerPalette.Ocean, "Океан"),
-            (PlayerPalette.Warm, "Тёплая"), (PlayerPalette.Custom, "Своя")], _settings.Palette,
+            (PlayerPalette.Warm, "Тёплая"), (PlayerPalette.Custom, "Пользовательская")], _settings.Palette,
             choice => CreatePalettePreview(PlayerColors.For(_settings with { Palette = choice })),
             choice => Preview(_settings with { Palette = choice }));
         var edit = MixerStyle.Button("Редактор палитры");
@@ -182,7 +182,7 @@ public sealed partial class PlayerSettingsPanel
         var brightness = Number("Минимальная яркость", "%",
             new(0, 100, defaults.SpectrumMinimumBrightnessPercent, 1), _settings.SpectrumMinimumBrightnessPercent,
             value => _settings = _settings with { SpectrumMinimumBrightnessPercent = value });
-        var full = Number("Порог максимальной яркости", "%",
+        var full = Number("Уровень сигнала для максимальной яркости", "%",
             new(1, 100, defaults.SpectrumFullBrightnessPercent, 1), _settings.SpectrumFullBrightnessPercent,
             value => _settings = _settings with { SpectrumFullBrightnessPercent = value });
         var brightnessOptions = new VerticalStackLayout

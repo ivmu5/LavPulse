@@ -38,7 +38,7 @@ internal static class AppLibraryStorage
             try
             {
                 if (!Directory.Exists(activeRoot) && !string.IsNullOrWhiteSpace(activeDirectory))
-                    throw new DirectoryNotFoundException("Предыдущий накопитель недоступен. Подключи его для переноса.");
+                    throw new DirectoryNotFoundException("Перенос недоступен: исходный накопитель не подключён.");
                 // There are no open playback handles or concurrent library writers here:
                 // MainPage and PlayerLibrary are created only after this completes.
                 if (Directory.Exists(activeRoot))
@@ -47,7 +47,7 @@ internal static class AppLibraryStorage
                 else
                 {
                     if (Directory.Exists(nextRoot) && Directory.EnumerateFileSystemEntries(nextRoot).Any())
-                        throw new IOException("В выбранном расположении уже есть данные. Выбери пустую папку.");
+                        throw new IOException("Для переноса требуется пустая папка.");
                     Directory.CreateDirectory(nextRoot);
                 }
                 // Durable cleanup intention is stored before switching the active library.
@@ -67,7 +67,7 @@ internal static class AppLibraryStorage
         }
 
         if (!Directory.Exists(activeRoot) && !string.IsNullOrWhiteSpace(activeDirectory))
-            StartupError ??= "Выбранный накопитель недоступен. Подключи его, прежде чем импортировать треки.";
+            StartupError ??= "Импорт недоступен: выбранный накопитель не подключён.";
         if (Directory.Exists(activeRoot)) CleanupPreviousLibrary(activeRoot);
         return activeRoot;
     }
