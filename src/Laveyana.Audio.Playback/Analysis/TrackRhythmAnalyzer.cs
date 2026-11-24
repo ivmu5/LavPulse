@@ -326,9 +326,10 @@ public static class TrackRhythmAnalyzer
         double allReal = 0, allImaginary = 0, strongReal = 0, strongImaginary = 0;
         double strongTotal = 0, strongSquares = 0;
         int onsetsInSection = 0;
-        foreach (Onset onset in onsets)
+        int anchorStart = LowerBound(onsets, center - radius);
+        for (int i = anchorStart; i < onsets.Count && onsets[i].Index <= (long)center + radius; i++)
         {
-            if (Math.Abs(onset.Index - center) > radius) continue;
+            Onset onset = onsets[i];
             (double sine, double cosine) = Math.SinCos(onset.Index * phaseSpeed);
             allReal += onset.Strength * cosine;
             allImaginary += onset.Strength * sine;
@@ -351,8 +352,7 @@ public static class TrackRhythmAnalyzer
 
         double fromHop = startFrame / (double)hopFrames;
         double position = phaseInHops + Math.Ceiling((fromHop - phaseInHops) / period) * period;
-        int onsetCursor = 0;
-        while (onsetCursor < onsets.Count && onsets[onsetCursor].Index < fromHop - period) onsetCursor++;
+        int onsetCursor = LowerBound(onsets, fromHop - period);
 
         var localBeats = new List<long>();
         int matched = 0, missed = 0;
@@ -403,13 +403,24 @@ public static class TrackRhythmAnalyzer
             matched < Math.Max(3, (int)Math.Ceiling(localBeats.Count * minimumSupport)))
             return;
 
-        foreach (var onset in onsets)
-            if (onset.Index * (long)hopFrames >= startFrame && onset.Index * (long)hopFrames < endFrame)
-                onsetsInSection++;
+        onsetsInSection = LowerBound(onsets, endFrame / (double)hopFrames) -
+            LowerBound(onsets, startFrame / (double)hopFrames);
         float confidence = (float)Math.Clamp(.78 * meanConfidence +
             .22 * matched / (double)localBeats.Count, 0, 1);
         sections.Add(new(startFrame, endFrame, bpm, confidence, onsetsInSection, matched));
         beats.AddRange(localBeats);
+    }
+
+    private static int LowerBound(IReadOnlyList<Onset> onsets, double index)
+    {
+        int low = 0, high = onsets.Count;
+        while (low < high)
+        {
+            int mid = low + (high - low) / 2;
+            if (onsets[mid].Index < index) low = mid + 1;
+            else high = mid;
+        }
+        return low;
     }
 
     private static double TempoAt(double hop, double[] tempi, int stride)
@@ -445,6 +456,7 @@ public static class TrackRhythmAnalyzer
         var result = new List<Onset>();
         for (int i = 1; i < count - 1; i++)
         {
+            if ((i & 16383) == 0) token.ThrowIfCancellationRequested();
             int first = Math.Max(0, i - radius), last = Math.Min(count, i + radius + 1);
             float average = (float)((prefix[last] - prefix[first]) / (last - first));
             float rise = novelty[i];

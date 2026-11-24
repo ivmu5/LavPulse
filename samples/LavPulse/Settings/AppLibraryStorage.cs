@@ -44,8 +44,12 @@ internal static class AppLibraryStorage
                 if (Directory.Exists(activeRoot))
                     Task.Run(() => LibraryStorageMigration.MigrateAsync(activeRoot, nextRoot))
                         .GetAwaiter().GetResult();
-                else if (!Directory.Exists(nextRoot))
+                else
+                {
+                    if (Directory.Exists(nextRoot) && Directory.EnumerateFileSystemEntries(nextRoot).Any())
+                        throw new IOException("В выбранном расположении уже есть данные. Выбери пустую папку.");
                     Directory.CreateDirectory(nextRoot);
+                }
                 // Durable cleanup intention is stored before switching the active library.
                 Preferences.Default.Set(CleanupPreference, activeRoot);
                 Preferences.Default.Set(ActivePreference, requestedDirectory);
@@ -56,7 +60,7 @@ internal static class AppLibraryStorage
                 CleanupPreviousLibrary(activeRoot);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                         ArgumentException or NotSupportedException)
+                                         ArgumentException or NotSupportedException or InvalidOperationException)
             {
                 StartupError = $"Перенос не выполнен: {ex.Message}. Данные оставлены на старом месте.";
             }
@@ -77,7 +81,11 @@ internal static class AppLibraryStorage
             // The previous library can only be removed after the active destination exists.
             if (Directory.Exists(activeRoot) && !LibraryStorageMigration.SamePath(pending, activeRoot))
             {
-                if (Directory.Exists(pending)) Directory.Delete(pending, recursive: true);
+                if (Directory.Exists(pending))
+                {
+                    LibraryStorageMigration.ValidateRegularTree(pending);
+                    Directory.Delete(pending, recursive: true);
+                }
                 Preferences.Default.Remove(CleanupPreference);
             }
         }
