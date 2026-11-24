@@ -45,6 +45,15 @@ else
   gh release create "$tag" --verify-tag --draft --title "LavPulse $tag" --generate-notes --notes "$notes"
 fi
 
+# A retry may have changed the signing configuration. Remove only the obsolete
+# Android package from this draft so the published assets match SHA256SUMS.txt.
+if [[ "$ANDROID_SIGNING" == release-key ]]; then obsolete="LavPulse-$tag-android-debug-key.apk"
+else obsolete="LavPulse-$tag-android-release-key.apk"
+fi
+if gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq "$obsolete"; then
+  gh release delete-asset "$tag" "$obsolete" --yes
+fi
+
 # Upload only to a draft. No partial release is exposed if any upload fails.
 paths=()
 for asset in "${assets[@]}" SHA256SUMS.txt; do

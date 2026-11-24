@@ -182,7 +182,7 @@ Android's [`AndroidMediaPlaybackService`](samples/LavPulse/Platforms/Android/Pla
 dotnet run --project tests/Laveyana.Audio.Playback.Checks -c Release
 ```
 
-It covers MP3 frame information, ID3 artwork selection, PCM16 reads, mixing and silence padding, spectrum capture, transport fades, seeking and speed, queue history, repeat-one, the master EQ, and output failure cleanup. Add deterministic audio invariants here; exercise native MAUI gestures, background playback and system media sessions on the corresponding devices. [`build.yml`](.github/workflows/build.yml) runs by manual dispatch.
+It covers MP3 frame information, ID3 artwork selection, PCM16 reads, mixing and silence padding, spectrum capture, transport fades, seeking and speed, queue history, repeat-one, the master EQ, and output failure cleanup. Add deterministic audio invariants here; exercise native MAUI gestures, background playback and system media sessions on the corresponding devices. [`build.yml`](.github/workflows/build.yml) runs on pull requests to master and pushes to master.
 
 Start the iOS check manually through **Actions → iPhone simulator → Run workflow**. Once the updated workflow is on `master`, the run menu lets you select a branch. The job builds and launches the app in an iPhone simulator. [iOS workflow configuration](.github/workflows/ios.yml)
 
@@ -210,3 +210,26 @@ For a manual iOS check, import two MP3s from Files, exercise mixing, EQ and seek
 ## Dependencies and license
 
 LavPulse is licensed under [MIT](LICENSE). Main external dependencies are [NLayer 3.0.1](https://www.nuget.org/packages/NLayer/3.0.1) (MP3 decoding, MIT), [NAudio.WinMM 2.2.1](https://www.nuget.org/packages/NAudio.WinMM/2.2.1) (Windows WaveOut, MIT), and [Microsoft.Maui.Controls](https://github.com/dotnet/maui) (cross-platform UI, MIT). The bundled Inter font uses the SIL Open Font License, with its text at [`Inter-OFL.txt`](samples/LavPulse/Resources/Fonts/Inter-OFL.txt). Retain third-party copyright/license notices when redistributing dependencies or fonts.
+
+## Continuous integration and releases
+
+Every PR targeting `master` runs the playback checks and Release builds for Windows x64, Android, the iPhone x64 simulator, and universal Mac Catalyst. A push to `master` repeats these checks and publishes a GitHub Release only if every job succeeds. The simulator is also launched as a smoke test. The separate iPhone simulator workflow remains available for troubleshooting.
+
+The release tag and in-app version use `vMAJOR.YY.MM.REVISION`, e.g. `v1.26.11.01`. Set the major version in [Version.props](Version.props). The month and year use UTC; the revision increments from 01 within the month, including across major changes. CI reserves a tag only after all builds succeed. A retry for a tagged commit reuses its version; local/PR builds use revision 00. The Apple OS marketing version has three components, with the monthly revision in its build number; the complete version appears in Settings. Android uses a monotonically ordered integer version code.
+
+[GitHub Releases](https://github.com/ivmu5/LavPulse/releases) contain a Windows x64 portable ZIP, an APK, an unsigned universal macOS app ZIP, an iOS x64 simulator ZIP (not an IPA for physical devices), and SHA256SUMS.txt. iOS device distribution and macOS notarization require Apple signing credentials and are not configured. No Linux MAUI app target exists in this repository.
+
+### Android signing
+
+Without secrets, the APK is signed with the runner's debug key and the automatic release is marked as a pre-release. Such APKs cannot reliably update an installation signed with a different key. For stable APK updates, use the same persistent keystore used for the installed app, and configure repository **Settings → Secrets and variables → Actions**:
+
+| Secret | Value |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | Base64 representation of the keystore file |
+| `ANDROID_KEY_ALIAS` | Key alias |
+| `ANDROID_KEY_PASSWORD` | Key password |
+| `ANDROID_KEYSTORE_PASSWORD` | Keystore password |
+
+Keep the keystore and passwords backed up outside GitHub; do not commit them. All four secrets must be configured together. Only master release builds receive them. The workflow does not publish to app stores.
+
+Manual builds: Actions → Build and release → Run workflow. Select master and enable `publish_release` only to publish/retry a release. A tagged published commit is not overwritten. If a delayed retry collides with another release tag, rerun all jobs to allocate a fresh number. The release job needs repository permission to create tags and releases. To enforce checks before merging, configure required status checks in the master branch rules after the first workflow run.

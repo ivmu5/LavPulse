@@ -1,7 +1,6 @@
 """Allocate a calendar release version from existing Git tags (UTC, no source commits)."""
 import datetime as dt
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys

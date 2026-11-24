@@ -92,6 +92,7 @@ jobs:
           name: windows
           path: artifacts/*.zip
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
   android:
@@ -168,6 +169,7 @@ jobs:
           name: android
           path: artifacts/*.apk
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
   ios:
@@ -213,6 +215,7 @@ jobs:
           name: ios-simulator
           path: artifacts/*.zip
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
   macos:
@@ -249,6 +252,9 @@ jobs:
           set -euo pipefail
           app="$(find samples/LavPulse/bin -type d -path '*/net10.0-maccatalyst*/Laveyana.LavPulse.app' -print -quit)"
           test -n "$app"
+          executable="$app/Contents/MacOS/Laveyana.LavPulse"
+          test -f "$executable"
+          lipo -verify_arch x86_64 arm64 "$executable"
           mkdir -p artifacts
           ditto -c -k --sequesterRsrc --keepParent "$app" "artifacts/LavPulse-$RELEASE_TAG-macos-unsigned.zip"
       - uses: actions/upload-artifact@v4
@@ -256,6 +262,7 @@ jobs:
           name: macos
           path: artifacts/*.zip
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
   release:
