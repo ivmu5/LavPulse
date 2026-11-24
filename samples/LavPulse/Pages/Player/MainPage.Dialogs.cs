@@ -61,6 +61,8 @@ public sealed partial class MainPage
             var panel = createPanel();
             _view.ShowPanel(panel);
             _view.SuspendPlayerAnimations();
+            _view.StopPlaybackVisuals();
+            UpdateSpectrumAnalysis();
             UpdatePositionRefreshInterval();
             RecordOpeningScreen();
             return panel;
@@ -88,7 +90,12 @@ public sealed partial class MainPage
             RefreshAppearance();
         }
         UpdatePositionRefreshInterval();
-        if (IsPlayerVisible) RestorePlayer(snapshot);
+        UpdateSpectrumAnalysis();
+        if (IsPlayerVisible)
+        {
+            RestorePlayer(snapshot);
+            if (_worker is not null) _view.StartPlaybackVisuals(() => _playback.Spectrum);
+        }
         RecordClosingPanel(panel);
     }
 

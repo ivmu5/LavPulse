@@ -45,6 +45,7 @@ public sealed partial class DeckView : Border
     private double _lastBeatPressTime = double.NegativeInfinity;
     private bool _canTapBeats;
     private long _position;
+    private double _shownBpm = double.NaN;
     private long _displayPosition;
     private DeckPlayhead _playhead;
     private bool _animatePlayhead;
@@ -259,16 +260,20 @@ public sealed partial class DeckView : Border
         _position = deck.Position;
         double localBpm = deck.Track.Waveform.Rhythm is { HasBeatGrid: true } rhythm
             ? rhythm.BpmAt(_position) : 0;
-        string tempo = localBpm > 0 ? $"≈{localBpm:0.#} BPM" : "";
-        if (_bpm.Text != tempo)
+        if (localBpm != _shownBpm || trackChanged)
         {
+            _shownBpm = localBpm;
+            string tempo = localBpm > 0 ? $"≈{localBpm:0.#} BPM" : "";
             _bpm.Text = tempo;
             _bpm.IsVisible = tempo.Length != 0;
         }
         double time = DeckPlayhead.Now;
         _playhead.Observe(_position, deck.Speed, time, snap);
         long display = snap ? _position : _playhead.DisplayPosition;
-        if (trackChanged || revealOverview || _displayPosition != display)
+        // The position timer supplies observations only while the display clock is
+        // animating. Drawing both here and in DrawPlayhead violates the FPS limit.
+        // Track changes, explicit seeks and paused positions still update immediately.
+        if (trackChanged || snap || (!_animatePlayhead && (revealOverview || _displayPosition != display)))
         {
             _displayPosition = display;
             Redraw();
