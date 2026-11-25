@@ -1,3 +1,5 @@
+using Laveyana.Maui.UI.Themes;
+
 namespace Laveyana.LavPulse.Controls;
 
 /// <summary>One user-selectable writable storage volume or folder.</summary>
@@ -88,12 +90,15 @@ public sealed record PlayerSettings
 
 public readonly record struct PlayerColors(Color Accent, Color Alternate, Color WaveLow, Color WaveMid)
 {
-    private static readonly PlayerColors LavPulse = new(Color.FromArgb("#58E5FC"), Color.FromArgb("#FF9B65"),
-        Color.FromArgb("#419DFB"), Color.FromArgb("#BF89E7"));
-    private static readonly PlayerColors Ocean = new(Color.FromArgb("#8CEBFE"), Color.FromArgb("#A5B0FF"),
-        Color.FromArgb("#589BEC"), Color.FromArgb("#8F84EA"));
-    private static readonly PlayerColors Warm = new(Color.FromArgb("#FFD39A"), Color.FromArgb("#FF9EAE"),
-        Color.FromArgb("#E48275"), Color.FromArgb("#E88EBE"));
+    private static PlayerColors FromShared(UiPalettePreset preset)
+    {
+        UiPalette colors = UiPaletteCatalog.Get(preset);
+        return new(colors.Accent, colors.Alternate, colors.Low, colors.Mid);
+    }
+
+    private static readonly PlayerColors LavPulse = FromShared(UiPalettePreset.LavPulse);
+    private static readonly PlayerColors Ocean = FromShared(UiPalettePreset.Ocean);
+    private static readonly PlayerColors Warm = FromShared(UiPalettePreset.Warm);
 
     internal static PlayerColors For(PlayerSettings settings) =>
         settings.Palette == PlayerPalette.Custom ? settings.CustomColors : For(settings.Palette);
