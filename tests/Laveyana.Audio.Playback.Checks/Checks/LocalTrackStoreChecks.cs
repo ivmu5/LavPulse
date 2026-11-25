@@ -326,7 +326,8 @@ internal static class LocalTrackStoreChecks
             return Task.CompletedTask;
         }
 
-        var lookahead = new QueueTrackAnalysis(prepared.Contains, Prepare, () => { }, default, analyzed.Contains, Analyze);
+        var lookahead = new QueueTrackAnalysis(prepared.Contains, Prepare, () => { }, default, analyzed.Contains, Analyze,
+            pcmLookahead: 1);
         await lookahead.Update([tracks[0]], allowed: true, tracks)!;
         lookahead.Finish();
         Require(order.SequenceEqual(["pcm:second.mp3", "scan:first.mp3"]) &&

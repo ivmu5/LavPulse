@@ -9,7 +9,8 @@ namespace Laveyana.LavPulse.Tracks;
 /// <summary>Owns the imported MP3 copies, queue manifest and versioned analysis data.</summary>
 internal sealed partial class LocalTrackStore(string root)
 {
-    internal const long PcmBudgetBytes = 256L * 1024 * 1024;
+    // Soft limit: active and armed tracks must remain playable even if oversized.
+    internal const long PcmBudgetBytes = 96L * 1024 * 1024;
     private readonly ConcurrentDictionary<string, byte> _analyzed = new();
     private readonly Dictionary<(string Id, string Name, string Folder), StoredLibraryTrack> _library = new();
     private readonly SemaphoreSlim _analysisWrites = new(1);

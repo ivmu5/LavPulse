@@ -9,6 +9,7 @@ namespace Laveyana.LavPulse;
 public sealed partial class MainPage
 {
     private const int QueueLookahead = 10;
+    private const int PcmLookahead = 1;
 #if IOS
     private nint _analysisBackgroundTask = UIApplication.BackgroundTaskInvalid;
     private bool _analysisBackgroundExpired;
@@ -23,7 +24,7 @@ public sealed partial class MainPage
         {
             var snapshot = _playback.Snapshot;
             var presented = _playback.PresentedSnapshot;
-            _library.Trim(snapshot.Current?.Track, snapshot.Incoming?.Track, _selected, _armed, upcoming,
+            _library.Trim(snapshot.Current?.Track, snapshot.Incoming?.Track, _selected, _armed, upcoming.Take(PcmLookahead).ToArray(),
                 presented.Current?.Track, presented.Incoming?.Track, _shownCurrent, _shownIncoming);
         }
 
