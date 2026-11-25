@@ -171,6 +171,9 @@ internal static partial class Program
                 Read("beat-evidence.csv").StartsWith("frame,confidence,correction_frames", StringComparison.Ordinal) &&
                 Read("phase-hypotheses.csv").StartsWith("first_window,end_window_exclusive,bpm", StringComparison.Ordinal) &&
                 Read("bridge-attempts.csv").StartsWith("start_frame,end_frame,bpm", StringComparison.Ordinal) &&
+                Read("section-phase-path.csv").StartsWith("start_frame,end_frame,bpm", StringComparison.Ordinal) &&
+                Read("metrical-pulses.csv").StartsWith("window,beat_bpm,subdivision_factor", StringComparison.Ordinal) &&
+                Read("metric-root.csv").StartsWith("bpm,triple,strength", StringComparison.Ordinal) &&
                 Read("section-attempts.csv").Contains("accepted") &&
                 Read("tap-comparison.csv").Contains(captured.Frame.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                 "Full tempo alternatives, section decisions or tap comparison are missing.");

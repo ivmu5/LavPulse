@@ -5,13 +5,20 @@ internal readonly record struct RhythmEnergy(float Low, float Mid, float High);
 
 /// <summary>An independently evaluated rhythmic region; gaps are deliberately left without grid marks.</summary>
 public sealed record TrackTempoSection(long StartFrame, long EndFrame, double Bpm, float Confidence,
-    int OnsetCount, int MatchedBeats);
+    int OnsetCount, int MatchedBeats)
+{
+    /// <summary>Observed faster pulse rate, not a verified time signature.</summary>
+    public int SubdivisionFactor { get; init; } = 1;
+    public double SubdivisionBpm => Bpm * SubdivisionFactor;
+}
 
 /// <summary>One local analysis window, including rejected windows for diagnostic export.</summary>
 public sealed record TrackTempoWindow(long StartFrame, long EndFrame, double Bpm, float Confidence, int OnsetCount)
 {
     /// <summary>A rejected window still reports its strongest tempo hypothesis for diagnostics.</summary>
     public bool Accepted { get; init; }
+    public int SubdivisionFactor { get; init; } = 1;
+    public double SubdivisionBpm => Bpm * SubdivisionFactor;
 }
 
 /// <summary>A percussive candidate preserved for diagnosing false detections and missing beats.</summary>
@@ -109,11 +116,13 @@ public static class TrackRhythmAnalyzer
             section.EndFrame <= totalFrames && section.Bpm >= MinimumBpm &&
             section.Bpm <= MaximumBpm && double.IsFinite(section.Bpm) &&
             float.IsFinite(section.Confidence) && section.Confidence >= 0 && section.Confidence <= 1 &&
-            section.OnsetCount >= 0 && section.MatchedBeats >= 0) &&
+            section.OnsetCount >= 0 && section.MatchedBeats >= 0 &&
+            section.SubdivisionFactor is >= 1 and <= 4) &&
         windows.All(window => window.StartFrame >= 0 && window.StartFrame <= window.EndFrame &&
             window.EndFrame <= totalFrames && window.Bpm >= 0 && window.Bpm <= MaximumBpm &&
             double.IsFinite(window.Bpm) && float.IsFinite(window.Confidence) &&
-            window.Confidence >= 0 && window.Confidence <= 1 && window.OnsetCount >= 0) &&
+            window.Confidence >= 0 && window.Confidence <= 1 && window.OnsetCount >= 0 &&
+            window.SubdivisionFactor is >= 1 and <= 4) &&
         rhythm.CandidateOnsets >= 0 &&
         rhythm.OnsetDiagnostics is { Length: <= MaximumStoredTransients } diagnostics &&
         diagnostics.All(hit => hit.Frame >= 0 && hit.Frame <= totalFrames &&
@@ -160,6 +169,8 @@ public static class TrackRhythmAnalyzer
             trace.Attempts.Clear();
             trace.PhaseAttempts.Clear();
             trace.BridgeAttempts.Clear();
+            trace.SectionPhasePath.Clear();
+            trace.MetricRoot = null;
         }
         if (framesPerHop <= 0) throw new ArgumentOutOfRangeException(nameof(framesPerHop));
         if (totalFrames <= 0 || energy.Count < 16)
@@ -253,8 +264,11 @@ public static class TrackRhythmAnalyzer
         // a score that another octave has already modified.
         var tempo = RhythmTempoFamily.Resolve(scores, periodicity, phaseEvidence,
             MinimumBpm, BpmResolution, cancellationToken);
+        var metricRoot = RhythmMetricHierarchy.Apply(scores, periodicity, phaseEvidence,
+            tempo.Ranking, MinimumBpm, BpmResolution, cancellationToken);
         if (trace is not null)
         {
+            trace.MetricRoot = metricRoot;
             trace.RawTempoScores = scores;
             trace.TempoScores = tempo.Ranking;
             trace.PeriodicityScores = periodicity;
@@ -328,7 +342,10 @@ public static class TrackRhythmAnalyzer
             windows[index] = new(start, end, hitsPerSlice[index] >= 5 ? selected[index] : 0,
                 quality[index], hitsPerSlice[index])
             {
-                Accepted = eligibleWindows[index]
+                Accepted = eligibleWindows[index],
+                SubdivisionFactor = eligibleWindows[index]
+                    ? RhythmMetricHierarchy.SubdivisionAt(scores, periodicity, index, selected[index],
+                        MinimumBpm, BpmResolution) : 1
             };
         }
 
@@ -352,8 +369,29 @@ public static class TrackRhythmAnalyzer
             if (eligible && firstWindow < 0) firstWindow = index;
         }
 
+        AlignSectionPhases(sections, beats, predicted, bands, hopsPerSecond, framesPerHop,
+            cancellationToken, trace);
         RecoverCompatibleGaps(sections, beats, predicted, onsets, bands, hopsPerSecond,
             framesPerHop, cancellationToken, trace);
+        ExtendSupportedTails(sections, beats, predicted, onsets, bands, hopsPerSecond,
+            framesPerHop, totalFrames, cancellationToken);
+        for (int i = 0; i < sections.Count; i++)
+        {
+            var section = sections[i];
+            double windowFrames = (double)stride * framesPerHop;
+            int first = Math.Clamp((int)Math.Ceiling(section.StartFrame / windowFrames), 0, slices - 1);
+            int end = Math.Clamp((int)Math.Floor((section.EndFrame - 1) / windowFrames), first, slices - 1);
+            int[] counts = new int[5];
+            for (int w = first; w <= end; w++)
+            {
+                if (!windows[w].Accepted || Math.Abs(windows[w].Bpm - section.Bpm) > section.Bpm * .04) continue;
+                counts[windows[w].SubdivisionFactor]++;
+            }
+            int best = 1;
+            for (int factor = 2; factor <= 4; factor++)
+                if (counts[factor] > counts[best] && counts[factor] >= 2) best = factor;
+            sections[i] = section with { SubdivisionFactor = best };
+        }
 
         if (beats.Count == 0)
             return Empty(transients) with
@@ -573,6 +611,10 @@ public static class TrackRhythmAnalyzer
                 localBeats.Add(frame);
                 supports.Add(hit);
                 bool energyBreak = bands.IsEnergyBreak(position) && strongest < .5;
+                // A quiet fade-in may contain a periodic melody long before
+                // a comparable rhythmic attack becomes audible. Preserve its
+                // prediction, but do not confirm that weak opening.
+                energyBreak |= bands.IsWeakOpening(position);
                 breaks.Add(energyBreak);
                 int window = Math.Clamp((int)Math.Round(position / stride), firstWindow, endWindow - 1);
                 float beatConfidence = (float)Math.Clamp(.55 * Math.Min(1, strongest / .55) +
@@ -644,6 +686,195 @@ public static class TrackRhythmAnalyzer
         return supported;
     }
 
+    private sealed record SectionPhaseCandidate(TrackBeatEstimate[] Beats, double Score, double Shift);
+
+    // Offline two-state/three-state path across compatible sections. A candidate
+    // may only replace confirmed beats if it has comparable independent support.
+    // Real phase resets remain possible because transition costs are bounded.
+    private static void AlignSectionPhases(List<TrackTempoSection> sections, List<long> beats,
+        List<TrackBeatEstimate> predicted, RhythmBandEvidence bands, double hopsPerSecond,
+        int hopFrames, CancellationToken token, TrackRhythmTrace? trace)
+    {
+        if (sections.Count < 2) return;
+        var states = new List<SectionPhaseCandidate>[sections.Count];
+        var costs = new double[sections.Count][];
+        var back = new int[sections.Count][];
+        int cursor = 0;
+        for (int i = 0; i < sections.Count; i++)
+        {
+            token.ThrowIfCancellationRequested();
+            var section = sections[i];
+            while (cursor < predicted.Count && predicted[cursor].Frame < section.StartFrame) cursor++;
+            int from = cursor;
+            while (cursor < predicted.Count && predicted[cursor].Frame < section.EndFrame) cursor++;
+            var original = predicted.GetRange(from, cursor - from).Where(e => e.Confirmed).ToArray();
+            if (original.Length < 4) return; // inconsistent source; retain existing grid
+            double period = 60d * PlaybackFormat.SampleRate / section.Bpm;
+            double radius = Math.Min(.10 * period / hopFrames, .065 * hopsPerSecond);
+            double originalScore = original.Average(e => bands.FindPulse(e.Frame / (double)hopFrames, radius).Score);
+            var options = new List<SectionPhaseCandidate> { new(original, originalScore, 0) };
+            states[i] = options;
+            // Do not reinterpret a clear fast kick grid. For a half-time
+            // region require independent evidence of the doubled pulse.
+            bool hasNeighbor = i > 0 && Compatible(sections[i - 1], section) ||
+                i + 1 < sections.Count && Compatible(section, sections[i + 1]);
+            if (section.Bpm <= 120 && hasNeighbor)
+            {
+                var correlation = bands.Measure((int)(section.StartFrame / hopFrames),
+                    (int)Math.Ceiling(section.EndFrame / (double)hopFrames));
+                double normal = correlation.AtBpm(section.Bpm);
+                double doubled = correlation.AtBpm(section.Bpm * 2);
+                if (normal >= .075 && doubled >= .10 && doubled >= .65 * normal)
+                {
+                    foreach (double shift in new[] { -.5, .5 })
+                    {
+                        var alternative = new List<TrackBeatEstimate>();
+                        double score = 0;
+                        int supported = 0, misses = 0, longest = 0;
+                        foreach (var e in original)
+                        {
+                            double expected = (e.Frame + shift * period) / hopFrames;
+                            if (expected * hopFrames < section.StartFrame || expected * hopFrames >= section.EndFrame)
+                                continue;
+                            var pulse = bands.FindPulse(expected, radius);
+                            bool hit = pulse.Score >= .30;
+                            bool trough = bands.IsEnergyBreak(expected) || bands.IsWeakOpening(expected);
+                            if (trough) { alternative.Clear(); break; }
+                            if (hit) { supported++; misses = 0; }
+                            else longest = Math.Max(longest, ++misses);
+                            int correction = hit ? (int)Math.Round((pulse.Hop - expected) * hopFrames * .45) : 0;
+                            long frame = (long)Math.Round(expected * hopFrames) + correction;
+                            if (frame < section.StartFrame || frame >= section.EndFrame ||
+                                alternative.Count > 0 && frame <= alternative[^1].Frame) continue;
+                            alternative.Add(new(frame, (float)Math.Clamp(.6 * pulse.Score + .4 * section.Confidence, 0, 1),
+                                correction, hit, false, true));
+                            score += pulse.Score;
+                        }
+                        if (alternative.Count < Math.Max(4, Math.Ceiling(original.Length * .80)) ||
+                            supported < Math.Ceiling(alternative.Count * .55) || longest > 2) continue;
+                        score /= alternative.Count;
+                        if (score >= .25 && score >= originalScore - .03 &&
+                            alternative.Count(e => e.MatchedOnset) >= Math.Ceiling(alternative.Count * .55))
+                            options.Add(new(alternative.ToArray(), score, shift));
+                    }
+                }
+            }
+            costs[i] = new double[options.Count];
+            back[i] = new int[options.Count];
+            for (int c = 0; c < options.Count; c++)
+            {
+                double local = options[c].Score - (c == 0 ? 0 : .012);
+                if (i == 0) { costs[i][c] = local; continue; }
+                double best = double.NegativeInfinity;
+                for (int prior = 0; prior < states[i - 1].Count; prior++)
+                {
+                    double transition = 0;
+                    if (Compatible(sections[i - 1], section))
+                    {
+                        double spacing = 120d * PlaybackFormat.SampleRate / (sections[i - 1].Bpm + section.Bpm);
+                        double intervals = (options[c].Beats[0].Frame - states[i - 1][prior].Beats[^1].Frame) / spacing;
+                        double error = Math.Abs(intervals - Math.Round(intervals));
+                        transition = .18 * error;
+                    }
+                    double candidate = costs[i - 1][prior] + local - transition;
+                    if (candidate > best) { best = candidate; back[i][c] = prior; }
+                }
+                costs[i][c] = best;
+            }
+        }
+        int selected = Array.IndexOf(costs[^1], costs[^1].Max());
+        var replacements = new Dictionary<int, SectionPhaseCandidate>();
+        for (int i = sections.Count - 1; i >= 0; i--)
+        {
+            var choice = states[i][selected];
+            trace?.SectionPhasePath.Add(new(sections[i].StartFrame, sections[i].EndFrame,
+                sections[i].Bpm, states[i].Count, states[i][0].Score, choice.Score, choice.Shift));
+            if (selected != 0) replacements[i] = choice;
+            selected = back[i][selected];
+        }
+        if (replacements.Count == 0) return;
+        var rebuilt = new List<TrackBeatEstimate>(predicted.Count);
+        cursor = 0;
+        for (int i = 0; i < sections.Count; i++)
+        {
+            var section = sections[i];
+            while (cursor < predicted.Count && predicted[cursor].Frame < section.StartFrame)
+                rebuilt.Add(predicted[cursor++]);
+            if (replacements.TryGetValue(i, out var choice))
+            {
+                while (cursor < predicted.Count && predicted[cursor].Frame < section.EndFrame) cursor++;
+                rebuilt.AddRange(choice.Beats);
+                sections[i] = section with { MatchedBeats = choice.Beats.Count(e => e.MatchedOnset) };
+            }
+            else
+                while (cursor < predicted.Count && predicted[cursor].Frame < section.EndFrame)
+                    rebuilt.Add(predicted[cursor++]);
+        }
+        while (cursor < predicted.Count) rebuilt.Add(predicted[cursor++]);
+        predicted.Clear();
+        predicted.AddRange(rebuilt);
+        beats.Clear();
+        beats.AddRange(predicted.Where(e => e.Confirmed).Select(e => e.Frame));
+
+        static bool Compatible(TrackTempoSection left, TrackTempoSection right) =>
+            right.StartFrame >= left.EndFrame &&
+            right.StartFrame - left.EndFrame <= 12L * PlaybackFormat.SampleRate &&
+            Math.Abs(left.Bpm - right.Bpm) <= Math.Max(1.5, (left.Bpm + right.Bpm) * .0125);
+    }
+
+    // Extend only when at least three consecutive, independently supported
+    // pulses agree with the preceding phase. Never extrapolate across silence.
+    private static void ExtendSupportedTails(List<TrackTempoSection> sections, List<long> beats,
+        List<TrackBeatEstimate> predicted, IReadOnlyList<Onset> onsets, RhythmBandEvidence bands,
+        double hopsPerSecond, int hopFrames, long totalFrames, CancellationToken token)
+    {
+        var added = new List<TrackBeatEstimate>();
+        var replaced = new List<(long Start, long End)>();
+        for (int i = 0; i < sections.Count; i++)
+        {
+            token.ThrowIfCancellationRequested();
+            var section = sections[i];
+            long limit = Math.Min(totalFrames, i + 1 < sections.Count
+                ? sections[i + 1].StartFrame : totalFrames);
+            double period = 60d * PlaybackFormat.SampleRate / section.Bpm;
+            int index = beats.BinarySearch(section.EndFrame);
+            index = index < 0 ? ~index - 1 : index - 1;
+            if (index < 0 || beats[index] < section.StartFrame) continue;
+            long anchor = beats[index];
+            var tail = new List<TrackBeatEstimate>();
+            double radius = Math.Min(.14 * period / hopFrames, .075 * hopsPerSecond);
+            for (int step = 1; step <= 8; step++)
+            {
+                double expected = (anchor + step * period) / hopFrames;
+                if (expected * hopFrames >= limit || expected * hopFrames - anchor > 4 * PlaybackFormat.SampleRate ||
+                    bands.IsEnergyBreak(expected)) break;
+                var pulse = bands.FindPulse(expected, radius);
+                if (pulse.Score < .35) break;
+                long correction = (long)Math.Round((pulse.Hop - expected) * hopFrames * .45);
+                long frame = (long)Math.Round(expected * hopFrames) + correction;
+                if (frame >= limit || frame < section.EndFrame) break;
+                tail.Add(new(frame, (float)Math.Clamp(.6 * pulse.Score + .4 * section.Confidence, 0, 1),
+                    (int)correction, true, false, true));
+            }
+            if (tail.Count < 3 || predicted.Count + added.Count + tail.Count > MaximumBeatFrames) continue;
+            double q = bands.Measure((int)(anchor / hopFrames),
+                (int)Math.Ceiling(tail[^1].Frame / (double)hopFrames)).AtBpm(section.Bpm);
+            if (q < .15) continue;
+            long end = Math.Min(limit, tail[^1].Frame + (long)(period / 2) + 1);
+            replaced.Add((section.EndFrame, end));
+            added.AddRange(tail);
+            sections[i] = section with { EndFrame = end, MatchedBeats = section.MatchedBeats + tail.Count,
+                OnsetCount = LowerBound(onsets, end / (double)hopFrames) -
+                    LowerBound(onsets, section.StartFrame / (double)hopFrames) };
+        }
+        if (added.Count == 0) return;
+        predicted.RemoveAll(e => replaced.Any(g => e.Frame >= g.Start && e.Frame < g.End));
+        predicted.AddRange(added);
+        predicted.Sort((a, b) => a.Frame.CompareTo(b.Frame));
+        beats.Clear();
+        beats.AddRange(predicted.Where(e => e.Confirmed).Select(e => e.Frame));
+    }
+
     // Bridge only bounded gaps between already confirmed, compatible regions.
     // Independent periodicity and onsets inside the gap are mandatory.
     private static void RecoverCompatibleGaps(List<TrackTempoSection> sections, List<long> beats,
@@ -675,7 +906,8 @@ public static class TrackRhythmAnalyzer
             double distance = last - first;
             int steps = (int)Math.Round(distance / period);
             double error = Math.Abs(distance / period - steps);
-            if (steps < 2 || steps > 48 || error > .24 ||
+            if (steps < 2 || steps > 48 || error > .38 ||
+                (error > .24 && error / steps > .06) ||
                 distance / PlaybackFormat.SampleRate > 14 ||
                 predicted.Count + added.Count + steps > MaximumBeatFrames)
             {
@@ -710,8 +942,10 @@ public static class TrackRhythmAnalyzer
                 bridge.Add(new(frame, (float)Math.Clamp(.40 * correlation + .60 * Math.Min(1, best / .6), 0, 1),
                     (int)correction, hit, trough, true));
             }
-            bool accepted = troughs == 0 && correlation >= .10 &&
-                supported >= Math.Max(1, Math.Ceiling(bridge.Count * .55)) && maxMisses <= 2;
+            bool relaxedPhase = error > .24;
+            bool accepted = troughs == 0 && correlation >= (relaxedPhase ? .14 : .10) &&
+                supported >= Math.Max(1, Math.Ceiling(bridge.Count * (relaxedPhase ? .70 : .55))) &&
+                maxMisses <= (relaxedPhase ? 1 : 2);
             trace?.BridgeAttempts.Add(new(first, last, bpm, error, correlation, bridge.Count, supported,
                 accepted, accepted ? "accepted" : "insufficient_local_evidence"));
             if (!accepted) { merged.Add(right); continue; }

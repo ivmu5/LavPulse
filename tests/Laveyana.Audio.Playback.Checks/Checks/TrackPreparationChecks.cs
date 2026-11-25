@@ -15,6 +15,8 @@ internal static class TrackPreparationChecks
         CheckTempoFamilyRanking();
         CheckAlternatePhaseEvidence();
         CheckContinuityAcrossBreaks();
+        CheckMetricHierarchy();
+        CheckWeakOpeningEvidence();
         var input = TrackFile.FromStream("fixture.mp3", () => Task.FromResult<Stream>(CreateMp3()));
         var original = await new TrackPreparation(directory).ImportAsync(input, CancellationToken.None);
         byte[] expected = await File.ReadAllBytesAsync(original.Path);
@@ -542,6 +544,54 @@ internal static class TrackPreparationChecks
                 f < 23L * PlaybackFormat.SampleRate),
             "A weaker but periodic region lost every confirmed beat.");
         Console.WriteLine("OK: continuity across weaker attacks without filling a true breakdown.");
+    }
+
+    private static void CheckMetricHierarchy()
+    {
+        const int windows = 12, candidates = 401;
+        var raw = new float[windows, candidates];
+        var periodic = new float[windows, candidates];
+        var phase = new float[windows, candidates];
+        void Set(double bpm, float a, float q, float f)
+        {
+            int c = (int)((bpm - 40) * 2);
+            for (int w = 0; w < windows; w++)
+            { raw[w, c] = a; periodic[w, c] = q; phase[w, c] = f; }
+        }
+        Set(66, .23f, .18f, .16f);
+        Set(132, .25f, .20f, .20f);
+        Set(198, .26f, .22f, .20f);
+        var rank = (float[,])raw.Clone();
+        var root = RhythmMetricHierarchy.Apply(raw, periodic, phase, rank, 40, .5, CancellationToken.None);
+        Require(root is { Triple: true } && Math.Abs(root.Value.Bpm - 66) <= .5 &&
+            rank[0, 52] > rank[0, 184] && rank[0, 52] > rank[0, 316] &&
+            raw[0, 52] == .23f, "The metric hierarchy failed to preserve a supported slow root.");
+        Require(RhythmMetricHierarchy.SubdivisionAt(raw, periodic, 0, 66, 40, .5) is 2 or 3,
+            "A corroborated subdivision was not represented separately.");
+        Array.Clear(raw); Array.Clear(periodic); Array.Clear(phase);
+        Set(65, .25f, .29f, .12f);
+        Set(130, .85f, .70f, .90f);
+        rank = (float[,])raw.Clone();
+        root = RhythmMetricHierarchy.Apply(raw, periodic, phase, rank, 40, .5, CancellationToken.None);
+        Require(root is null && rank[0, 180] > rank[0, 50],
+            "A clear 130 BPM kick grid was incorrectly interpreted as a slow root.");
+        Console.WriteLine("OK: corroborated metric roots, subdivisions and strong tempo preservation.");
+    }
+
+    private static void CheckWeakOpeningEvidence()
+    {
+        const int rate = 100;
+        var energy = Enumerable.Repeat(new RhythmEnergy(.02f, .015f, .01f), 4000).ToArray();
+        for (int i = 25; i < energy.Length - 1; i += 50)
+            energy[i] = i < 600 ? new(.022f, .017f, .011f) : new(.8f, .45f, .2f);
+        var bands = new RhythmBandEvidence(energy, rate, CancellationToken.None);
+        Require(bands.IsWeakOpening(250) && !bands.IsWeakOpening(950),
+            "Relative opening gate did not distinguish very weak attacks from established rhythm.");
+        var quiet = energy.Select(e => new RhythmEnergy(e.Low * .004f, e.Mid * .004f, e.High * .004f)).ToArray();
+        var quietBands = new RhythmBandEvidence(quiet, rate, CancellationToken.None);
+        Require(quietBands.IsWeakOpening(250) && !quietBands.IsWeakOpening(950),
+            "Relative opening gate depended on absolute track gain.");
+        Console.WriteLine("OK: relative opening salience and quiet-master invariance.");
     }
 
 }
