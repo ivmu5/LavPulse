@@ -1,3 +1,4 @@
+using Laveyana.Maui.UI.Windows.Windowing;
 using Microsoft.Maui.Platform;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.UI.Windowing;
@@ -77,7 +78,7 @@ public sealed partial class WindowsWindowChrome
     {
         if (!AppWindowTitleBar.IsCustomizationSupported()) return;
 
-        native.ExtendsContentIntoTitleBar = true;
+        UiWindowsChrome.Prepare(native);
         // WinUI uses our explicit title region and leaves the buttons to the LavPulse overlay.
         native.AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Collapsed;
     }

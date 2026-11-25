@@ -1,3 +1,4 @@
+using Laveyana.Maui.UI.Themes;
 using Microsoft.Maui.ApplicationModel;
 
 namespace Laveyana.LavPulse.Controls;
@@ -7,13 +8,10 @@ internal enum MixerColor
     Background, Surface, Card, Overlay, Button, Selected, Border, Text, Muted, Accent, Primary, OnPrimary, Preview, Scrim, SwitchTrack
 }
 
-/// <summary>Derives UI surfaces and readable foregrounds from the selected player palette.</summary>
+/// <summary>Adapts the shared Laveyana theme to player-specific artwork and visualization colors.</summary>
 internal sealed class MixerTheme
 {
-    private static readonly Color DarkInk = Color.FromArgb("#0B2137");
-    private static readonly Color LightInk = Color.FromArgb("#F4F6FF");
-    private readonly Dictionary<MixerColor, Color> _colors;
-    private readonly bool _amoled;
+    private readonly UiTheme _shared;
 
     public static AppTheme SystemTheme =>
 #if WINDOWS
@@ -23,55 +21,57 @@ internal sealed class MixerTheme
 #endif
 
     public static MixerTheme Default { get; } = Create(new PlayerSettings(), AppTheme.Dark);
-    public bool IsLight { get; }
+    public bool IsLight => _shared.IsLight;
     public PlayerColors Artwork { get; }
     public PlayerColors Visualization { get; }
     public Color AlternateForeground { get; }
-    public Color this[MixerColor role] => _colors[role];
+    public Color this[MixerColor role] => role == MixerColor.Preview
+        ? AlternateForeground : _shared[SharedRole(role)];
+
+    internal static UiColorRole SharedRole(MixerColor role) => role switch
+    {
+        MixerColor.Background => UiColorRole.Background,
+        MixerColor.Surface => UiColorRole.Surface,
+        MixerColor.Card => UiColorRole.Card,
+        MixerColor.Overlay => UiColorRole.Overlay,
+        MixerColor.Button => UiColorRole.Button,
+        MixerColor.Selected => UiColorRole.Selected,
+        MixerColor.Border => UiColorRole.Border,
+        MixerColor.Text => UiColorRole.Text,
+        MixerColor.Muted => UiColorRole.Muted,
+        MixerColor.Accent => UiColorRole.Accent,
+        MixerColor.Primary => UiColorRole.Primary,
+        MixerColor.OnPrimary => UiColorRole.OnPrimary,
+        MixerColor.Scrim => UiColorRole.Scrim,
+        MixerColor.SwitchTrack => UiColorRole.SwitchTrack,
+        _ => throw new ArgumentOutOfRangeException(nameof(role))
+    };
 
     private MixerTheme(PlayerColors palette, bool light, bool amoled)
     {
         Artwork = palette;
-        IsLight = light;
-        _amoled = amoled;
-        Color tint = Blend(palette.WaveLow, palette.WaveMid, .5f);
-        Color basis = light ? Color.FromArgb("#F7F9FC") : Color.FromArgb("#0B1020");
-        Color background = amoled ? Colors.Black : Blend(basis, tint, light ? .04f : .025f);
-        Color selected = Blend(background, palette.Accent, light ? .18f : .22f);
-        Color surface = Blend(background, tint, .07f);
-        Color card = Blend(background, tint, .12f);
-        Color overlay = Blend(background, tint, .10f);
-        Color button = Blend(background, tint, .16f);
-        var surfaces = new[] { background, surface, card, button, overlay, selected };
-        Color reference = light ? surfaces.MinBy(Luminance)! : surfaces.MaxBy(Luminance)!;
-        Color toward = light ? Colors.Black : Colors.White;
-        Color primaryInk = light ? LightInk : DarkInk;
-        Color primary = EnsureContrast(EnsureContrast(palette.Accent, primaryInk, 4.5, toward), reference, 3, toward);
-        Color accent = EnsureContrast(palette.Accent, reference, 4.5, toward);
-        Color text = EnsureContrast(Blend(light ? DarkInk : LightInk, tint, .06f), reference, 7, toward);
-
-        Color Graphic(Color color) => EnsureContrast(color, surface, 3, toward);
-        Visualization = new(Graphic(palette.Accent), Graphic(palette.Alternate), Graphic(palette.WaveLow), Graphic(palette.WaveMid));
-        AlternateForeground = EnsureContrast(palette.Alternate, reference, 4.5, toward);
-        _colors = new()
+        _shared = UiTheme.Create(new UiThemeSettings
         {
-            [MixerColor.Background] = background,
-            [MixerColor.Surface] = surface,
-            [MixerColor.Card] = card,
-            [MixerColor.Overlay] = overlay,
-            [MixerColor.Button] = button,
-            [MixerColor.Selected] = selected,
-            [MixerColor.Border] = EnsureContrast(Blend(background, tint, .45f), reference, 3, toward),
-            [MixerColor.Text] = text,
-            [MixerColor.Muted] = EnsureContrast(Blend(text, reference, .32f), reference, 4.5, toward),
-            [MixerColor.Accent] = accent,
-            [MixerColor.Primary] = primary,
-            [MixerColor.OnPrimary] = primaryInk,
-            [MixerColor.Preview] = AlternateForeground,
-            [MixerColor.Scrim] = Colors.Black.WithAlpha(light ? .42f : .76f),
-            // Keep the checked track between the surrounding surfaces and the accent thumb.
-            [MixerColor.SwitchTrack] = EnsureContrast(reference, reference, 2, accent)
-        };
+            Mode = light ? UiThemeMode.Light : UiThemeMode.Dark,
+            DarkBackground = amoled ? UiDarkBackground.Amoled : UiDarkBackground.Classic,
+            Preset = UiPalettePreset.Custom,
+            CustomPalette = new UiPalette(palette.Accent, palette.Alternate, palette.WaveLow, palette.WaveMid)
+        });
+
+        Color surface = _shared[UiColorRole.Surface];
+        Color[] surfaces =
+        [
+            _shared[UiColorRole.Background], surface, _shared[UiColorRole.Card],
+            _shared[UiColorRole.Button], _shared[UiColorRole.Overlay], _shared[UiColorRole.Selected]
+        ];
+        // Contrast against black orders opaque colors by relative luminance.
+        Color reference = light
+            ? surfaces.MinBy(c => UiTheme.Contrast(c, Colors.Black))!
+            : surfaces.MaxBy(c => UiTheme.Contrast(c, Colors.Black))!;
+        Color toward = light ? Colors.Black : Colors.White;
+        Color Graphic(Color color) => UiTheme.EnsureContrast(color, surface, 3, toward);
+        Visualization = new(Graphic(palette.Accent), Graphic(palette.Alternate), Graphic(palette.WaveLow), Graphic(palette.WaveMid));
+        AlternateForeground = UiTheme.EnsureContrast(palette.Alternate, reference, 4.5, toward);
     }
 
     public static MixerTheme Create(PlayerSettings settings, AppTheme systemTheme, MixerTheme? current = null)
@@ -79,40 +79,9 @@ internal sealed class MixerTheme
         bool light = settings.Theme == PlayerTheme.Light || settings.Theme == PlayerTheme.System && systemTheme == AppTheme.Light;
         bool amoled = !light && settings.DarkBackground == DarkBackground.Amoled;
         var palette = PlayerColors.For(settings);
-        return current is not null && current.IsLight == light && current._amoled == amoled && current.Artwork == palette
+        return current is not null && current.IsLight == light && current._shared.IsAmoled == amoled && current.Artwork == palette
             ? current : new MixerTheme(palette, light, amoled);
     }
 
-    internal static Color Blend(Color first, Color second, float amount) => new(
-        first.Red + (second.Red - first.Red) * amount,
-        first.Green + (second.Green - first.Green) * amount,
-        first.Blue + (second.Blue - first.Blue) * amount);
-
-    private static Color EnsureContrast(Color color, Color background, double minimum, Color toward)
-    {
-        double backgroundLight = Luminance(background);
-        double Ratio(Color ink)
-        {
-            double light = Luminance(ink);
-            return (Math.Max(light, backgroundLight) + .05) / (Math.Min(light, backgroundLight) + .05);
-        }
-
-        if (Ratio(color) >= minimum) return color;
-        if (Ratio(toward) < minimum) return toward;
-        float low = 0;
-        float high = 1;
-        for (int i = 0; i < 12; i++)
-        {
-            float middle = (low + high) / 2;
-            if (Ratio(Blend(color, toward, middle)) >= minimum) high = middle;
-            else low = middle;
-        }
-        return Blend(color, toward, high);
-    }
-
-    private static double Luminance(Color color)
-    {
-        static double Linear(double value) => value <= .04045 ? value / 12.92 : Math.Pow((value + .055) / 1.055, 2.4);
-        return .2126 * Linear(color.Red) + .7152 * Linear(color.Green) + .0722 * Linear(color.Blue);
-    }
+    internal static Color Blend(Color first, Color second, float amount) => UiTheme.Blend(first, second, amount);
 }

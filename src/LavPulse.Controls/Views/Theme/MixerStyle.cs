@@ -1,3 +1,5 @@
+using Laveyana.Maui.UI.Themes;
+using SharedUi = Laveyana.Maui.UI.Controls.Ui;
 using Microsoft.Maui.Controls.Shapes;
 using Microsoft.Maui.Devices;
 
@@ -37,8 +39,11 @@ internal static partial class MixerStyle
         }
     }
 
-    internal static string ColorKey(MixerColor role) => $"LavPulse.Color.{role}";
-    internal static string BrushKey(MixerColor role) => $"LavPulse.Brush.{role}";
+    // Keep the player-specific preview color local; all standard roles use shared keys.
+    internal static string ColorKey(MixerColor role) => role == MixerColor.Preview
+        ? "LavPulse.Color.Preview" : UiThemeManager.ColorKey(MixerTheme.SharedRole(role));
+    internal static string BrushKey(MixerColor role) => role == MixerColor.Preview
+        ? "LavPulse.Brush.Preview" : UiThemeManager.BrushKey(MixerTheme.SharedRole(role));
     private static string IconKey(string file) => $"LavPulse.Icon.{file}";
 
     internal static void UseColor(VisualElement view, BindableProperty property, MixerColor role) =>
@@ -81,13 +86,7 @@ internal static partial class MixerStyle
     /// <summary>Creates a text control with the mixer font and color palette.</summary>
     public static Label Label(string text, double size, MixerColor color = MixerColor.Text, bool bold = false)
     {
-        var label = new Label
-        {
-            Text = text,
-            FontFamily = "Inter",
-            FontSize = size,
-            FontAttributes = bold ? FontAttributes.Bold : FontAttributes.None
-        };
+        var label = SharedUi.Text(text, size, bold: bold, font: "Inter");
         UseColor(label, Microsoft.Maui.Controls.Label.TextColorProperty, color);
         return label;
     }
@@ -95,16 +94,10 @@ internal static partial class MixerStyle
     /// <summary>Creates a transport or picker button with a consistent disabled state.</summary>
     public static Button Button(string text, bool primary = false, string? icon = null, bool stacked = false)
     {
-        var button = new Button
-        {
-            Text = text,
-            FontFamily = "Inter",
-            FontSize = ButtonFontSize,
-            CornerRadius = 9,
-            Padding = stacked ? new Thickness(2, 4) : new Thickness(8, 8),
-            MinimumHeightRequest = stacked ? 52 : 44,
-            FontAttributes = primary ? FontAttributes.Bold : FontAttributes.None
-        };
+        var button = SharedUi.Button(text, primary, font: "Inter");
+        button.FontSize = ButtonFontSize;
+        button.Padding = stacked ? new Thickness(2, 4) : new Thickness(8, 8);
+        button.MinimumHeightRequest = stacked ? 52 : 44;
         UseColor(button, VisualElement.BackgroundColorProperty, primary ? MixerColor.Primary : MixerColor.Button);
         UseColor(button, Microsoft.Maui.Controls.Button.TextColorProperty, primary ? MixerColor.OnPrimary : MixerColor.Text);
         if (icon is not null)

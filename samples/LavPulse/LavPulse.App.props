@@ -42,7 +42,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+    <PackageReference Include="Microsoft.Maui.Controls" Version="$(LavPulseMauiControlsVersion)" />
     <ProjectReference Include="../../src/Laveyana.Audio.Playback/Laveyana.Audio.Playback.csproj" />
     <MauiFont Include="Resources/Fonts/InterVariable.ttf" />
     <MauiIcon Include="Resources/AppIcon/appicon.svg" ForegroundFile="Resources/AppIcon/appicon_mark.png" Color="#0B1020" />

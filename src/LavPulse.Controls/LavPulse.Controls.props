@@ -6,7 +6,10 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Laveyana.Audio.Playback/Laveyana.Audio.Playback.csproj" />
-    <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+    <PackageReference Include="Microsoft.Maui.Controls" Version="$(LavPulseMauiControlsVersion)" />
+    <PackageReference Include="Laveyana.Maui.UI" Version="$(LaveyanaMauiUiVersion)" />
+    <PackageReference Include="Laveyana.Maui.UI.Windows" Version="$(LaveyanaMauiUiVersion)"
+                      Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'" />
   </ItemGroup>
   <ItemGroup>
     <Compile Remove="Platforms/**/*.cs" />
