@@ -101,7 +101,11 @@ public sealed partial class WindowsWindowChrome
                 {
                     Title = window.Title ?? "LavPulse",
                     Height = ContentInset,
-                    IconFilePath = System.IO.Path.Combine(AppContext.BaseDirectory, "lavpulse_mark.png"),
+                    LogoUri = new Uri("ms-appx:///lavpulse_mark.png"),
+                    LogoWidth = 44,
+                    LogoHeight = 26,
+                    CaptionOpacity = 146,
+                    ToolbarOpacity = 230,
                     Background = theme[MixerColor.Background],
                     Surface = theme[MixerColor.Card],
                     Text = theme[MixerColor.Text],
