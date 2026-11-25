@@ -9,6 +9,7 @@ internal sealed class RhythmBandEvidence
     private readonly double[] _bassPrefix;
     private readonly double[] _energyPrefix;
     private readonly double[][] _fluxPrefix;
+    private readonly double _openingReference;
 
     public RhythmBandEvidence(IReadOnlyList<RhythmEnergy> energy, double hopsPerSecond, CancellationToken token)
     {
@@ -41,6 +42,25 @@ internal sealed class RhythmBandEvidence
                 _fluxPrefix[band][i + 1] = _fluxPrefix[band][i] + _flux[band][i];
             }
         }
+        // Reference is a median of later two-second low/mid flux means.
+        // Relative gating preserves consistently quiet music.
+        int block = Math.Max(1, (int)Math.Round(2 * hopsPerSecond / _bin));
+        var levels = new List<double>();
+        for (int from = 3 * block; from + block <= Math.Min(count, 16 * block); from += block)
+            levels.Add(Mean(_fluxPrefix[0], from, from + block) +
+                .7 * Mean(_fluxPrefix[1], from, from + block));
+        levels.Sort();
+        _openingReference = levels.Count >= 4 ? levels[levels.Count / 2] : 0;
+    }
+
+    public bool IsWeakOpening(double hop)
+    {
+        if (hop < 0 || hop > 12 * _hopsPerSecond || _openingReference <= 1e-9) return false;
+        int center = (int)Math.Round(hop / _bin);
+        int radius = Math.Max(2, (int)Math.Round(.8 * _hopsPerSecond / _bin));
+        double current = Mean(_fluxPrefix[0], center - radius, center + radius + 1) +
+            .7 * Mean(_fluxPrefix[1], center - radius, center + radius + 1);
+        return current < .28 * _openingReference;
     }
 
     private static float Rise(float current, float previous) =>

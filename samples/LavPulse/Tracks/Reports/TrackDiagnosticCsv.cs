@@ -78,6 +78,20 @@ internal static class TrackDiagnosticCsv
             trace.BridgeAttempts.Select(a => FormattableString.Invariant(
                 $"{a.StartFrame},{a.EndFrame},{a.Bpm:R},{a.PhaseErrorBeats:R},{a.Periodicity:R},{a.Predictions},{a.Supported},{(a.Accepted ? 1 : 0)},{a.Decision}"))), token).ConfigureAwait(false);
 
+        await Write(zip, prefix + "section-phase-path.csv", Rows(
+            "start_frame,end_frame,bpm,candidates,original_score,selected_score,shift_beats",
+            trace.SectionPhasePath.OrderBy(a => a.StartFrame).Select(a => FormattableString.Invariant(
+                $"{a.StartFrame},{a.EndFrame},{a.Bpm:R},{a.Candidates},{a.OriginalScore:R},{a.SelectedScore:R},{a.ShiftBeats:R}"))), token).ConfigureAwait(false);
+        if (grid is not null)
+            await Write(zip, prefix + "metrical-pulses.csv", Rows(
+                "window,beat_bpm,subdivision_factor,subdivision_bpm,accepted",
+                grid.Windows.Select((w, i) => FormattableString.Invariant(
+                    $"{i},{w.Bpm:R},{w.SubdivisionFactor},{w.SubdivisionBpm:R},{(w.Accepted ? 1 : 0)}"))), token).ConfigureAwait(false);
+        await Write(zip, prefix + "metric-root.csv", Rows("bpm,triple,strength",
+            trace.MetricRoot is { } root
+                ? new[] { FormattableString.Invariant($"{root.Bpm:R},{(root.Triple ? 1 : 0)},{root.Strength:R}") }
+                : Array.Empty<string>()), token).ConfigureAwait(false);
+
         // The tap timestamp, uncertainty, original displayed grid context and
         // optional version remain in annotations.json. Compare the raw frame
         // to the newly analyzed grid without modifying the tap itself.
