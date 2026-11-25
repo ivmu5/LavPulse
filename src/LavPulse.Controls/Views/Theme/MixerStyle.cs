@@ -1,6 +1,7 @@
 using Microsoft.Maui.Controls.Shapes;
 using Microsoft.Maui.Devices;
 using Laveyana.Maui.UI.Themes;
+using Laveyana.Maui.UI.Design;
 using SharedUi = Laveyana.Maui.UI.Controls.Ui;
 
 namespace Laveyana.LavPulse.Controls;
@@ -13,7 +14,7 @@ internal static partial class MixerStyle
         "automix", "cancel", "confirm", "delete", "edit", "equalizer", "file", "folder", "import", "next", "pause",
         "play", "previous", "queue", "queue_add", "recommendations", "reorder", "repeat_one", "reset", "settings"
     ];
-    private const double ButtonFontSize = 12;
+    private const double ButtonFontSize = UiDesignTokens.ButtonFontSize;
     internal const string ArtworkColorsResource = "LavPulse.ArtworkColors";
     private const int ButtonIconSize = 24;
 
@@ -168,7 +169,7 @@ internal static partial class MixerStyle
     {
         border.Padding = new Thickness(15, 13);
         UseBrush(border, Border.StrokeProperty, MixerColor.Border);
-        border.StrokeShape = new RoundRectangle { CornerRadius = new CornerRadius(15) };
+        border.StrokeShape = new RoundRectangle { CornerRadius = new CornerRadius(UiDesignTokens.CardRadius) };
         UseColor(border, VisualElement.BackgroundColorProperty, MixerColor.Card);
         border.Content = content;
     }

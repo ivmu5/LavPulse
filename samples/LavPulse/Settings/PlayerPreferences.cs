@@ -55,7 +55,7 @@ internal static class PlayerPreferences
             Theme = (PlayerTheme)Math.Clamp(Preferences.Default.Get("interface-theme", (int)defaults.Theme), 0, (int)PlayerTheme.Light),
             DarkBackground = (DarkBackground)Math.Clamp(Preferences.Default.Get("dark-background", (int)defaults.DarkBackground),
                 0, (int)DarkBackground.Amoled),
-            Palette = (PlayerPalette)Math.Clamp(Preferences.Default.Get("palette", (int)defaults.Palette), 0, (int)PlayerPalette.Custom),
+            Palette = (PlayerPalette)Math.Clamp(Preferences.Default.Get("palette", (int)defaults.Palette), 0, (int)PlayerPalette.Mint),
             CustomColors = new PlayerColors(
                 LoadPaletteColor("custom-palette-accent", defaults.CustomColors.Accent),
                 LoadPaletteColor("custom-palette-alternate", defaults.CustomColors.Alternate),

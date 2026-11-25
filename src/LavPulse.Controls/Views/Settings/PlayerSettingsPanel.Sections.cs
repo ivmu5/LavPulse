@@ -106,8 +106,8 @@ public sealed partial class PlayerSettingsPanel
                 previews.Add((mode, drawable, view));
                 return view;
             }, mode => Preview(_settings with { SpectrumColors = mode }));
-        var palette = Select("Палитра", [(PlayerPalette.LavPulse, "LavPulse"), (PlayerPalette.Ocean, "Океан"),
-            (PlayerPalette.Warm, "Тёплая"), (PlayerPalette.Custom, "Пользовательская")], _settings.Palette,
+        var palette = Select("Палитра", [(PlayerPalette.LavPulse, "Laveyana"), (PlayerPalette.Ocean, "Океан"),
+            (PlayerPalette.Warm, "Тёплая"), (PlayerPalette.Mint, "Mint"), (PlayerPalette.Custom, "Пользовательская")], _settings.Palette,
             choice => CreatePalettePreview(PlayerColors.For(_settings with { Palette = choice })),
             choice => Preview(_settings with { Palette = choice }));
         var edit = MixerStyle.Button("Редактор палитры");

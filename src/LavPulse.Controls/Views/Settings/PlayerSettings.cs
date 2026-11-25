@@ -7,10 +7,12 @@ public readonly record struct LibraryStorageOption(string Directory, string Labe
 
 public enum PlayerPalette
 {
-    LavPulse,
-    Ocean,
-    Warm,
-    Custom
+    // Preserve numeric preferences; append new palettes after Custom.
+    LavPulse = 0,
+    Ocean = 1,
+    Warm = 2,
+    Custom = 3,
+    Mint = 4
 }
 
 /// <summary>Appearance of the detailed deck waveform; beat markers come from the saved rhythm analysis.</summary>
@@ -96,9 +98,10 @@ public readonly record struct PlayerColors(Color Accent, Color Alternate, Color 
         return new(colors.Accent, colors.Alternate, colors.Low, colors.Mid);
     }
 
-    private static readonly PlayerColors LavPulse = FromShared(UiPalettePreset.LavPulse);
+    private static readonly PlayerColors LavPulse = FromShared(UiPalettePreset.Laveyana);
     private static readonly PlayerColors Ocean = FromShared(UiPalettePreset.Ocean);
     private static readonly PlayerColors Warm = FromShared(UiPalettePreset.Warm);
+    private static readonly PlayerColors Mint = FromShared(UiPalettePreset.Mint);
 
     internal static PlayerColors For(PlayerSettings settings) =>
         settings.Palette == PlayerPalette.Custom ? settings.CustomColors : For(settings.Palette);
@@ -107,6 +110,7 @@ public readonly record struct PlayerColors(Color Accent, Color Alternate, Color 
     {
         PlayerPalette.Ocean => Ocean,
         PlayerPalette.Warm => Warm,
+        PlayerPalette.Mint => Mint,
         _ => LavPulse
     };
 }

@@ -1,11 +1,10 @@
 using Android.App;
 using Android.Content;
 using Android.Content.PM;
-using Android.OS;
-using Android.Views;
 using AndroidX.Activity.Result;
 using AndroidX.Activity.Result.Contract;
-using AndroidX.Core.View;
+using Laveyana.Maui.UI.Android.Display;
+using Laveyana.Maui.UI.Android.Windowing;
 using Laveyana.LavPulse.Tracks;
 using AndroidUri = Android.Net.Uri;
 
@@ -21,11 +20,11 @@ public class MainActivity : MauiAppCompatActivity
     private ActivityResultLauncher? _reportSaveLauncher;
     private TaskCompletionSource<AndroidUri?>? _reportSaveResult;
     private TaskCompletionSource<AndroidUri?>? _folderResult;
-    private ScreenStateReceiver? _screenReceiver;
+    private UiAndroidScreenMonitor? _screenMonitor;
     private bool? _hideStatusBar;
-    private bool _resumed;
+    private bool _lightSystemBars;
 
-    internal bool IsPlayerVisible { get; private set; }
+    internal bool IsPlayerVisible => _screenMonitor?.State.CanRender == true;
     internal event Action<bool>? PlayerVisibilityChanged;
     internal event Action? DisplayClockRefreshRequested;
 
@@ -33,6 +32,8 @@ public class MainActivity : MauiAppCompatActivity
     protected override void OnCreate(Android.OS.Bundle? savedInstanceState)
     {
         base.OnCreate(savedInstanceState);
+        _screenMonitor = new UiAndroidScreenMonitor(this);
+        _screenMonitor.State.RenderAvailabilityChanged += OnRenderAvailabilityChanged;
         VolumeControlStream = Android.Media.Stream.Music;
         _folderLauncher = RegisterForActivityResult(new ActivityResultContracts.OpenDocumentTree(),
             new FolderResult(result => _folderResult?.TrySetResult(result)));
@@ -50,95 +51,62 @@ public class MainActivity : MauiAppCompatActivity
     protected override void OnStart()
     {
         base.OnStart();
-        using var filter = new IntentFilter(Intent.ActionScreenOn);
-        filter.AddAction(Intent.ActionScreenOff);
-        _screenReceiver = new ScreenStateReceiver(UpdatePlayerVisibility);
-        if (OperatingSystem.IsAndroidVersionAtLeast(33))
-            RegisterReceiver(_screenReceiver, filter, ReceiverFlags.NotExported);
-        else
-            RegisterReceiver(_screenReceiver, filter);
-
-        UpdatePlayerVisibility(IsScreenInteractive);
+        _screenMonitor?.Start();
     }
 
     protected override void OnResume()
     {
         base.OnResume();
-        _resumed = true;
-        UpdatePlayerVisibility(IsScreenInteractive);
+        _screenMonitor?.SetResumed(true);
     }
 
     protected override void OnPause()
     {
-        _resumed = false;
-        UpdatePlayerVisibility(false);
+        _screenMonitor?.SetResumed(false);
         base.OnPause();
     }
 
     protected override void OnStop()
     {
-        if (_screenReceiver is { } receiver)
-        {
-            _screenReceiver = null;
-            UnregisterReceiver(receiver);
-            receiver.Dispose();
-        }
-
-        UpdatePlayerVisibility(false);
+        _screenMonitor?.Stop();
         base.OnStop();
+    }
+
+    protected override void OnDestroy()
+    {
+        if (_screenMonitor is { } monitor)
+        {
+            monitor.Dispose();
+            monitor.State.RenderAvailabilityChanged -= OnRenderAvailabilityChanged;
+            _screenMonitor = null;
+        }
+        base.OnDestroy();
     }
 
     public override void OnWindowFocusChanged(bool hasFocus)
     {
         base.OnWindowFocusChanged(hasFocus);
         if (!hasFocus) return;
-        if (_hideStatusBar is { } hide && GetInsetsController() is { } controller)
-            ApplyStatusBarVisibility(controller, hide);
-        UpdatePlayerVisibility(IsScreenInteractive);
+        if (_hideStatusBar is { } hide)
+            UiAndroidWindow.ApplySystemBars(this, _lightSystemBars, hideStatusBar: hide);
+        if (_screenMonitor is { } monitor)
+            monitor.SetResumed(monitor.State.IsActive);
         if (IsPlayerVisible) DisplayClockRefreshRequested?.Invoke();
     }
 
     internal void ApplySystemBarAppearance(bool light, bool hideStatusBar)
     {
+        _lightSystemBars = light;
         _hideStatusBar = hideStatusBar;
-        if (GetInsetsController() is not { } controller) return;
-        controller.AppearanceLightStatusBars = light;
-        controller.AppearanceLightNavigationBars = light;
-        ApplyStatusBarVisibility(controller, hideStatusBar);
-    }
-
-    private WindowInsetsControllerCompat? GetInsetsController() =>
-        Window is { } window ? WindowCompat.GetInsetsController(window, window.DecorView) : null;
-
-    private static void ApplyStatusBarVisibility(WindowInsetsControllerCompat controller, bool hide)
-    {
-        int statusBars = WindowInsetsCompat.Type.StatusBars();
-        controller.SystemBarsBehavior = hide ? WindowInsetsControllerCompat.BehaviorShowTransientBarsBySwipe
-            : WindowInsetsControllerCompat.BehaviorDefault;
-        if (hide) controller.Hide(statusBars);
-        else controller.Show(statusBars);
+        UiAndroidWindow.ApplySystemBars(this, light, hideStatusBar: hideStatusBar);
     }
 
     /// <summary>Allows the already open player to remain visible above the keyguard.</summary>
-    internal void SetPlayerOnLockScreen(bool enabled)
-    {
-        if (OperatingSystem.IsAndroidVersionAtLeast(27))
-            SetShowWhenLocked(enabled);
-        else if (enabled)
-            Window?.AddFlags(WindowManagerFlags.ShowWhenLocked);
-        else
-            Window?.ClearFlags(WindowManagerFlags.ShowWhenLocked);
-    }
+    internal void SetPlayerOnLockScreen(bool enabled) =>
+        UiAndroidWindow.SetShowWhenLocked(this, enabled);
 
-    private bool IsScreenInteractive => GetSystemService(PowerService) is not PowerManager { IsInteractive: false };
-
-    private void UpdatePlayerVisibility(bool screenInteractive)
-    {
-        bool visible = _resumed && _screenReceiver is not null && screenInteractive;
-        if (IsPlayerVisible == visible) return;
-        IsPlayerVisible = visible;
+    private void OnRenderAvailabilityChanged(bool visible) =>
         PlayerVisibilityChanged?.Invoke(visible);
-    }
 
     /// <summary>Requests a Storage Access Framework tree URI and awaits the selection or cancellation.</summary>
     internal async Task<AndroidUri?> PickTrackTreeAsync(CancellationToken token)
@@ -184,12 +152,4 @@ public class MainActivity : MauiAppCompatActivity
         public void OnActivityResult(Java.Lang.Object? result) => picked(result as AndroidUri);
     }
 
-    private sealed class ScreenStateReceiver(Action<bool> screenChanged) : BroadcastReceiver
-    {
-        public override void OnReceive(Context? context, Intent? intent)
-        {
-            if (intent?.Action == Intent.ActionScreenOn) screenChanged(true);
-            else if (intent?.Action == Intent.ActionScreenOff) screenChanged(false);
-        }
-    }
 }
