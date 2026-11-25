@@ -95,6 +95,17 @@ public sealed class TrackPreparation(string cacheDirectory)
             return (waveform, Mp3AudioInfoReader.Read(source, token));
         }, token);
 
+    /// <summary>Reanalyzes an explicitly reported MP3 with full diagnostic trace,
+    /// without creating PCM files, changing cached analysis or altering playback.</summary>
+    internal Task<TrackDiagnosticSnapshot> AnalyzeDiagnosticAsync(string path, CancellationToken token) =>
+        Task.Run(() =>
+        {
+            using var source = File.OpenRead(path);
+            var trace = new TrackRhythmTrace();
+            var waveform = DecodeWaveform(source, null, null, token, trace);
+            return new TrackDiagnosticSnapshot(waveform, Mp3AudioInfoReader.Read(source, token), trace);
+        }, token);
+
     private static bool CanAnalyzeInPlace(Stream source)
     {
         if (!source.CanSeek) return false;
@@ -127,7 +138,7 @@ public sealed class TrackPreparation(string cacheDirectory)
     }
 
     private TrackWaveform DecodeWaveform(Stream source, string? pcmPath, TrackWaveform? waveform,
-        CancellationToken token)
+        CancellationToken token, TrackRhythmTrace? trace = null)
     {
         if (_openPlatformDecoder is not null)
         {
@@ -136,7 +147,9 @@ public sealed class TrackPreparation(string cacheDirectory)
                 if (_openPlatformDecoder(source, token) is { } platformDecoder)
                 {
                     using var decoder = new Mp3PcmSource(platformDecoder);
-                    return AnalyzeOrRecord(decoder, pcmPath, waveform, token);
+                    var result = AnalyzeOrRecord(decoder, pcmPath, waveform, token, trace);
+                    if (trace is not null) trace.Decoder = "platform";
+                    return result;
                 }
             }
             catch (InvalidDataException ex)
@@ -150,13 +163,15 @@ public sealed class TrackPreparation(string cacheDirectory)
         }
 
         using var managedDecoder = new Mp3PcmSource(source);
-        return AnalyzeOrRecord(managedDecoder, pcmPath, waveform, token);
+        var managed = AnalyzeOrRecord(managedDecoder, pcmPath, waveform, token, trace);
+        if (trace is not null) trace.Decoder = "NLayer";
+        return managed;
     }
 
     private static TrackWaveform AnalyzeOrRecord(Mp3PcmSource decoder, string? pcmPath, TrackWaveform? waveform,
-        CancellationToken token)
+        CancellationToken token, TrackRhythmTrace? trace = null)
     {
-        if (pcmPath is null) return TrackWaveform.Analyze(decoder, token);
+        if (pcmPath is null) return TrackWaveform.Analyze(decoder, token, trace);
 
         long frames = 0;
         using (var pcm = new FileStream(pcmPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024))

@@ -1,5 +1,6 @@
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Reflection;
 using Laveyana.Audio.Playback;
 using Laveyana.LavPulse.Controls;
 using Laveyana.LavPulse.Tracks;
@@ -21,6 +22,8 @@ public sealed partial class MainPage
     // Weak keys prevent diagnostic reports from keeping evicted PCM/waveform/artwork objects alive.
     private readonly ConditionalWeakTable<CachedTrack, Task<string>> _tapAnalysisReports = new();
     private Task _pendingBeatWrites = Task.CompletedTask;
+    private static readonly string? DiagnosticAppVersion =
+        typeof(MainPage).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
 
     private void RecordBassTap(CachedTrack track, long frame)
     {
@@ -31,8 +34,8 @@ public sealed partial class MainPage
             return;
         }
         // Capture the timestamp and calibration before any asynchronous work or queueing.
-        var tap = new ManualBeatTap(Math.Clamp(frame, 0, track.Waveform.TotalFrames),
-            DateTimeOffset.UtcNow, 180, _settings.VisualDelayMilliseconds);
+        var tap = ManualBeatTap.Capture(frame, DateTimeOffset.UtcNow,
+            _settings.VisualDelayMilliseconds, track.Waveform, DiagnosticAppVersion);
         _pendingBeatWrites = SaveBassTapAsync(_pendingBeatWrites, track, frame, tap);
     }
 
@@ -148,7 +151,10 @@ public sealed partial class MainPage
         string temporary = Path.Combine(FileSystem.CacheDirectory, Guid.NewGuid().ToString("N") + ".zip");
         try
         {
-            await TrackReportArchive.CreateAsync(reports, temporary, _trackStore.ReportAudioPath, _lifetime.Token);
+            string platform = DeviceInfo.Current.Platform.ToString();
+            await Task.Run(() => TrackReportArchive.CreateAsync(reports, temporary,
+                _trackStore.ReportAudioPath, _lifetime.Token, _library.AnalyzeDiagnosticAsync,
+                DiagnosticAppVersion, platform), _lifetime.Token);
 #if WINDOWS
             if (Window?.Handler?.PlatformView is not Microsoft.UI.Xaml.Window native)
                 throw new InvalidOperationException("Системное окно сохранения недоступно.");

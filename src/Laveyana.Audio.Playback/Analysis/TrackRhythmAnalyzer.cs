@@ -128,8 +128,18 @@ public static class TrackRhythmAnalyzer
     }
 
     internal static TrackBeatGrid AnalyzeEnergy(IReadOnlyList<RhythmEnergy> energy, int framesPerHop,
-        long totalFrames, CancellationToken cancellationToken = default)
+        long totalFrames, CancellationToken cancellationToken = default, TrackRhythmTrace? trace = null)
     {
+        if (trace is not null)
+        {
+            trace.HopFrames = framesPerHop;
+            trace.Energy = energy;
+            trace.Onsets = [];
+            trace.TempoScores = null;
+            trace.MinimumBpm = MinimumBpm;
+            trace.BpmResolution = BpmResolution;
+            trace.Attempts.Clear();
+        }
         if (framesPerHop <= 0) throw new ArgumentOutOfRangeException(nameof(framesPerHop));
         if (totalFrames <= 0 || energy.Count < 16)
             return Empty() with { AnalysisStatus = "Недостаточно аудиоданных для анализа" };
@@ -139,6 +149,9 @@ public static class TrackRhythmAnalyzer
         // Relax the visual threshold only after the grid is independently validated.
         long[] transients = StoreTransients(onsets, framesPerHop, totalFrames, .85f);
         TrackOnsetDiagnostic[] onsetDebug = SampleCandidates(onsets, framesPerHop, totalFrames);
+        if (trace is not null)
+            trace.Onsets = onsets.Select(hit => new TrackOnsetDiagnostic(
+                Math.Min(totalFrames - 1, (long)hit.Index * framesPerHop), hit.Strength, hit.Accent)).ToArray();
         if (onsets.Count < 8)
             return Empty(transients) with
             {
@@ -202,6 +215,8 @@ public static class TrackRhythmAnalyzer
                     ? .85 * prominent + .15 * broad : broad);
             }
         }
+
+        if (trace is not null) trace.TempoScores = scores;
 
         // Tempo Viterbi: favor continuity, but allow accelerando, ritardando and actual changes.
         // A weak or silent section inherits the neighboring estimate rather than generating noise.
@@ -269,7 +284,7 @@ public static class TrackRhythmAnalyzer
                 // A single strong window may be a melody or a random repeating sound.
                 if (index - firstWindow >= 2)
                     AnalyzeSectionWithRecovery(firstWindow, index, selected, quality, onsets, stride, radius,
-                        hopsPerSecond, framesPerHop, totalFrames, sections, beats, cancellationToken);
+                        hopsPerSecond, framesPerHop, totalFrames, sections, beats, cancellationToken, trace);
                 firstWindow = -1;
             }
             if (eligible && firstWindow < 0) firstWindow = index;
@@ -308,10 +323,10 @@ public static class TrackRhythmAnalyzer
     private static void AnalyzeSectionWithRecovery(int firstWindow, int endWindow,
         double[] tempos, float[] quality, IReadOnlyList<Onset> onsets, int stride, int radius,
         double hopsPerSecond, int hopFrames, long totalFrames,
-        List<TrackTempoSection> sections, List<long> beats, CancellationToken token)
+        List<TrackTempoSection> sections, List<long> beats, CancellationToken token, TrackRhythmTrace? trace)
     {
         if (AnalyzeSection(firstWindow, endWindow, tempos, quality, onsets, stride, radius,
-            hopsPerSecond, hopFrames, totalFrames, sections, beats, token))
+            hopsPerSecond, hopFrames, totalFrames, sections, beats, token, trace: trace))
             return;
         if (endWindow - firstWindow < 4) return;
 
@@ -324,7 +339,7 @@ public static class TrackRhythmAnalyzer
             if (end - start >= 3)
                 AnalyzeSection(start, end, tempos, quality, onsets, stride, radius,
                     hopsPerSecond, hopFrames, totalFrames, sections, beats, token,
-                    recoverLocalPhase: true);
+                    recoverLocalPhase: true, trace: trace);
             start = end;
         }
     }
@@ -332,7 +347,7 @@ public static class TrackRhythmAnalyzer
     private static bool AnalyzeSection(int firstWindow, int endWindow, double[] tempos, float[] quality,
         IReadOnlyList<Onset> onsets, int stride, int radius, double hopsPerSecond,
         int hopFrames, long totalFrames, List<TrackTempoSection> sections, List<long> beats,
-        CancellationToken token, bool recoverLocalPhase = false)
+        CancellationToken token, bool recoverLocalPhase = false, TrackRhythmTrace? trace = null)
     {
         double meanConfidence = 0;
         var localTempos = new List<double>();
@@ -342,9 +357,14 @@ public static class TrackRhythmAnalyzer
             localTempos.Add(tempos[i]);
         }
         meanConfidence /= endWindow - firstWindow;
-        if (meanConfidence < (recoverLocalPhase ? .40 : .33)) return false;
         localTempos.Sort();
         double bpm = localTempos[localTempos.Count / 2];
+        if (meanConfidence < (recoverLocalPhase ? .40 : .33))
+        {
+            trace?.Attempts.Add(new(firstWindow, endWindow, recoverLocalPhase, meanConfidence, bpm,
+                0, 0, 0, 0, 0, 0, false, "insufficient_mean_confidence"));
+            return false;
+        }
         // Anchor phase close to the FIRST valid window. Starting from the middle of a long
         // accelerando with the median tempo introduces a cumulative phase error at its start.
         double anchorBpm = recoverLocalPhase ? bpm : tempos[firstWindow];
@@ -377,7 +397,12 @@ public static class TrackRhythmAnalyzer
             Math.Max(0L, ((long)firstWindow * stride - stride / 2) * hopFrames);
         long endFrame = endWindow == tempos.Length ? totalFrames :
             Math.Min(totalFrames, ((long)(endWindow - 1) * stride + stride / 2) * hopFrames);
-        if (startFrame >= endFrame) return false;
+        if (startFrame >= endFrame)
+        {
+            trace?.Attempts.Add(new(firstWindow, endWindow, recoverLocalPhase, meanConfidence, bpm,
+                anchorBpm, phaseInHops, startFrame, endFrame, 0, 0, useStrong, "empty_frame_range"));
+            return false;
+        }
 
         double fromHop = startFrame / (double)hopFrames;
         double position = phaseInHops + Math.Ceiling((fromHop - phaseInHops) / period) * period;
@@ -428,9 +453,12 @@ public static class TrackRhythmAnalyzer
         // Validate the independent beat positions against enough prominent attacks
         // before publishing this section as an actual grid.
         double minimumSupport = useStrong ? .48 : .35;
-        if (localBeats.Count < 4 ||
-            matched < Math.Max(3, (int)Math.Ceiling(localBeats.Count * minimumSupport)))
-            return false;
+        bool supported = localBeats.Count >= 4 &&
+            matched >= Math.Max(3, (int)Math.Ceiling(localBeats.Count * minimumSupport));
+        trace?.Attempts.Add(new(firstWindow, endWindow, recoverLocalPhase, meanConfidence, bpm,
+            anchorBpm, phaseInHops, startFrame, endFrame, localBeats.Count, matched, useStrong,
+            supported ? "accepted" : "insufficient_beat_support"));
+        if (!supported) return false;
 
         onsetsInSection = LowerBound(onsets, endFrame / (double)hopFrames) -
             LowerBound(onsets, startFrame / (double)hopFrames);

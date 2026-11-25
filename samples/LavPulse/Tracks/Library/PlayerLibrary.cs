@@ -117,6 +117,9 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
 
     public Task AnalyzeAsync(TrackFile file) => ScanAsync(file, replaceAnalysis: false, lifetime);
 
+    internal Task<TrackDiagnosticSnapshot> AnalyzeDiagnosticAsync(string path, CancellationToken token) =>
+        TrackLibraryWork(preparation.AnalyzeDiagnosticAsync(path, token));
+
     public Task<bool> ScanLibraryTrackAsync(TrackFile file, bool replaceAnalysis, CancellationToken token) =>
         TrackLibraryWork(ScanAsync(file, replaceAnalysis, token));
 

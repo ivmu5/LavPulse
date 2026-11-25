@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Laveyana.Audio.Playback;
 
 namespace Laveyana.LavPulse.Tracks;
 
@@ -28,7 +29,41 @@ internal sealed record TrackIssueReport(
 /// the compensated presentation-time playhead. No automatic beat-grid mutation.
 /// </summary>
 internal sealed record ManualBeatTap(long Frame, DateTimeOffset PressedAtUtc,
-    int TimingToleranceMilliseconds = 180, int VisualDelayMilliseconds = 0);
+    int TimingToleranceMilliseconds = 180, int VisualDelayMilliseconds = 0)
+{
+    // These values describe the grid visible at press time, not a later rescan.
+    // Older reports omit them and deserialize with null values.
+    public string? AppVersion { get; init; }
+    public long? NearestBeatFrame { get; init; }
+    public long? NearestTransientFrame { get; init; }
+    public double? LocalBpm { get; init; }
+
+    internal static ManualBeatTap Capture(long frame, DateTimeOffset pressedAt, int delay,
+        TrackWaveform waveform, string? version)
+    {
+        frame = Math.Clamp(frame, 0, waveform.TotalFrames);
+        var grid = waveform.Rhythm;
+        return new(frame, pressedAt, 180, delay)
+        {
+            AppVersion = version,
+            NearestBeatFrame = Nearest(grid?.BeatFrames, frame),
+            NearestTransientFrame = Nearest(grid?.TransientFrames, frame),
+            LocalBpm = grid?.BpmAt(frame)
+        };
+    }
+
+    private static long? Nearest(long[]? frames, long frame)
+    {
+        if (frames is not { Length: > 0 }) return null;
+        int index = Array.BinarySearch(frames, frame);
+        if (index >= 0) return frames[index];
+        index = ~index;
+        if (index == 0) return frames[0];
+        if (index == frames.Length) return frames[^1];
+        return frame - frames[index - 1] <= frames[index] - frame
+            ? frames[index - 1] : frames[index];
+    }
+}
 
 [JsonSerializable(typeof(List<TrackIssueReport>))]
 internal sealed partial class TrackReportJson : JsonSerializerContext;
