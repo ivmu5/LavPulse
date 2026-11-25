@@ -11,6 +11,7 @@ internal static class TrackPreparationChecks
         CheckTempoSectionsAndReport();
         CheckDenseTechnoOnsetRhythm();
         CheckRhythmPhaseChanges();
+        CheckSlowRhythmAndBreaks();
         var input = TrackFile.FromStream("fixture.mp3", () => Task.FromResult<Stream>(CreateMp3()));
         var original = await new TrackPreparation(directory).ImportAsync(input, CancellationToken.None);
         byte[] expected = await File.ReadAllBytesAsync(original.Path);
@@ -435,4 +436,26 @@ internal static class TrackPreparationChecks
 
         public void Dispose() => Disposed = true;
     }
+    private static void CheckSlowRhythmAndBreaks()
+    {
+        const int hop = PlaybackFormat.SampleRate / 100;
+        var energy = Enumerable.Repeat(new RhythmEnergy(.04f, .03f, .02f), 8000).ToArray();
+        // A slow pulse represented by mid-band claps, not a bass drum.
+        for (double t = .25; t < 79; t += 60d / 58)
+        {
+            int i = (int)Math.Round(t * 100);
+            if (t >= 30 && t < 43) continue;
+            energy[i] = new RhythmEnergy(.04f, .9f, .2f);
+        }
+        var grid = TrackRhythmAnalyzer.AnalyzeEnergy(energy, hop, (long)energy.Length * hop);
+        Require(grid.HasBeatGrid && TrackRhythmAnalyzer.IsValid(grid, (long)energy.Length * hop),
+            "Slow clap-driven pulse did not produce a valid rhythm.");
+        Require(grid.BpmAt(36L * PlaybackFormat.SampleRate) == 0 &&
+                !grid.BeatFrames.Any(frame => frame >= 34L * PlaybackFormat.SampleRate && frame < 39L * PlaybackFormat.SampleRate),
+            "A long unsupported breakdown retained confirmed beats.");
+        Require(grid.BeatFrames.All(frame => grid.Sections.Any(section => frame >= section.StartFrame && frame < section.EndFrame)),
+            "A confirmed beat escaped its verified section.");
+        Console.WriteLine("OK: slow rhythmic claps and unsupported breakdown suppression.");
+    }
+
 }
