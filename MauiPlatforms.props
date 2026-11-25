@@ -1,8 +1,8 @@
 <Project>
   <PropertyGroup>
     <UseMaui>true</UseMaui>
-    <!-- Both UI packages are released together. Keep the version pinned and overridable. -->
-    <LaveyanaMauiUiVersion Condition="'$(LaveyanaMauiUiVersion)' == ''">0.26.11.1</LaveyanaMauiUiVersion>
+    <!-- All UI packages are released together. Keep the version pinned and overridable. -->
+    <LaveyanaMauiUiVersion Condition="'$(LaveyanaMauiUiVersion)' == ''">0.26.11.2</LaveyanaMauiUiVersion>
     <!-- The shared UI packages require MAUI Controls >= 10.0.120. -->
     <LavPulseMauiControlsVersion>$(MauiVersion)</LavPulseMauiControlsVersion>
     <LavPulseMauiControlsVersion Condition="'$(LavPulseMauiControlsVersion)' == ''">10.0.120</LavPulseMauiControlsVersion>

@@ -51,6 +51,10 @@
     <MauiImage Include="Resources/Images/Transport/*.svg" BaseSize="24,24" />
   </ItemGroup>
 
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <PackageReference Include="Laveyana.Maui.UI.Android" Version="$(LaveyanaMauiUiVersion)" />
+  </ItemGroup>
+
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
     <PackageReference Include="NAudio.WinMM" Version="2.2.1" />
   </ItemGroup>
