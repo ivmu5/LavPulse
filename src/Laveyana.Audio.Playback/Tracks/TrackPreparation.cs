@@ -7,7 +7,7 @@ public sealed record TrackMetadata(string Title, string? Artist, ReadOnlyMemory<
     public string? Album { get; init; }
 }
 
-/// <summary>Prepares seekable PCM and a display waveform from an MP3 stream.</summary>
+/// <summary>Prepares seekable PCM and a display waveform from supported audio.</summary>
 public sealed class TrackPreparation(string cacheDirectory)
 {
     private readonly Func<Stream, CancellationToken, IMp3SampleDecoder?>? _openPlatformDecoder;
@@ -27,7 +27,7 @@ public sealed class TrackPreparation(string cacheDirectory)
         else
         {
             Directory.CreateDirectory(cacheDirectory);
-            string path = Path.Combine(cacheDirectory, $"lavpulse-tags-{Guid.NewGuid():N}.mp3");
+            string path = Path.Combine(cacheDirectory, $"lavpulse-tags-{Guid.NewGuid():N}{TrackFile.StorageExtension(file.Name)}");
             await using var source = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None,
                 64 * 1024, FileOptions.Asynchronous | FileOptions.DeleteOnClose);
             await file.CopyToAsync(source, token).ConfigureAwait(false);
@@ -50,9 +50,9 @@ public sealed class TrackPreparation(string cacheDirectory)
         (TrackWaveform Waveform, TrackAudioInfo? Info)? analysis, CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(file);
-        if (!TrackFile.IsMp3(file.Name))
+        if (!TrackFile.IsSupportedAudio(file.Name))
         {
-            throw new InvalidDataException("Выбери файл с расширением .mp3.");
+            throw new InvalidDataException("Формат файла не поддерживается на этой платформе.");
         }
 
         token.ThrowIfCancellationRequested();
@@ -69,7 +69,7 @@ public sealed class TrackPreparation(string cacheDirectory)
                     return Decode(direct, file, pcmPath, metadata, analysis, token);
                 }
 
-                await using var copy = new FileStream(prefix + ".mp3", FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None,
+                await using var copy = new FileStream(prefix + TrackFile.StorageExtension(file.Name), FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None,
                     64 * 1024, FileOptions.Asynchronous | FileOptions.DeleteOnClose);
                 if (direct is not null) await direct.CopyToAsync(copy, token).ConfigureAwait(false);
                 else await file.CopyToAsync(copy, token).ConfigureAwait(false);
@@ -91,8 +91,8 @@ public sealed class TrackPreparation(string cacheDirectory)
         Task.Run(() =>
         {
             using var source = File.OpenRead(path);
-            var waveform = DecodeWaveform(source, null, null, token);
-            return (waveform, Mp3AudioInfoReader.Read(source, token));
+            var decoded = DecodeWaveform(source, Path.GetExtension(path), null, null, token);
+            return (decoded.Waveform, TrackFile.IsMp3(path) ? Mp3AudioInfoReader.Read(source, token) : decoded.Info);
         }, token);
 
     /// <summary>Reanalyzes an explicitly reported MP3 with full diagnostic trace,
@@ -102,8 +102,9 @@ public sealed class TrackPreparation(string cacheDirectory)
         {
             using var source = File.OpenRead(path);
             var trace = new TrackRhythmTrace();
-            var waveform = DecodeWaveform(source, null, null, token, trace);
-            return new TrackDiagnosticSnapshot(waveform, Mp3AudioInfoReader.Read(source, token), trace);
+            var decoded = DecodeWaveform(source, Path.GetExtension(path), null, null, token, trace);
+            return new TrackDiagnosticSnapshot(decoded.Waveform,
+                TrackFile.IsMp3(path) ? Mp3AudioInfoReader.Read(source, token) : decoded.Info, trace);
         }, token);
 
     private static bool CanAnalyzeInPlace(Stream source)
@@ -124,7 +125,8 @@ public sealed class TrackPreparation(string cacheDirectory)
     private CachedTrack Decode(Stream source, TrackFile file, string pcmPath, TrackMetadata? metadata,
         (TrackWaveform Waveform, TrackAudioInfo? Info)? analysis, CancellationToken token)
     {
-        var waveform = DecodeWaveform(source, pcmPath, analysis?.Waveform, token);
+        var decoded = DecodeWaveform(source, Path.GetExtension(file.Name), pcmPath, analysis?.Waveform, token);
+        var waveform = decoded.Waveform;
 
         if (metadata is null)
         {
@@ -132,40 +134,67 @@ public sealed class TrackPreparation(string cacheDirectory)
             metadata = ReadTags(file, source);
         }
 
-        var audioInfo = analysis?.Info ?? Mp3AudioInfoReader.Read(source, token);
+        var audioInfo = TrackFile.IsMp3(file.Name)
+            ? analysis?.Info ?? Mp3AudioInfoReader.Read(source, token) : decoded.Info ?? analysis?.Info;
         token.ThrowIfCancellationRequested();
         return new CachedTrack(file.Name, pcmPath, waveform, metadata, audioInfo);
     }
 
-    private TrackWaveform DecodeWaveform(Stream source, string? pcmPath, TrackWaveform? waveform,
-        CancellationToken token, TrackRhythmTrace? trace = null)
+    private (TrackWaveform Waveform, TrackAudioInfo? Info) DecodeWaveform(Stream source,
+        string extension, string? pcmPath, TrackWaveform? waveform, CancellationToken token, TrackRhythmTrace? trace = null)
     {
+        extension = extension.ToLowerInvariant();
+        bool mp3 = extension == ".mp3";
+        bool vorbis = extension is ".ogg" or ".oga";
+        long encodedBytes = source.Length;
+
+        (TrackWaveform, TrackAudioInfo?) Record(IMp3SampleDecoder native, string backend)
+        {
+            int rate = native.SampleRate, channels = native.Channels;
+            string codec = native.Codec ?? extension.TrimStart('.').ToUpperInvariant();
+            int bits = native is WaveSampleDecoder wave ? wave.BitsPerSample : 0;
+            using var decoder = new Mp3PcmSource(native);
+            var result = AnalyzeOrRecord(decoder, pcmPath, waveform, token, trace);
+            if (trace is not null) trace.Decoder = backend;
+            if (mp3) return (result, null);
+            int bitrate = bits > 0 ? (int)((long)rate * channels * bits / 1000)
+                : (int)Math.Clamp(Math.Round(encodedBytes * 8d * PlaybackFormat.SampleRate /
+                    Math.Max(1, result.TotalFrames) / 1000), 0, int.MaxValue);
+            return (result, new TrackAudioInfo(codec, rate, bitrate, vorbis || extension == ".flac",
+                channels == 1 ? TrackChannelMode.Mono : TrackChannelMode.Stereo));
+        }
+
+        if (extension == ".wav")
+            return Record(new WaveSampleDecoder(source), "RIFF/WAVE");
+
+        Exception? platformError = null;
         if (_openPlatformDecoder is not null)
         {
             try
             {
                 if (_openPlatformDecoder(source, token) is { } platformDecoder)
-                {
-                    using var decoder = new Mp3PcmSource(platformDecoder);
-                    var result = AnalyzeOrRecord(decoder, pcmPath, waveform, token, trace);
-                    if (trace is not null) trace.Decoder = "platform";
-                    return result;
-                }
+                    return Record(platformDecoder, "platform");
             }
             catch (InvalidDataException ex)
             {
-                // Retry from the beginning with NLayer after a rejected stream or a stalled decoder.
                 token.ThrowIfCancellationRequested();
+                platformError = ex;
                 System.Diagnostics.Debug.WriteLine(ex);
                 if (pcmPath is not null) File.Delete(pcmPath);
             }
             source.Position = 0;
         }
 
-        using var managedDecoder = new Mp3PcmSource(source);
-        var managed = AnalyzeOrRecord(managedDecoder, pcmPath, waveform, token, trace);
-        if (trace is not null) trace.Decoder = "NLayer";
-        return managed;
+        if (mp3)
+        {
+            using var managedDecoder = new Mp3PcmSource(source);
+            var result = AnalyzeOrRecord(managedDecoder, pcmPath, waveform, token, trace);
+            if (trace is not null) trace.Decoder = "NLayer";
+            return (result, null);
+        }
+        if (vorbis)
+            return Record(new VorbisSampleDecoder(source), "NVorbis");
+        throw new InvalidDataException("Системный декодер не поддерживает этот аудиофайл.", platformError);
     }
 
     private static TrackWaveform AnalyzeOrRecord(Mp3PcmSource decoder, string? pcmPath, TrackWaveform? waveform,
@@ -196,6 +225,17 @@ public sealed class TrackPreparation(string cacheDirectory)
 
     private static TrackMetadata ReadTags(TrackFile file, Stream source)
     {
+        string fallback = Path.GetFileNameWithoutExtension(file.Name);
+        if (!TrackFile.IsMp3(file.Name))
+        {
+            if (source.CanSeek && (Path.GetExtension(file.Name).ToLowerInvariant() is ".ogg" or ".oga"))
+            {
+                try { source.Position = 0; return VorbisSampleDecoder.ReadTags(source, fallback); }
+                catch (Exception ex) when (ex is IOException or ArgumentException or NotSupportedException)
+                { System.Diagnostics.Debug.WriteLine(ex.Message); }
+            }
+            return new TrackMetadata(fallback, null, ReadOnlyMemory<byte>.Empty);
+        }
         var tags = Mp3Tags.Read(source);
         return new TrackMetadata(tags.Title ?? Path.GetFileNameWithoutExtension(file.Name), tags.Artist, tags.Artwork ?? [])
         {
