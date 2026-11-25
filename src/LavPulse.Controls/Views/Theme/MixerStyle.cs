@@ -1,8 +1,8 @@
+using Microsoft.Maui.Controls.Shapes;
+using Microsoft.Maui.Devices;
 using Laveyana.Maui.UI.Themes;
 using Laveyana.Maui.UI.Design;
 using SharedUi = Laveyana.Maui.UI.Controls.Ui;
-using Microsoft.Maui.Controls.Shapes;
-using Microsoft.Maui.Devices;
 
 namespace Laveyana.LavPulse.Controls;
 
@@ -24,6 +24,13 @@ internal static partial class MixerStyle
     internal static void ApplyTheme(ResourceDictionary resources, MixerTheme theme, bool refreshIcons)
     {
         resources[ArtworkColorsResource] = theme.Artwork;
+        // Scope shared resources to the PlayerView, just like the previous mixer
+        // resources. Shared controls and custom player controls see the same theme.
+        foreach (UiColorRole role in Enum.GetValues<UiColorRole>())
+        {
+            resources[UiThemeManager.ColorKey(role)] = theme.SharedTheme[role];
+            resources[UiThemeManager.BrushKey(role)] = new SolidColorBrush(theme.SharedTheme[role]);
+        }
         foreach (var role in ColorRoles)
         {
             resources[ColorKey(role)] = theme[role];
@@ -40,11 +47,8 @@ internal static partial class MixerStyle
         }
     }
 
-    // Keep the player-specific preview color local; all standard roles use shared keys.
-    internal static string ColorKey(MixerColor role) => role == MixerColor.Preview
-        ? "LavPulse.Color.Preview" : UiThemeManager.ColorKey(MixerTheme.SharedRole(role));
-    internal static string BrushKey(MixerColor role) => role == MixerColor.Preview
-        ? "LavPulse.Brush.Preview" : UiThemeManager.BrushKey(MixerTheme.SharedRole(role));
+    internal static string ColorKey(MixerColor role) => $"LavPulse.Color.{role}";
+    internal static string BrushKey(MixerColor role) => $"LavPulse.Brush.{role}";
     private static string IconKey(string file) => $"LavPulse.Icon.{file}";
 
     internal static void UseColor(VisualElement view, BindableProperty property, MixerColor role) =>
@@ -87,7 +91,9 @@ internal static partial class MixerStyle
     /// <summary>Creates a text control with the mixer font and color palette.</summary>
     public static Label Label(string text, double size, MixerColor color = MixerColor.Text, bool bold = false)
     {
-        var label = SharedUi.Text(text, size, bold: bold, font: "Inter");
+        var label = SharedUi.Text(text, size,
+            color == MixerColor.Preview ? UiColorRole.Text : MixerTheme.SharedRole(color),
+            bold, font: "Inter");
         UseColor(label, Microsoft.Maui.Controls.Label.TextColorProperty, color);
         return label;
     }
@@ -96,6 +102,7 @@ internal static partial class MixerStyle
     public static Button Button(string text, bool primary = false, string? icon = null, bool stacked = false)
     {
         var button = SharedUi.Button(text, primary, font: "Inter");
+        // The music transport retains larger touch targets and icon placement.
         button.FontSize = ButtonFontSize;
         button.Padding = stacked ? new Thickness(2, 4) : new Thickness(8, 8);
         button.MinimumHeightRequest = stacked ? 52 : 44;

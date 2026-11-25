@@ -1,5 +1,5 @@
-using Laveyana.Maui.UI.Windows.Windowing;
 using Microsoft.Maui.Platform;
+using Laveyana.Maui.UI.Windows.Windowing;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -76,11 +76,7 @@ public sealed partial class WindowsWindowChrome
     /// <summary>Configures the native caption before MAUI measures its navigation root.</summary>
     public static void PrepareNativeCaption(NativeWindow native)
     {
-        if (!AppWindowTitleBar.IsCustomizationSupported()) return;
-
         UiWindowsChrome.Prepare(native);
-        // WinUI uses our explicit title region and leaves the buttons to the LavPulse overlay.
-        native.AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Collapsed;
     }
 
     /// <summary>Sets logical window sizes before activation and installs native controls when the root is ready.</summary>
@@ -97,7 +93,56 @@ public sealed partial class WindowsWindowChrome
             if (window.Handler?.PlatformView is NativeWindow native && native.Content is NativePanel root &&
                 native.AppWindow.Presenter is OverlappedPresenter windowed)
             {
-                _ = new WindowsWindowChrome(window, native, root, windowed);
+                // Use the ecosystem's shared chrome on supported WinUI windows.
+                // Keep the legacy implementation for older Windows versions.
+                var player = (window.Page as ContentPage)?.Content as PlayerView;
+                var theme = player?.Theme ?? MixerTheme.Default;
+                var shared = UiWindowsChrome.Attach(window, new UiChromeOptions
+                {
+                    Title = window.Title ?? "LavPulse",
+                    Height = ContentInset,
+                    IconFilePath = System.IO.Path.Combine(AppContext.BaseDirectory, "lavpulse_mark.png"),
+                    Background = theme[MixerColor.Background],
+                    Surface = theme[MixerColor.Card],
+                    Text = theme[MixerColor.Text],
+                    Accent = theme[MixerColor.Accent]
+                });
+                if (shared is null)
+                {
+                    _ = new WindowsWindowChrome(window, native, root, windowed);
+                }
+                else
+                {
+                    void ApplySharedTheme(MixerTheme value)
+                    {
+                        root.RequestedTheme = value.IsLight ? ElementTheme.Light : ElementTheme.Dark;
+                        shared.ApplyTheme(value.SharedTheme);
+                    }
+                    ApplySharedTheme(theme);
+                    if (player is not null) player.ThemeChanged += ApplySharedTheme;
+                    void FitMinimum() => ApplyWindowMinimum(window, native);
+                    FitMinimum();
+                    FitInitialWindow(native.AppWindow);
+                    void OnSharedWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
+                    {
+                        if (args.DidPositionChange) FitMinimum();
+                    }
+                    void OnSharedDensityChanged(object? sender, DisplayDensityChangedEventArgs args)
+                    {
+                        FitMinimum();
+                        window.Handler?.UpdateValue(nameof(MauiWindow.MinimumWidth));
+                        window.Handler?.UpdateValue(nameof(MauiWindow.MaximumWidth));
+                    }
+                    native.AppWindow.Changed += OnSharedWindowChanged;
+                    window.DisplayDensityChanged += OnSharedDensityChanged;
+                    window.Destroying += (_, _) =>
+                    {
+                        if (player is not null) player.ThemeChanged -= ApplySharedTheme;
+                        native.AppWindow.Changed -= OnSharedWindowChanged;
+                        window.DisplayDensityChanged -= OnSharedDensityChanged;
+                        shared.Dispose();
+                    };
+                }
                 if (systemThemeChanged is not null)
                 {
                     void OnSystemColorsChanged(UISettings sender, object args) =>
@@ -249,7 +294,8 @@ public sealed partial class WindowsWindowChrome
             return;
         }
 
-        PrepareNativeCaption(_native);
+        _native.ExtendsContentIntoTitleBar = true;
+        _native.AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Collapsed;
         if (_dragRegion.IsLoaded) _native.SetTitleBar(_dragRegion);
         WindowsClientFrame.ApplyBorderColor(_hwnd, _theme[MixerColor.Border]);
     }
@@ -338,24 +384,28 @@ public sealed partial class WindowsWindowChrome
     }
 
     /// <summary>Allows a smaller minimum on monitors with less logical space than the preferred size.</summary>
-    private void ApplyMinimumSize()
+    private void ApplyMinimumSize() => ApplyWindowMinimum(_window, _native);
+
+    private static void ApplyWindowMinimum(MauiWindow window, NativeWindow native)
     {
-        if (DisplayArea.GetFromWindowId(_appWindow.Id, DisplayAreaFallback.Nearest) is not { } display) return;
-        double scale = _native.GetDisplayDensity();
+        if (DisplayArea.GetFromWindowId(native.AppWindow.Id, DisplayAreaFallback.Nearest) is not { } display) return;
+        double scale = native.GetDisplayDensity();
         var area = display.WorkArea;
-        _window.MinimumWidth = Math.Min(MinimumWidth, Math.Floor(area.Width / scale));
-        _window.MinimumHeight = Math.Min(MinimumHeight, Math.Floor(area.Height / scale));
+        window.MinimumWidth = Math.Min(MinimumWidth, Math.Floor(area.Width / scale));
+        window.MinimumHeight = Math.Min(MinimumHeight, Math.Floor(area.Height / scale));
     }
 
-    private void FitInitialWindow()
+    private void FitInitialWindow() => FitInitialWindow(_appWindow);
+
+    private static void FitInitialWindow(AppWindow appWindow)
     {
-        if (DisplayArea.GetFromWindowId(_appWindow.Id, DisplayAreaFallback.Nearest) is not { } display) return;
+        if (DisplayArea.GetFromWindowId(appWindow.Id, DisplayAreaFallback.Nearest) is not { } display) return;
         var area = display.WorkArea;
-        var size = _appWindow.Size;
+        var size = appWindow.Size;
         if (size.Width <= area.Width && size.Height <= area.Height) return;
         int width = Math.Min(size.Width, area.Width);
         int height = Math.Min(size.Height, area.Height);
-        _appWindow.MoveAndResize(new RectInt32((area.Width - width) / 2, (area.Height - height) / 2, width, height), display);
+        appWindow.MoveAndResize(new RectInt32((area.Width - width) / 2, (area.Height - height) / 2, width, height), display);
     }
 
     private void OnClosed(object sender, WindowEventArgs args)

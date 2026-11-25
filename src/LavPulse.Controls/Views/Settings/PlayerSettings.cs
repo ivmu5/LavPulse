@@ -7,7 +7,7 @@ public readonly record struct LibraryStorageOption(string Directory, string Labe
 
 public enum PlayerPalette
 {
-    // Preserve existing numeric preferences. Mint is appended after Custom.
+    // Preserve numeric preferences; append new palettes after Custom.
     LavPulse = 0,
     Ocean = 1,
     Warm = 2,
@@ -94,18 +94,23 @@ public readonly record struct PlayerColors(Color Accent, Color Alternate, Color 
 {
     private static PlayerColors FromShared(UiPalettePreset preset)
     {
-        var palette = UiPaletteCatalog.Get(preset);
-        return new(palette.Accent, palette.Alternate, palette.Low, palette.Mid);
+        UiPalette colors = UiPaletteCatalog.Get(preset);
+        return new(colors.Accent, colors.Alternate, colors.Low, colors.Mid);
     }
+
+    private static readonly PlayerColors LavPulse = FromShared(UiPalettePreset.Laveyana);
+    private static readonly PlayerColors Ocean = FromShared(UiPalettePreset.Ocean);
+    private static readonly PlayerColors Warm = FromShared(UiPalettePreset.Warm);
+    private static readonly PlayerColors Mint = FromShared(UiPalettePreset.Mint);
 
     internal static PlayerColors For(PlayerSettings settings) =>
         settings.Palette == PlayerPalette.Custom ? settings.CustomColors : For(settings.Palette);
 
     internal static PlayerColors For(PlayerPalette palette) => palette switch
     {
-        PlayerPalette.Ocean => FromShared(UiPalettePreset.Ocean),
-        PlayerPalette.Warm => FromShared(UiPalettePreset.Warm),
-        PlayerPalette.Mint => FromShared(UiPalettePreset.Mint),
-        _ => FromShared(UiPalettePreset.Laveyana)
+        PlayerPalette.Ocean => Ocean,
+        PlayerPalette.Warm => Warm,
+        PlayerPalette.Mint => Mint,
+        _ => LavPulse
     };
 }

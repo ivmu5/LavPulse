@@ -1,12 +1,10 @@
 <Project>
   <PropertyGroup>
     <UseMaui>true</UseMaui>
-    <!-- All UI packages are released together. Keep the version pinned and overridable. -->
-    <LaveyanaMauiUiVersion Condition="'$(LaveyanaMauiUiVersion)' == ''">0.26.11.2</LaveyanaMauiUiVersion>
-    <!-- The shared UI packages require MAUI Controls >= 10.0.120. -->
-    <LavPulseMauiControlsVersion>$(MauiVersion)</LavPulseMauiControlsVersion>
-    <LavPulseMauiControlsVersion Condition="'$(LavPulseMauiControlsVersion)' == ''">10.0.120</LavPulseMauiControlsVersion>
-    <LavPulseMauiControlsVersion Condition="$([MSBuild]::VersionLessThan('$(LavPulseMauiControlsVersion)', '10.0.120'))">10.0.120</LavPulseMauiControlsVersion>
+    <!-- Match the minimum Controls dependency of the published shared UI packages.
+         Keep the app and all MAUI library projects on the same version. -->
+    <MauiVersion>10.0.120</MauiVersion>
+    <LaveyanaMauiUiVersion>0.26.11.2</LaveyanaMauiUiVersion>
     <IsPackable>false</IsPackable>
     <Nullable>enable</Nullable>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">23.0</SupportedOSPlatformVersion>
