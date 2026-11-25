@@ -1,39 +1,114 @@
 namespace Laveyana.Audio.Playback;
 
-/// <summary>Resolves octave ambiguity using corroborated half-period evidence.</summary>
+/// <summary>Tempo ranking uses immutable measured evidence. A related tempo can
+/// influence the ranking, but a promotion cannot propagate to another octave.</summary>
 internal static class RhythmTempoFamily
 {
-    public static void Resolve(float[,] scores, float[,] periodicity, float[,] phase, double minimum, double resolution)
+    internal sealed record Result(float[,] Ranking, float[,] Confidence, float[] TrackPeriodicity);
+
+    public static Result Resolve(float[,] raw, float[,] periodicity, float[,] phase,
+        double minimum, double resolution, CancellationToken token = default)
     {
-        int windows = scores.GetLength(0), candidates = scores.GetLength(1);
-        for (int fast = candidates - 1; fast >= 0; fast--)
+        int windows = raw.GetLength(0), candidates = raw.GetLength(1);
+        var ranking = new float[windows, candidates];
+        var confidence = (float[,])raw.Clone();
+        var average = new float[candidates];
+        var periodicAverage = new float[candidates];
+        for (int c = 0; c < candidates; c++)
         {
-            double bpm = minimum + fast * resolution;
-            if (bpm < 120) break;
-            int half = (int)Math.Round((bpm / 2 - minimum) / resolution);
-            if (half < 0 || half >= fast) continue;
-            int credible = 0, active = 0;
             for (int w = 0; w < windows; w++)
             {
-                if (scores[w, fast] < .28f) continue;
-                active++;
-                if (periodicity[w, half] >= .16f && periodicity[w, half] >= .75f * periodicity[w, fast] &&
-                    phase[w, half] >= .17f) credible++;
-            }
-            bool globalOctave = bpm >= 160 && active >= 4 && credible >= Math.Max(3, .40 * active);
-            for (int w = 0; w < windows; w++)
-            {
-                float high = scores[w, fast], low = scores[w, half];
-                if (high < .28f) continue;
-                bool localOctave = periodicity[w, half] >= .16f &&
-                    periodicity[w, half] >= .75f * periodicity[w, fast] && phase[w, half] >= .17f;
-                bool nearTie = periodicity[w, half] >= .18f &&
-                    periodicity[w, half] >= 1.05f * periodicity[w, fast] &&
-                    low >= .86f * high && phase[w, half] >= .15f;
-                if ((bpm >= 160 && (localOctave || globalOctave && periodicity[w, half] >= .12f &&
-                    periodicity[w, half] >= .60f * periodicity[w, fast])) || (bpm < 160 && nearTie))
-                    scores[w, half] = Math.Min(1, Math.Max(low, high + .018f));
+                average[c] += raw[w, c] / windows;
+                periodicAverage[c] += periodicity[w, c] / windows;
             }
         }
+        var global = new float[candidates];
+        var globalPeriodic = new float[candidates];
+        var peak = new int[candidates];
+        for (int c = 0; c < candidates; c++)
+        {
+            global[c] = Max(average, c, 2);
+            globalPeriodic[c] = Max(periodicAverage, c, 2);
+            peak[c] = c;
+            for (int j = Math.Max(0, c - 8); j <= Math.Min(candidates - 1, c + 8); j++)
+                if (average[j] > average[peak[c]]) peak[c] = j;
+        }
+
+        int Index(double bpm) => (int)Math.Round((bpm - minimum) / resolution);
+        double Bpm(int index) => minimum + index * resolution;
+        bool Valid(int index) => index >= 0 && index < candidates;
+        bool CanPreferHalf(int slow, int fast) =>
+            Valid(slow) && Valid(fast) && Bpm(peak[fast]) >= 165 &&
+            global[fast] >= .17f && globalPeriodic[slow] >= .085f &&
+            globalPeriodic[slow] >= .65f * globalPeriodic[fast] &&
+            global[slow] >= .42f * global[fast];
+
+        for (int c = 0; c < candidates; c++)
+        {
+            token.ThrowIfCancellationRequested();
+            double bpm = Bpm(c);
+            int half = Index(bpm / 2), twice = Index(bpm * 2), quarter = Index(bpm / 4);
+            int[] relatives = [quarter, half, twice, Index(bpm * 4)];
+            float family = global[c];
+            bool barAlias = false;
+            foreach (int j in relatives)
+            {
+                if (!Valid(j)) continue;
+                family = Math.Max(family, global[j]);
+                if (bpm < 55 && j > c && global[j] >= .16f &&
+                    global[j] >= .70f * global[c] && globalPeriodic[j] >= .55f * globalPeriodic[c])
+                    barAlias = true;
+            }
+            bool preferSlower = bpm >= 157 && CanPreferHalf(half, c);
+            bool preferThisHalf = bpm >= 78.5 && bpm <= 120 && CanPreferHalf(c, twice);
+            bool supportedHalf = bpm >= 60 && bpm < 82 && Valid(twice) &&
+                global[c] >= .86f * global[twice] && globalPeriodic[c] >= .90f * globalPeriodic[twice] &&
+                globalPeriodic[c] >= .12f;
+            bool preferBeatOverBar = bpm >= 115 && bpm <= 165 && Valid(quarter) &&
+                global[c] >= .72f * global[quarter] && globalPeriodic[c] >= .55f * globalPeriodic[quarter];
+
+            for (int w = 0; w < windows; w++)
+            {
+                float local = raw[w, c];
+                float localPeriodic = Max(periodicity, w, c, 2);
+                // Ranking priors are deliberately not reported as measured confidence.
+                float score = local + .22f * global[c] + .08f * family;
+                if (barAlias) score -= .18f;
+                if (preferSlower)
+                {
+                    float gate = Math.Clamp((Max(periodicity, w, half, 2) - .035f) / .09f, 0, 1);
+                    score -= .20f * gate;
+                }
+                if (preferThisHalf)
+                {
+                    float gate = Math.Clamp((localPeriodic - .035f) / .09f, 0, 1);
+                    float other = Max(raw, w, twice, 1);
+                    score += (Math.Max(0, other - local + .02f) + .075f) * gate;
+                    // A subdivision confirms a family, not the phase of its slower pulse.
+                    if (phase[w, c] >= .10f)
+                        confidence[w, c] = Math.Max(local, .75f * other * gate);
+                }
+                if (supportedHalf) score += .045f * Math.Clamp(localPeriodic / .13f, 0, 1);
+                if (preferBeatOverBar) score += .10f * Math.Clamp(localPeriodic / .16f, 0, 1);
+                ranking[w, c] = score;
+            }
+        }
+        return new(ranking, confidence, globalPeriodic);
+    }
+
+    private static float Max(float[] values, int index, int radius)
+    {
+        float result = 0;
+        for (int j = Math.Max(0, index - radius); j <= Math.Min(values.Length - 1, index + radius); j++)
+            result = Math.Max(result, values[j]);
+        return result;
+    }
+
+    private static float Max(float[,] values, int window, int index, int radius)
+    {
+        float result = 0;
+        for (int j = Math.Max(0, index - radius); j <= Math.Min(values.GetLength(1) - 1, index + radius); j++)
+            result = Math.Max(result, values[window, j]);
+        return result;
     }
 }

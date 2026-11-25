@@ -165,6 +165,10 @@ internal static partial class Program
             Require(Read("tempo-scores.csv").StartsWith("window,40,40.5,41", StringComparison.Ordinal) &&
                 Read("periodicity-scores.csv").StartsWith("window,40,40.5,41", StringComparison.Ordinal) &&
                 Read("predicted-beats.csv").StartsWith("frame", StringComparison.Ordinal) &&
+                Read("raw-tempo-scores.csv").StartsWith("window,40,40.5,41", StringComparison.Ordinal) &&
+                Read("confidence-scores.csv").StartsWith("window,40,40.5,41", StringComparison.Ordinal) &&
+                Read("phase-scores.csv").StartsWith("window,40,40.5,41", StringComparison.Ordinal) &&
+                Read("beat-evidence.csv").StartsWith("frame,confidence,correction_frames", StringComparison.Ordinal) &&
                 Read("section-attempts.csv").Contains("accepted") &&
                 Read("tap-comparison.csv").Contains(captured.Frame.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                 "Full tempo alternatives, section decisions or tap comparison are missing.");

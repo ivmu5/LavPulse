@@ -8,6 +8,7 @@ internal static class RhythmReportReplay
 {
     public static void Run(string path)
     {
+        Console.WriteLine($"Report: {Path.GetFileName(path)}");
         using var zip = ZipFile.OpenRead(path);
         foreach (var entry in zip.Entries.Where(e => e.FullName.EndsWith("/diagnostics/energy.csv", StringComparison.Ordinal)))
         {
@@ -28,16 +29,27 @@ internal static class RhythmReportReplay
             }
             if (hop <= 0) continue;
             long total = (long)energy.Count * hop;
+            var metadata = zip.GetEntry(prefix + "diagnostics/metadata.txt");
+            if (metadata is not null)
+            {
+                using var metaReader = new StreamReader(metadata.Open());
+                string meta = metaReader.ReadToEnd();
+                var match = System.Text.RegularExpressions.Regex.Match(meta, @"total PCM frames: (\d+)");
+                if (match.Success && long.TryParse(match.Groups[1].Value, CultureInfo.InvariantCulture, out long exact) &&
+                    exact > total - hop && exact <= total) total = exact;
+            }
             var grid = TrackRhythmAnalyzer.AnalyzeEnergy(energy, hop, total);
             if (!TrackRhythmAnalyzer.IsValid(grid, total)) throw new InvalidDataException("Invalid new grid.");
             using var annotations = JsonDocument.Parse(zip.GetEntry(prefix + "annotations.json")!.Open());
             var report = annotations.RootElement[0];
             var taps = report.GetProperty("BeatTaps").EnumerateArray().Select(t => t.GetProperty("Frame").GetInt64()).ToArray();
             var oldBeats = ReadBeats(zip.GetEntry(prefix + "diagnostics/beats.csv")!);
-            int Close(long[] beats) => taps.Count(t => NearestError(beats, t) <= PlaybackFormat.SampleRate / 10);
+            Array.Sort(taps);
+            int Close(long[] beats) => MatchOneToOne(beats, taps, PlaybackFormat.SampleRate / 10);
+            int ClosePredicted = Close(grid.PredictedBeatFrames);
             long covered = grid.Sections.Sum(s => s.EndFrame - s.StartFrame);
             Console.WriteLine(FormattableString.Invariant(
-                $"{report.GetProperty("Title").GetString()}: BPM={grid.Bpm:F1}; coverage={covered / (double)total:P1}; beats {oldBeats.Length}->{grid.BeatFrames.Length}; taps within 100ms {Close(oldBeats)}->{Close(grid.BeatFrames)}/{taps.Length}"));
+                $"{report.GetProperty("Title").GetString()}: BPM={grid.Bpm:F1}; coverage={covered / (double)total:P1}; beats {oldBeats.Length}->{grid.BeatFrames.Length}; one-to-one taps within 100ms {Close(oldBeats)}->{Close(grid.BeatFrames)}/{taps.Length}; predictions {ClosePredicted}/{taps.Length}"));
             foreach (var section in grid.Sections)
                 Console.WriteLine(FormattableString.Invariant($"  {section.StartFrame / (double)PlaybackFormat.SampleRate:F2}–{section.EndFrame / (double)PlaybackFormat.SampleRate:F2}s: {section.Bpm:F1} BPM"));
             foreach (var mark in report.GetProperty("Marks").EnumerateArray())
@@ -57,12 +69,15 @@ internal static class RhythmReportReplay
         return result.ToArray();
     }
 
-    private static long NearestError(long[] beats, long frame)
+    private static int MatchOneToOne(long[] beats, long[] taps, long tolerance)
     {
-        int i = Array.BinarySearch(beats, frame);
-        if (i >= 0) return 0;
-        i = ~i;
-        return Math.Min(i > 0 ? frame - beats[i - 1] : long.MaxValue,
-            i < beats.Length ? beats[i] - frame : long.MaxValue);
+        int i = 0, j = 0, matched = 0;
+        while (i < beats.Length && j < taps.Length)
+        {
+            if (beats[i] < taps[j] - tolerance) i++;
+            else if (taps[j] < beats[i] - tolerance) j++;
+            else { matched++; i++; j++; }
+        }
+        return matched;
     }
 }
