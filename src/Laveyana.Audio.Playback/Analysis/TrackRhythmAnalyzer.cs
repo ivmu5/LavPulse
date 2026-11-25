@@ -485,7 +485,7 @@ public static class TrackRhythmAnalyzer
         var localBeats = new List<long>();
         var supports = new List<bool>();
         var breaks = new List<bool>();
-        var evidence = new List<TrackBeatEstimate>();
+        var beatEstimates = new List<TrackBeatEstimate>();
         double nextPhaseCheck = fromHop;
         int matched = 0, missed = 0;
         while (position * hopFrames < endFrame && localBeats.Count < MaximumBeatFrames - predicted.Count)
@@ -546,7 +546,7 @@ public static class TrackRhythmAnalyzer
                 float beatConfidence = (float)Math.Clamp(.55 * Math.Min(1, strongest / .55) +
                     .45 * quality[window], 0, 1);
                 if (energyBreak) beatConfidence *= .25f;
-                evidence.Add(new(frame, beatConfidence,
+                beatEstimates.Add(new(frame, beatConfidence,
                     (int)Math.Clamp(Math.Round((phaseCorrection + correction) * hopFrames), int.MinValue, int.MaxValue),
                     hit, energyBreak, false));
             }
@@ -580,7 +580,7 @@ public static class TrackRhythmAnalyzer
             for (int i = start; i < end; i++)
             {
                 beats.Add(localBeats[i]);
-                evidence[i] = evidence[i] with { Confirmed = true };
+                beatEstimates[i] = beatEstimates[i] with { Confirmed = true };
             }
         }
         for (int i = 0; i < localBeats.Count;)
@@ -604,7 +604,7 @@ public static class TrackRhythmAnalyzer
         }
         PublishRun(runStart, localBeats.Count);
         bool supported = beats.Count > publishedBefore;
-        predicted.AddRange(evidence);
+        predicted.AddRange(beatEstimates);
         trace?.Attempts.Add(new(firstWindow, endWindow, recoverLocalPhase, meanConfidence, bpm,
             anchorBpm, phaseInHops, startFrame, endFrame, localBeats.Count, matched, useStrong,
             supported ? (beats.Count - publishedBefore < localBeats.Count ? "accepted_with_gaps" : "accepted")
