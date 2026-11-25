@@ -41,6 +41,12 @@
           <uap:FileTypeAssociation Name="mp3">
             <uap:SupportedFileTypes>
               <uap:FileType>.mp3</uap:FileType>
+              <uap:FileType>.wav</uap:FileType>
+              <uap:FileType>.ogg</uap:FileType>
+              <uap:FileType>.oga</uap:FileType>
+              <uap:FileType>.flac</uap:FileType>
+              <uap:FileType>.aac</uap:FileType>
+              <uap:FileType>.m4a</uap:FileType>
             </uap:SupportedFileTypes>
           </uap:FileTypeAssociation>
         </uap:Extension>

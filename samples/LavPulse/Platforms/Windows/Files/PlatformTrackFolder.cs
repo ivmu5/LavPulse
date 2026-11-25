@@ -11,7 +11,7 @@ internal static class PlatformTrackFolder
         var native = owner.Handler?.PlatformView as Microsoft.UI.Xaml.Window
             ?? throw new InvalidOperationException("Окно LavPulse ещё не готово.");
         var picker = new FolderPicker();
-        picker.FileTypeFilter.Add(".mp3");
+        foreach (string extension in TrackFile.SupportedExtensions) picker.FileTypeFilter.Add(extension);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(native));
         var folder = await picker.PickSingleFolderAsync();
         if (folder is null)

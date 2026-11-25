@@ -64,7 +64,9 @@ public sealed class TrackPreparation(string cacheDirectory)
             var track = await Task.Run(async () =>
             {
                 await using var direct = file.OpenReadAsync is { } open ? await open().ConfigureAwait(false) : null;
-                if (direct is not null && CanAnalyzeInPlace(direct))
+                if (direct is not null && CanAnalyzeInPlace(direct) &&
+                    (direct is FileStream || TrackFile.IsMp3(file.Name) ||
+                     Path.GetExtension(file.Name).ToLowerInvariant() is ".wav" or ".ogg" or ".oga"))
                 {
                     return Decode(direct, file, pcmPath, metadata, analysis, token);
                 }
@@ -231,7 +233,7 @@ public sealed class TrackPreparation(string cacheDirectory)
             if (source.CanSeek && (Path.GetExtension(file.Name).ToLowerInvariant() is ".ogg" or ".oga"))
             {
                 try { source.Position = 0; return VorbisSampleDecoder.ReadTags(source, fallback); }
-                catch (Exception ex) when (ex is IOException or ArgumentException or NotSupportedException)
+                catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or NotSupportedException)
                 { System.Diagnostics.Debug.WriteLine(ex.Message); }
             }
             return new TrackMetadata(fallback, null, ReadOnlyMemory<byte>.Empty);

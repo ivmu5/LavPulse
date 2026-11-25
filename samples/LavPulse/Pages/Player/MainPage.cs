@@ -57,6 +57,8 @@ public sealed partial class MainPage : ContentPage
     {
 #if ANDROID
         var preparation = new TrackPreparation(_trackStore.PcmDirectory, AndroidMp3Decoder.Open);
+#elif WINDOWS
+        var preparation = new TrackPreparation(_trackStore.PcmDirectory, WindowsAudioDecoder.Open);
 #else
         var preparation = new TrackPreparation(_trackStore.PcmDirectory);
 #endif
