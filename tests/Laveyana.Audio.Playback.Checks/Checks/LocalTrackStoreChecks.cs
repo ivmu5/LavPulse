@@ -27,20 +27,21 @@ internal static class LocalTrackStoreChecks
         await store.SaveAnalysisAsync(first, ready.Waveform, ready.AudioInfo, ready.Path, default);
         await store.SaveAnalysisAsync(first, scanned.Waveform, scanned.Info, null, default);
 
-        foreach (string version in new[] { "analysis-v1", "analysis-v2", "analysis-v3", "analysis-v4", "analysis-v5", "analysis-v6" })
+        foreach (string version in new[] { "analysis-v1", "analysis-v2", "analysis-v3", "analysis-v4", "analysis-v5", "analysis-v6", "analysis-v7" })
         {
             var path = Path.Combine(root, version);
             Directory.CreateDirectory(path);
             await File.WriteAllTextAsync(Path.Combine(path, "legacy.json"), "{}");
         }
-        var obsolete = Path.Combine(root, "analysis-v6");
+        var obsolete = Path.Combine(root, "analysis-v7");
         var reopened = new LocalTrackStore(root);
         var (tracks, current) = await reopened.ReadQueueAsync(default);
         Require(!Directory.Exists(obsolete) && !Directory.Exists(Path.Combine(root, "analysis-v1")) &&
             !Directory.Exists(Path.Combine(root, "analysis-v2")) &&
             !Directory.Exists(Path.Combine(root, "analysis-v3")) &&
             !Directory.Exists(Path.Combine(root, "analysis-v4")) &&
-            !Directory.Exists(Path.Combine(root, "analysis-v5")),
+            !Directory.Exists(Path.Combine(root, "analysis-v5")) &&
+            !Directory.Exists(Path.Combine(root, "analysis-v6")),
             "Old analysis manifests were not discarded on upgrade.");
         Require(tracks.Select(file => file.Name).SequenceEqual(["second.mp3", "first.mp3"]) &&
             ReferenceEquals(current, tracks[1]), "Queue order or current track changed after reopening.");
@@ -85,7 +86,7 @@ internal static class LocalTrackStoreChecks
         Console.WriteLine("OK: durable track copies, queue restore, saved waveform reuse and ordered analysis.");
         Console.WriteLine("OK: track storage sizes, including analysis and PCM cache eviction.");
 
-        long AnalysisBytes(TrackFile file) => new FileInfo(Path.Combine(root, "analysis-v7",
+        long AnalysisBytes(TrackFile file) => new FileInfo(Path.Combine(root, "analysis-v8",
             Path.GetFileNameWithoutExtension(file.LocalPath) + ".json")).Length;
     }
 

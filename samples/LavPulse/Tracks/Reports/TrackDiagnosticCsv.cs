@@ -37,6 +37,8 @@ internal static class TrackDiagnosticCsv
         {
             await Write(zip, prefix + "beats.csv", Rows("frame",
                 grid.BeatFrames.Select(Frame)), token).ConfigureAwait(false);
+            await Write(zip, prefix + "predicted-beats.csv", Rows("frame",
+                grid.PredictedBeatFrames.Select(Frame)), token).ConfigureAwait(false);
             await Write(zip, prefix + "transients.csv", Rows("frame",
                 grid.TransientFrames.Select(Frame)), token).ConfigureAwait(false);
             await Write(zip, prefix + "sections.csv",
@@ -50,6 +52,8 @@ internal static class TrackDiagnosticCsv
         {
             await Write(zip, prefix + "tempo-scores.csv", TempoRows(trace, scores), token).ConfigureAwait(false);
         }
+        if (trace.PeriodicityScores is { } periodicity)
+            await Write(zip, prefix + "periodicity-scores.csv", TempoRows(trace, periodicity), token).ConfigureAwait(false);
         await Write(zip, prefix + "section-attempts.csv", Rows(
             "first_window,end_window_exclusive,recovery,mean_confidence,bpm,anchor_bpm,phase_hops,start_frame,end_frame_exclusive,beats,matched,strong_onsets,decision",
             trace.Attempts.Select(a => FormattableString.Invariant(

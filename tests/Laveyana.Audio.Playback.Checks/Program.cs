@@ -6,8 +6,13 @@ internal static partial class Program
     private const int PauseFrames = Rate * 300 / 1000;
     private const int BlockSize = PlaybackFormat.BlockFrames;
 
-    private static async Task Main()
+    private static async Task Main(string[] args)
     {
+        if (args is ["--rhythm-report", var archive])
+        {
+            RhythmReportReplay.Run(archive);
+            return;
+        }
         string directory = Directory.CreateTempSubdirectory("lavpulse-checks-").FullName;
         try
         {

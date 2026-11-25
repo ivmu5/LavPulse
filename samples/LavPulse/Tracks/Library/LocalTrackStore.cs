@@ -14,7 +14,7 @@ internal sealed partial class LocalTrackStore(string root)
     private readonly Dictionary<(string Id, string Name, string Folder), StoredLibraryTrack> _library = new();
     private readonly SemaphoreSlim _analysisWrites = new(1);
     private string MediaDirectory => Path.Combine(root, "media");
-    private string AnalysisDirectory => Path.Combine(root, "analysis-v7");
+    private string AnalysisDirectory => Path.Combine(root, "analysis-v8");
     private string QueuePath => Path.Combine(root, "queue.json");
     public string PcmDirectory => Path.Combine(root, "pcm-v1");
 
@@ -82,9 +82,9 @@ internal sealed partial class LocalTrackStore(string root)
 
     public async Task<(TrackFile[] Tracks, TrackFile? Current)> ReadQueueAsync(CancellationToken token)
     {
-        // Version 7 retries rejected coherent rhythm sections with independent local phase anchors.
+        // Version 8 adds multiband tempo evidence, octave handling and local gap validation.
         // MP3s, queue and PCM cache remain intact; only previous analysis manifests are removed.
-        foreach (string version in new[] { "analysis-v1", "analysis-v2", "analysis-v3", "analysis-v4", "analysis-v5", "analysis-v6" })
+        foreach (string version in new[] { "analysis-v1", "analysis-v2", "analysis-v3", "analysis-v4", "analysis-v5", "analysis-v6", "analysis-v7" })
         {
             try { Directory.Delete(Path.Combine(root, version), recursive: true); }
             catch (DirectoryNotFoundException) { }
