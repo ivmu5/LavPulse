@@ -378,8 +378,9 @@ public static class TrackRhythmAnalyzer
         for (int i = 0; i < sections.Count; i++)
         {
             var section = sections[i];
-            int first = Math.Clamp((int)Math.Ceiling(section.StartFrame / (double)(stride * framesPerHop)), 0, slices - 1);
-            int end = Math.Clamp((int)Math.Floor((section.EndFrame - 1) / (double)(stride * framesPerHop)), first, slices - 1);
+            double windowFrames = (double)stride * framesPerHop;
+            int first = Math.Clamp((int)Math.Ceiling(section.StartFrame / windowFrames), 0, slices - 1);
+            int end = Math.Clamp((int)Math.Floor((section.EndFrame - 1) / windowFrames), first, slices - 1);
             int[] counts = new int[5];
             for (int w = first; w <= end; w++)
             {
@@ -752,7 +753,8 @@ public static class TrackRhythmAnalyzer
                         if (alternative.Count < Math.Max(4, Math.Ceiling(original.Length * .80)) ||
                             supported < Math.Ceiling(alternative.Count * .55) || longest > 2) continue;
                         score /= alternative.Count;
-                        if (score >= .25 && score >= originalScore - .03)
+                        if (score >= .25 && score >= originalScore - .03 &&
+                            alternative.Count(e => e.MatchedOnset) >= Math.Ceiling(alternative.Count * .55))
                             options.Add(new(alternative.ToArray(), score, shift));
                     }
                 }
@@ -905,7 +907,7 @@ public static class TrackRhythmAnalyzer
             int steps = (int)Math.Round(distance / period);
             double error = Math.Abs(distance / period - steps);
             if (steps < 2 || steps > 48 || error > .38 ||
-                error / steps > .06 ||
+                (error > .24 && error / steps > .06) ||
                 distance / PlaybackFormat.SampleRate > 14 ||
                 predicted.Count + added.Count + steps > MaximumBeatFrames)
             {

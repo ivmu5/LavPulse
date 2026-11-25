@@ -16,6 +16,7 @@ internal static class TrackPreparationChecks
         CheckAlternatePhaseEvidence();
         CheckContinuityAcrossBreaks();
         CheckMetricHierarchy();
+        CheckWeakOpeningEvidence();
         var input = TrackFile.FromStream("fixture.mp3", () => Task.FromResult<Stream>(CreateMp3()));
         var original = await new TrackPreparation(directory).ImportAsync(input, CancellationToken.None);
         byte[] expected = await File.ReadAllBytesAsync(original.Path);
@@ -575,6 +576,22 @@ internal static class TrackPreparationChecks
         Require(root is null && rank[0, 180] > rank[0, 50],
             "A clear 130 BPM kick grid was incorrectly interpreted as a slow root.");
         Console.WriteLine("OK: corroborated metric roots, subdivisions and strong tempo preservation.");
+    }
+
+    private static void CheckWeakOpeningEvidence()
+    {
+        const int rate = 100;
+        var energy = Enumerable.Repeat(new RhythmEnergy(.02f, .015f, .01f), 4000).ToArray();
+        for (int i = 25; i < energy.Length - 1; i += 50)
+            energy[i] = i < 600 ? new(.022f, .017f, .011f) : new(.8f, .45f, .2f);
+        var bands = new RhythmBandEvidence(energy, rate, CancellationToken.None);
+        Require(bands.IsWeakOpening(250) && !bands.IsWeakOpening(950),
+            "Relative opening gate did not distinguish very weak attacks from established rhythm.");
+        var quiet = energy.Select(e => new RhythmEnergy(e.Low * .004f, e.Mid * .004f, e.High * .004f)).ToArray();
+        var quietBands = new RhythmBandEvidence(quiet, rate, CancellationToken.None);
+        Require(quietBands.IsWeakOpening(250) && !quietBands.IsWeakOpening(950),
+            "Relative opening gate depended on absolute track gain.");
+        Console.WriteLine("OK: relative opening salience and quiet-master invariance.");
     }
 
 }
