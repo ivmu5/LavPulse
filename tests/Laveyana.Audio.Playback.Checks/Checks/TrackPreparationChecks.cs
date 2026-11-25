@@ -12,6 +12,7 @@ internal static class TrackPreparationChecks
         CheckDenseTechnoOnsetRhythm();
         CheckRhythmPhaseChanges();
         CheckSlowRhythmAndBreaks();
+        CheckTempoFamilyRanking();
         var input = TrackFile.FromStream("fixture.mp3", () => Task.FromResult<Stream>(CreateMp3()));
         var original = await new TrackPreparation(directory).ImportAsync(input, CancellationToken.None);
         byte[] expected = await File.ReadAllBytesAsync(original.Path);
@@ -456,6 +457,44 @@ internal static class TrackPreparationChecks
         Require(grid.BeatFrames.All(frame => grid.Sections.Any(section => frame >= section.StartFrame && frame < section.EndFrame)),
             "A confirmed beat escaped its verified section.");
         Console.WriteLine("OK: slow rhythmic claps and unsupported breakdown suppression.");
+    }
+
+    private static void CheckTempoFamilyRanking()
+    {
+        const int n = 401, windows = 20;
+        var raw = new float[windows, n];
+        var periodic = new float[windows, n];
+        var phase = new float[windows, n];
+        void Set(double bpm, float score, float correlation, float coherence)
+        {
+            int c = (int)((bpm - 40) * 2);
+            for (int w = 0; w < windows; w++)
+            {
+                raw[w, c] = score;
+                periodic[w, c] = correlation;
+                phase[w, c] = coherence;
+            }
+        }
+        Set(40, .39f, .34f, .22f);
+        Set(80, .31f, .26f, .18f);
+        Set(160, .34f, .28f, .25f);
+        var result = RhythmTempoFamily.Resolve(raw, periodic, phase, 40, .5);
+        Require(result.Ranking[0, 240] > result.Ranking[0, 0] &&
+            result.Ranking[0, 240] > result.Ranking[0, 80] && raw[0, 0] == .39f,
+            "A bar-length alias displaced a corroborated faster pulse or mutated raw evidence.");
+        Array.Clear(raw); Array.Clear(periodic); Array.Clear(phase);
+        Set(83.5, .22f, .15f, .19f);
+        Set(167, .38f, .19f, .40f);
+        result = RhythmTempoFamily.Resolve(raw, periodic, phase, 40, .5);
+        Require(result.Ranking[0, 87] > result.Ranking[0, 254] &&
+            result.Confidence[0, 87] <= .38f,
+            "A corroborated half-time pulse could not compete or ranking inflated confidence.");
+        Array.Clear(raw); Array.Clear(periodic); Array.Clear(phase);
+        Set(48, .9f, .8f, .9f);
+        result = RhythmTempoFamily.Resolve(raw, periodic, phase, 40, .5);
+        Require(result.Ranking[0, 16] > result.Ranking[0, 112],
+            "A genuine slow pulse was suppressed without evidence of a faster alias.");
+        Console.WriteLine("OK: independent octave decisions, bar aliases, true slow pulse and separate confidence.");
     }
 
 }

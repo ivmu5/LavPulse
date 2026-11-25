@@ -39,6 +39,10 @@ internal static class TrackDiagnosticCsv
                 grid.BeatFrames.Select(Frame)), token).ConfigureAwait(false);
             await Write(zip, prefix + "predicted-beats.csv", Rows("frame",
                 grid.PredictedBeatFrames.Select(Frame)), token).ConfigureAwait(false);
+            await Write(zip, prefix + "beat-evidence.csv", Rows(
+                "frame,confidence,correction_frames,matched_onset,energy_break,confirmed",
+                grid.BeatEstimates.Select(e => FormattableString.Invariant(
+                    $"{e.Frame},{e.Confidence:R},{e.CorrectionFrames},{(e.MatchedOnset ? 1 : 0)},{(e.EnergyBreak ? 1 : 0)},{(e.Confirmed ? 1 : 0)}"))), token).ConfigureAwait(false);
             await Write(zip, prefix + "transients.csv", Rows("frame",
                 grid.TransientFrames.Select(Frame)), token).ConfigureAwait(false);
             await Write(zip, prefix + "sections.csv",
@@ -52,6 +56,12 @@ internal static class TrackDiagnosticCsv
         {
             await Write(zip, prefix + "tempo-scores.csv", TempoRows(trace, scores), token).ConfigureAwait(false);
         }
+        if (trace.RawTempoScores is { } rawScores)
+            await Write(zip, prefix + "raw-tempo-scores.csv", TempoRows(trace, rawScores), token).ConfigureAwait(false);
+        if (trace.PhaseScores is { } phaseScores)
+            await Write(zip, prefix + "phase-scores.csv", TempoRows(trace, phaseScores), token).ConfigureAwait(false);
+        if (trace.ConfidenceScores is { } confidenceScores)
+            await Write(zip, prefix + "confidence-scores.csv", TempoRows(trace, confidenceScores), token).ConfigureAwait(false);
         if (trace.PeriodicityScores is { } periodicity)
             await Write(zip, prefix + "periodicity-scores.csv", TempoRows(trace, periodicity), token).ConfigureAwait(false);
         await Write(zip, prefix + "section-attempts.csv", Rows(

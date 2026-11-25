@@ -8,9 +8,9 @@ internal static partial class Program
 
     private static async Task Main(string[] args)
     {
-        if (args is ["--rhythm-report", var archive])
+        if (args.Length >= 2 && args[0] == "--rhythm-report")
         {
-            RhythmReportReplay.Run(archive);
+            foreach (string archive in args.Skip(1)) RhythmReportReplay.Run(archive);
             return;
         }
         string directory = Directory.CreateTempSubdirectory("lavpulse-checks-").FullName;
