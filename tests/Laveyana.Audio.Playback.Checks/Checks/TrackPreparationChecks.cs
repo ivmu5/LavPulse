@@ -508,7 +508,7 @@ internal static class TrackPreparationChecks
         for (int i = 20; i < energy.Length - 40; i += 72)
         {
             energy[i] = new(.30f, .03f, .02f);
-            energy[i + 36] = new(.04f, .88f, .72f);
+            energy[i + 36] = new(.30f, .88f, .72f);
         }
         var bands = new RhythmBandEvidence(energy, rate, CancellationToken.None);
         var choice = bands.ChoosePhase(20, 72, 60d * rate / 72, 0, 2400, false);
