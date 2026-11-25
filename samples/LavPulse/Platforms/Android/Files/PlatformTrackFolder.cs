@@ -65,7 +65,7 @@ internal static class PlatformTrackFolder
 
             if (cursor.GetString(2) == DocumentsContract.Document.MimeTypeDir)
                 folders.Add(OpenFolder(resolver, tree, uri, id, name));
-            else if (TrackFile.IsMp3(name))
+            else if (TrackFile.IsSupportedAudio(name))
             {
                 long? size = sizeColumn >= 0 && !cursor.IsNull(sizeColumn) ? cursor.GetLong(sizeColumn) : null;
                 files.Add(TrackFile.FromStream(name, () => Task.FromResult(

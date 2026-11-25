@@ -46,7 +46,7 @@ internal static class Program
     };
 
     private static TrackFile[] ReadPaths(IEnumerable<string> paths) => paths
-        .Where(path => Path.IsPathFullyQualified(path) && TrackFile.IsMp3(path))
+        .Where(path => Path.IsPathFullyQualified(path) && TrackFile.IsSupportedAudio(path))
         .Select(TrackFile.FromPath)
         .ToArray();
 

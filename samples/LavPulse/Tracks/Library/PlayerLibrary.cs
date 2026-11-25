@@ -37,7 +37,7 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
         var included = new HashSet<TrackFile>(queue);
         foreach (var file in files)
         {
-            if (!TrackFile.IsMp3(file.Name)) continue;
+            if (!TrackFile.IsSupportedAudio(file.Name)) continue;
 
             TrackFile canonical;
             if (file.LocalPath is { } path)

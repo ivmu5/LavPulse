@@ -77,7 +77,7 @@ internal static class WindowsTrackDrag
                 if (args.DataView.Contains(TrackPathFormat))
                 {
                     var path = await args.DataView.GetDataAsync(TrackPathFormat) as string;
-                    if (!string.IsNullOrEmpty(path) && TrackFile.IsMp3(path))
+                    if (!string.IsNullOrEmpty(path) && TrackFile.IsSupportedAudio(path))
                     {
                         files = [TrackFile.FromPath(path)];
                     }
@@ -85,7 +85,7 @@ internal static class WindowsTrackDrag
                 else
                 {
                     files = (await args.DataView.GetStorageItemsAsync()).OfType<StorageFile>()
-                        .Where(file => TrackFile.IsMp3(file.Name) && !string.IsNullOrEmpty(file.Path))
+                        .Where(file => TrackFile.IsSupportedAudio(file.Name) && !string.IsNullOrEmpty(file.Path))
                         .Select(file => TrackFile.FromPath(file.Path))
                         .ToArray();
                 }
