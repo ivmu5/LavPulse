@@ -4,7 +4,7 @@
     <!-- Match the minimum Controls dependency of the published shared UI packages.
          Keep the app and all MAUI library projects on the same version. -->
     <MauiVersion>10.0.120</MauiVersion>
-    <LaveyanaMauiUiVersion>0.26.11.2</LaveyanaMauiUiVersion>
+    <LaveyanaMauiUiVersion>0.26.11.3</LaveyanaMauiUiVersion>
     <IsPackable>false</IsPackable>
     <Nullable>enable</Nullable>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">23.0</SupportedOSPlatformVersion>
