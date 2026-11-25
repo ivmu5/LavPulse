@@ -158,6 +158,8 @@ public static class TrackRhythmAnalyzer
             trace.MinimumBpm = MinimumBpm;
             trace.BpmResolution = BpmResolution;
             trace.Attempts.Clear();
+            trace.PhaseAttempts.Clear();
+            trace.BridgeAttempts.Clear();
         }
         if (framesPerHop <= 0) throw new ArgumentOutOfRangeException(nameof(framesPerHop));
         if (totalFrames <= 0 || energy.Count < 16)
@@ -303,11 +305,16 @@ public static class TrackRhythmAnalyzer
             // Low-energy/syncopated music may have weaker attacks, but require
             // corroboration both within this window and across the track.
             bool corroborated = scores[window, bestLast] >= .15f &&
-                periodicity[window, bestLast] >= .085f &&
+                periodicity[window, bestLast] >= .105f &&
                 tempo.TrackPeriodicity[bestLast] >= .085f &&
                 phaseEvidence[window, bestLast] >= .10f;
+            // A high onset-coherence score alone can arise by chance on noise.
+            // Strong phase can rescue changing or isolated tempos; weak phase
+            // must be corroborated by independent band periodicity.
+            bool rhythmicEvidence = periodicity[window, bestLast] >= .105f ||
+                phaseEvidence[window, bestLast] >= .60f && scores[window, bestLast] >= .48f;
             eligibleWindows[window] = hitsPerSlice[window] >= 8 &&
-                (quality[window] >= .28f || corroborated);
+                (quality[window] >= .28f && rhythmicEvidence || corroborated);
             if (window > 0) bestLast = backtrack[window, bestLast];
         }
         // Retain the result of EVERY analysis window, including rejected ones. This
@@ -344,6 +351,9 @@ public static class TrackRhythmAnalyzer
             }
             if (eligible && firstWindow < 0) firstWindow = index;
         }
+
+        RecoverCompatibleGaps(sections, beats, predicted, onsets, bands, hopsPerSecond,
+            framesPerHop, cancellationToken, trace);
 
         if (beats.Count == 0)
             return Empty(transients) with
@@ -479,6 +489,18 @@ public static class TrackRhythmAnalyzer
         }
 
         double fromHop = startFrame / (double)hopFrames;
+        double toHop = endFrame / (double)hopFrames;
+        // Try both parities of a supported subdivision plus nearby phase offsets.
+        // Keep the original phase for strongly coherent kick patterns.
+        var phaseChoice = bands.ChoosePhase(phaseInHops, period, anchorBpm,
+            Math.Max(fromHop, center - radius), Math.Min(toHop, center + radius),
+            useStrong && strongCoherence >= .65);
+        phaseInHops = phaseChoice.Phase;
+        bool alternatePhase = phaseChoice.Alternate;
+        if (alternatePhase) useStrong = false;
+        trace?.PhaseAttempts.Add(new(firstWindow, endWindow, anchorBpm, phaseChoice.OriginalPhase,
+            phaseChoice.Phase, phaseChoice.OriginalScore, phaseChoice.SelectedScore,
+            phaseChoice.Subdivision, alternatePhase));
         double position = phaseInHops + Math.Ceiling((fromHop - phaseInHops) / period) * period;
         int onsetCursor = LowerBound(onsets, fromHop - period);
 
@@ -498,8 +520,10 @@ public static class TrackRhythmAnalyzer
             double phaseCorrection = 0;
             if (position >= nextPhaseCheck)
             {
-                phaseCorrection = LocalPhaseCorrection(onsets, position, spacing, hopsPerSecond,
-                    useStrong, missed, startFrame / (double)hopFrames, endFrame / (double)hopFrames);
+                phaseCorrection = alternatePhase
+                    ? bands.CorrectPhase(position, spacing, fromHop, toHop)
+                    : LocalPhaseCorrection(onsets, position, spacing, hopsPerSecond,
+                        useStrong, missed, fromHop, toHop);
                 position = Math.Max(fromHop, position + phaseCorrection);
                 nextPhaseCheck = position + 2 * hopsPerSecond;
                 if (position * hopFrames >= endFrame) break;
@@ -523,8 +547,16 @@ public static class TrackRhythmAnalyzer
                 strongest = evidence;
                 nearest = onsets[i].Index;
             }
+            if (alternatePhase)
+            {
+                // Use the same multiband evidence that selected this parity.
+                // A louder kick on the opposing parity must not pull it back.
+                var pulse = bands.FindPulse(position, searchRadius);
+                strongest = pulse.Score;
+                nearest = pulse.Hop;
+            }
             double correction = 0;
-            bool hit = strongest >= (useStrong ? .22 : .13);
+            bool hit = strongest >= (alternatePhase ? .30 : useStrong ? .22 : .13);
             if (hit)
             {
                 correction = Math.Clamp((nearest - position) * (missed >= 3 ? .70 : .55),
@@ -554,7 +586,7 @@ public static class TrackRhythmAnalyzer
         }
         // Validate local runs, not the average of an entire song. Predictions
         // remain separate from the confirmed public grid.
-        double minimumSupport = useStrong ? .43 : .33;
+        double minimumSupport = alternatePhase ? .45 : useStrong ? .43 : .35;
         int publishedBefore = beats.Count;
         long halfPeriod = Math.Max(1, (long)Math.Round(30 * PlaybackFormat.SampleRate / bpm));
         int runStart = 0;
@@ -610,6 +642,96 @@ public static class TrackRhythmAnalyzer
             supported ? (beats.Count - publishedBefore < localBeats.Count ? "accepted_with_gaps" : "accepted")
                 : "insufficient_beat_support"));
         return supported;
+    }
+
+    // Bridge only bounded gaps between already confirmed, compatible regions.
+    // Independent periodicity and onsets inside the gap are mandatory.
+    private static void RecoverCompatibleGaps(List<TrackTempoSection> sections, List<long> beats,
+        List<TrackBeatEstimate> predicted, IReadOnlyList<Onset> onsets, RhythmBandEvidence bands,
+        double hopsPerSecond, int hopFrames, CancellationToken token, TrackRhythmTrace? trace)
+    {
+        if (sections.Count < 2) return;
+        var merged = new List<TrackTempoSection>(sections.Count);
+        var added = new List<TrackBeatEstimate>();
+        var replaced = new List<(long Start, long End)>();
+        merged.Add(sections[0]);
+        for (int i = 1; i < sections.Count; i++)
+        {
+            token.ThrowIfCancellationRequested();
+            var left = merged[^1];
+            var right = sections[i];
+            double bpm = (left.Bpm + right.Bpm) / 2;
+            double period = 60d * PlaybackFormat.SampleRate / bpm;
+            long gap = right.StartFrame - left.EndFrame;
+            int li = beats.BinarySearch(left.EndFrame);
+            li = li < 0 ? ~li - 1 : li - 1;
+            int ri = beats.BinarySearch(right.StartFrame);
+            if (ri < 0) ri = ~ri;
+            if (gap < 0 || gap > 12L * PlaybackFormat.SampleRate ||
+                Math.Abs(left.Bpm - right.Bpm) > Math.Max(1.5, bpm * .025) ||
+                li < 0 || ri >= beats.Count || ri <= li)
+            { merged.Add(right); continue; }
+            long first = beats[li], last = beats[ri];
+            double distance = last - first;
+            int steps = (int)Math.Round(distance / period);
+            double error = Math.Abs(distance / period - steps);
+            if (steps < 2 || steps > 48 || error > .24 ||
+                distance / PlaybackFormat.SampleRate > 14 ||
+                predicted.Count + added.Count + steps > MaximumBeatFrames)
+            {
+                trace?.BridgeAttempts.Add(new(first, last, bpm, error, 0, 0, 0, false, "phase_or_length"));
+                merged.Add(right); continue;
+            }
+            double interval = distance / steps;
+            int from = (int)Math.Clamp(first / hopFrames, 0, int.MaxValue);
+            int to = (int)Math.Clamp(last / hopFrames + 1, 0, int.MaxValue);
+            double correlation = bands.Measure(from, to).AtBpm(bpm);
+            var bridge = new List<TrackBeatEstimate>(steps - 1);
+            int supported = 0, consecutiveMisses = 0, maxMisses = 0, troughs = 0;
+            for (int step = 1; step < steps; step++)
+            {
+                double expected = (first + step * interval) / hopFrames;
+                double radius = Math.Min(.19 * interval / hopFrames, .09 * hopsPerSecond);
+                double best = 0, nearest = expected;
+                for (int k = LowerBound(onsets, expected - radius); k < onsets.Count &&
+                    onsets[k].Index <= expected + radius; k++)
+                {
+                    var onset = onsets[k];
+                    double value = onset.Strength * (1 - Math.Abs(onset.Index - expected) / radius);
+                    if (value > best) { best = value; nearest = onset.Index; }
+                }
+                bool hit = best >= .16;
+                bool trough = bands.IsEnergyBreak(expected);
+                if (trough) troughs++;
+                if (hit && !trough) { supported++; consecutiveMisses = 0; }
+                else maxMisses = Math.Max(maxMisses, ++consecutiveMisses);
+                long correction = hit ? (long)Math.Round((nearest - expected) * hopFrames * .4) : 0;
+                long frame = (long)Math.Round(expected * hopFrames) + correction;
+                bridge.Add(new(frame, (float)Math.Clamp(.40 * correlation + .60 * Math.Min(1, best / .6), 0, 1),
+                    (int)correction, hit, trough, true));
+            }
+            bool accepted = troughs == 0 && correlation >= .10 &&
+                supported >= Math.Max(1, Math.Ceiling(bridge.Count * .55)) && maxMisses <= 2;
+            trace?.BridgeAttempts.Add(new(first, last, bpm, error, correlation, bridge.Count, supported,
+                accepted, accepted ? "accepted" : "insufficient_local_evidence"));
+            if (!accepted) { merged.Add(right); continue; }
+            replaced.Add((first, last));
+            added.AddRange(bridge);
+            float confidence = Math.Min(left.Confidence, right.Confidence);
+            merged[^1] = new(left.StartFrame, right.EndFrame, bpm, confidence,
+                LowerBound(onsets, right.EndFrame / (double)hopFrames) -
+                LowerBound(onsets, left.StartFrame / (double)hopFrames),
+                left.MatchedBeats + right.MatchedBeats + supported);
+        }
+        if (added.Count == 0) return;
+        // The original predictions in the gap must not coexist with its replacement.
+        predicted.RemoveAll(e => replaced.Any(g => e.Frame > g.Start && e.Frame < g.End));
+        predicted.AddRange(added);
+        predicted.Sort((a, b) => a.Frame.CompareTo(b.Frame));
+        beats.Clear();
+        beats.AddRange(predicted.Where(e => e.Confirmed).Select(e => e.Frame));
+        sections.Clear();
+        sections.AddRange(merged);
     }
 
     private static double LocalPhaseCorrection(IReadOnlyList<Onset> onsets, double position,

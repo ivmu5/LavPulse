@@ -8,6 +8,7 @@ internal sealed class RhythmBandEvidence
     private readonly float[][] _flux;
     private readonly double[] _bassPrefix;
     private readonly double[] _energyPrefix;
+    private readonly double[][] _fluxPrefix;
 
     public RhythmBandEvidence(IReadOnlyList<RhythmEnergy> energy, double hopsPerSecond, CancellationToken token)
     {
@@ -30,8 +31,16 @@ internal sealed class RhythmBandEvidence
             _flux[1][index] += Rise(now.Mid, before.Mid);
             _flux[2][index] += Rise(now.High, before.High);
         }
-        foreach (var band in _flux)
-            for (int i = 0; i < band.Length; i++) band[i] = MathF.Sqrt(band[i]);
+        _fluxPrefix = new double[3][];
+        for (int band = 0; band < 3; band++)
+        {
+            _fluxPrefix[band] = new double[count + 1];
+            for (int i = 0; i < count; i++)
+            {
+                _flux[band][i] = MathF.Sqrt(_flux[band][i]);
+                _fluxPrefix[band][i + 1] = _fluxPrefix[band][i] + _flux[band][i];
+            }
+        }
     }
 
     private static float Rise(float current, float previous) =>
@@ -71,6 +80,99 @@ internal sealed class RhythmBandEvidence
         for (int lag = 1; lag <= maxLag; lag++)
             maximum[lag] = .55 * maximum[lag] + .15 * sum[lag];
         return new(maximum, rate);
+    }
+
+    internal readonly record struct PhaseChoice(double OriginalPhase, double Phase,
+        double OriginalScore, double SelectedScore, bool Subdivision, bool Alternate);
+
+    // Independent, locally normalized multiband pulse evidence. The high band
+    // participates in ambiguous half-time selection, not in visual kick detection.
+    private double PulseAt(double hop)
+    {
+        int index = (int)Math.Round(hop / _bin);
+        if (index < 0 || index >= _flux[0].Length) return 0;
+        int span = Math.Max(2, (int)Math.Round(_hopsPerSecond * 2 / _bin));
+        double value = 0;
+        for (int b = 0; b < 3; b++)
+        {
+            double mean = Mean(_fluxPrefix[b], index - span, index + span + 1);
+            double flux = _flux[b][index];
+            double normalized = flux / (flux + 3 * mean + 1e-9);
+            value += normalized * (b == 0 ? .27 : b == 1 ? .35 : .38);
+        }
+        return value;
+    }
+
+    public (double Hop, double Score) FindPulse(double hop, double radius)
+    {
+        int start = Math.Max(0, (int)Math.Ceiling((hop - radius) / _bin));
+        int end = Math.Min(_flux[0].Length - 1, (int)Math.Floor((hop + radius) / _bin));
+        double best = 0, selected = hop;
+        for (int i = start; i <= end; i++)
+        {
+            double candidate = i * _bin;
+            double score = PulseAt(candidate) * (1 - .35 * Math.Abs(candidate - hop) / Math.Max(1, radius));
+            if (score > best) { best = score; selected = candidate; }
+        }
+        return (selected, best);
+    }
+
+    private double PhaseScore(double phase, double period, double start, double end)
+    {
+        double sum = 0, squares = 0;
+        int count = 0;
+        double radius = Math.Min(.12 * period, .065 * _hopsPerSecond);
+        for (double hop = phase + Math.Ceiling((start - phase) / period) * period; hop < end; hop += period)
+        {
+            double pulse = FindPulse(hop, radius).Score;
+            sum += pulse;
+            squares += pulse * pulse;
+            count++;
+        }
+        if (count < 4) return 0;
+        double mean = sum / count;
+        double deviation = Math.Sqrt(Math.Max(0, squares / count - mean * mean));
+        return mean - .22 * deviation;
+    }
+
+    public PhaseChoice ChoosePhase(double phase, double period, double bpm, double start,
+        double end, bool strongAnchor)
+    {
+        if (end - start < 4 * period || bpm > 120 || strongAnchor)
+            return new(phase, phase, 0, 0, false, false);
+        var evidence = Measure((int)Math.Floor(start), (int)Math.Ceiling(end));
+        double normal = evidence.AtBpm(bpm), doubled = evidence.AtBpm(bpm * 2);
+        if (normal < .075 || doubled < .10 || doubled < .65 * normal)
+            return new(phase, phase, 0, 0, false, false);
+        double original = PhaseScore(phase, period, start, end);
+        double best = original, selected = phase;
+        // Two parity families, with limited refinement around each.
+        for (int parity = 0; parity < 2; parity++)
+            for (int offset = -2; offset <= 2; offset++)
+            {
+                double candidate = phase + (parity * .5 + offset * .0625) * period;
+                double score = PhaseScore(candidate, period, start, end);
+                if (score > best) { best = score; selected = candidate; }
+            }
+        double difference = Math.Abs(selected - phase);
+        bool alternate = difference >= .30 * period && best >= original + .025 && best >= .25;
+        return new(phase, alternate ? (selected % period + period) % period : phase,
+            original, best, true, alternate);
+    }
+
+    public double CorrectPhase(double position, double spacing, double start, double end)
+    {
+        double first = Math.Max(start, position - 2 * _hopsPerSecond);
+        double last = Math.Min(end, position + 2 * _hopsPerSecond);
+        double original = PhaseScore(position, spacing, first, last);
+        double best = original, delta = 0;
+        for (int i = -2; i <= 2; i++)
+        {
+            double shift = i * .05 * spacing;
+            double score = PhaseScore(position + shift, spacing, first, last);
+            if (score > best + .015) { best = score; delta = shift; }
+        }
+        return delta * .6;
     }
 
     /// <summary>A simultaneous relative loss of bass and overall energy, not an absolute loudness cutoff.</summary>

@@ -69,6 +69,15 @@ internal static class TrackDiagnosticCsv
             trace.Attempts.Select(a => FormattableString.Invariant(
                 $"{a.FirstWindow},{a.EndWindowExclusive},{(a.Recovery ? 1 : 0)},{a.MeanConfidence:R},{a.Bpm:R},{a.AnchorBpm:R},{a.PhaseInHops:R},{a.StartFrame},{a.EndFrame},{a.BeatCount},{a.MatchedBeats},{(a.UsesStrongOnsets ? 1 : 0)},{a.Decision}"))), token).ConfigureAwait(false);
 
+        await Write(zip, prefix + "phase-hypotheses.csv", Rows(
+            "first_window,end_window_exclusive,bpm,original_phase_hops,selected_phase_hops,original_score,best_score,subdivision,alternate",
+            trace.PhaseAttempts.Select(a => FormattableString.Invariant(
+                $"{a.FirstWindow},{a.EndWindowExclusive},{a.Bpm:R},{a.OriginalPhase:R},{a.SelectedPhase:R},{a.OriginalScore:R},{a.SelectedScore:R},{(a.Subdivision ? 1 : 0)},{(a.Alternate ? 1 : 0)}"))), token).ConfigureAwait(false);
+        await Write(zip, prefix + "bridge-attempts.csv", Rows(
+            "start_frame,end_frame,bpm,phase_error_beats,periodicity,predictions,supported,accepted,decision",
+            trace.BridgeAttempts.Select(a => FormattableString.Invariant(
+                $"{a.StartFrame},{a.EndFrame},{a.Bpm:R},{a.PhaseErrorBeats:R},{a.Periodicity:R},{a.Predictions},{a.Supported},{(a.Accepted ? 1 : 0)},{a.Decision}"))), token).ConfigureAwait(false);
+
         // The tap timestamp, uncertainty, original displayed grid context and
         // optional version remain in annotations.json. Compare the raw frame
         // to the newly analyzed grid without modifying the tap itself.

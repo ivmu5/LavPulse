@@ -13,6 +13,8 @@ internal static class TrackPreparationChecks
         CheckRhythmPhaseChanges();
         CheckSlowRhythmAndBreaks();
         CheckTempoFamilyRanking();
+        CheckAlternatePhaseEvidence();
+        CheckContinuityAcrossBreaks();
         var input = TrackFile.FromStream("fixture.mp3", () => Task.FromResult<Stream>(CreateMp3()));
         var original = await new TrackPreparation(directory).ImportAsync(input, CancellationToken.None);
         byte[] expected = await File.ReadAllBytesAsync(original.Path);
@@ -495,6 +497,51 @@ internal static class TrackPreparationChecks
         Require(result.Ranking[0, 16] > result.Ranking[0, 112],
             "A genuine slow pulse was suppressed without evidence of a faster alias.");
         Console.WriteLine("OK: independent octave decisions, bar aliases, true slow pulse and separate confidence.");
+    }
+
+    private static void CheckAlternatePhaseEvidence()
+    {
+        const int rate = 100;
+        var energy = Enumerable.Repeat(new RhythmEnergy(.04f, .03f, .02f), 2400).ToArray();
+        // Two parity candidates: weak bass events on the first, recurring
+        // mid/high accents on the second. No user taps enter the decision.
+        for (int i = 20; i < energy.Length - 40; i += 72)
+        {
+            energy[i] = new(.30f, .03f, .02f);
+            energy[i + 36] = new(.30f, .88f, .72f);
+        }
+        var bands = new RhythmBandEvidence(energy, rate, CancellationToken.None);
+        var choice = bands.ChoosePhase(20, 72, 60d * rate / 72, 0, 2400, false);
+        Require(choice.Subdivision && choice.Alternate &&
+            Math.Abs(choice.Phase - 56) <= 8,
+            "Corroborated alternative parity was not evaluated correctly.");
+        var protectedAnchor = bands.ChoosePhase(20, 72, 60d * rate / 72, 0, 2400, true);
+        Require(!protectedAnchor.Alternate && protectedAnchor.Phase == 20,
+            "A strongly coherent anchor was overwritten by an alternate parity.");
+        Console.WriteLine("OK: independent phase parity and strong-anchor preservation.");
+    }
+
+    private static void CheckContinuityAcrossBreaks()
+    {
+        const int hop = PlaybackFormat.SampleRate / 100;
+        var energy = Enumerable.Repeat(new RhythmEnergy(.04f, .03f, .02f), 9000).ToArray();
+        for (int i = 25; i < energy.Length - 25; i += 50)
+        {
+            if (i >= 4000 && i < 4900) continue;
+            energy[i] = i >= 1900 && i < 2300
+                ? new RhythmEnergy(.08f, .34f, .12f)
+                : new RhythmEnergy(.88f, .45f, .23f);
+        }
+        var trace = new TrackRhythmTrace();
+        var grid = TrackRhythmAnalyzer.AnalyzeEnergy(energy, hop, (long)energy.Length * hop, trace: trace);
+        Require(TrackRhythmAnalyzer.IsValid(grid, (long)energy.Length * hop) &&
+            grid.HasBeatGrid && !grid.BeatFrames.Any(f => f >= 42L * PlaybackFormat.SampleRate &&
+                f < 47L * PlaybackFormat.SampleRate),
+            "Continuity recovery accepted a real silent breakdown or produced invalid predictions.");
+        Require(grid.BeatFrames.Any(f => f >= 19L * PlaybackFormat.SampleRate &&
+                f < 23L * PlaybackFormat.SampleRate),
+            "A weaker but periodic region lost every confirmed beat.");
+        Console.WriteLine("OK: continuity across weaker attacks without filling a true breakdown.");
     }
 
 }

@@ -72,7 +72,20 @@ internal static class RhythmTempoFamily
                 float local = raw[w, c];
                 float localPeriodic = Max(periodicity, w, c, 2);
                 // Ranking priors are deliberately not reported as measured confidence.
-                float score = local + .22f * global[c] + .08f * family;
+                float score = local + .12f * global[c] + .04f * family + .12f * localPeriodic;
+                // A 3:2 relationship may represent triplets, not a new tempo.
+                // Penalize only the weaker candidate when the other pulse has
+                // both better local periodicity and better original evidence.
+                foreach (double ratio in new[] { 1.5, 2d / 3 })
+                {
+                    int related = Index(bpm * ratio);
+                    if (!Valid(related)) continue;
+                    float relatedPeriodic = Max(periodicity, w, related, 2);
+                    float relatedRaw = Max(raw, w, related, 2);
+                    if (relatedPeriodic >= .13f && relatedPeriodic > 1.4f * localPeriodic &&
+                        relatedRaw > local + .035f)
+                        score -= .045f;
+                }
                 if (barAlias) score -= .18f;
                 if (preferSlower)
                 {
@@ -81,9 +94,13 @@ internal static class RhythmTempoFamily
                 }
                 if (preferThisHalf)
                 {
-                    float gate = Math.Clamp((localPeriodic - .035f) / .09f, 0, 1);
+                    float gate = Math.Clamp((localPeriodic - .055f) / .09f, 0, 1);
                     float other = Max(raw, w, twice, 1);
-                    score += (Math.Max(0, other - local + .02f) + .075f) * gate;
+                    float otherPeriodic = Max(periodicity, w, twice, 2);
+                    // Do not promote an unrelated octave when the doubled
+                    // pulse has no credible evidence in this local window.
+                    if (otherPeriodic < .08f || other < .16f) gate *= .20f;
+                    score += Math.Min(.22f, Math.Max(0, other - local + .02f) + .065f) * gate;
                     // A subdivision confirms a family, not the phase of its slower pulse.
                     if (phase[w, c] >= .10f)
                         confidence[w, c] = Math.Max(local, .75f * other * gate);
