@@ -334,6 +334,9 @@ internal static class LocalTrackStoreChecks
         Require(order.SequenceEqual(["pcm:second.mp3", "scan:first.mp3"]) &&
             lookahead.Update(tracks, allowed: true, tracks) is null,
             "The worker skipped queue priority or repeated completed analysis.");
+        await lookahead.Update([tracks[1]], allowed: true, tracks)!;
+        lookahead.Finish();
+        Require(order.Last() == "pcm:first.mp3", "The next track was not prepared when the queue advanced.");
     }
 
     private static TrackFile Source(string name, byte marker) => new(name, async (output, token) =>
