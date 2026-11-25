@@ -16,7 +16,10 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
     public TrackBeatGrid? Rhythm { get; init; }
 
     /// <summary>Reads PCM in blocks and reduces it to a bounded set of display points.</summary>
-    public static TrackWaveform Analyze(IPcmSource source, CancellationToken token)
+    public static TrackWaveform Analyze(IPcmSource source, CancellationToken token) =>
+        Analyze(source, token, null);
+
+    internal static TrackWaveform Analyze(IPcmSource source, CancellationToken token, TrackRhythmTrace? trace)
     {
         ArgumentNullException.ThrowIfNull(source);
         const int maxPoints = 8192;
@@ -107,7 +110,7 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         var waveform = new TrackWaveform(points.AsReadOnly(), totalFrames, framesPerPoint);
         return waveform with
         {
-            Rhythm = TrackRhythmAnalyzer.AnalyzeEnergy(rhythmEnergy, rhythmHopFrames, totalFrames, token)
+            Rhythm = TrackRhythmAnalyzer.AnalyzeEnergy(rhythmEnergy, rhythmHopFrames, totalFrames, token, trace)
         };
     }
 

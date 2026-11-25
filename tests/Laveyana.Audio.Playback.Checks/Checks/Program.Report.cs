@@ -1,5 +1,7 @@
 using System.IO.Compression;
 using Laveyana.LavPulse.Tracks;
+using Laveyana.Audio.Playback;
+using System.Text.Json;
 
 internal static partial class Program
 {
@@ -121,6 +123,63 @@ internal static partial class Program
             using var bytes = new MemoryStream();
             await audio.CopyToAsync(bytes);
             Require(bytes.ToArray().SequenceEqual(tappedAudio), "Tapping changed the original MP3.");
+        }
+
+        // Reproduce exact numeric traces without a real MP3 or a platform decoder.
+        const int hop = Rate / 100;
+        var energy = Enumerable.Repeat(new RhythmEnergy(.02f, .03f, .01f), 2400).ToArray();
+        for (int i = 20; i < energy.Length; i += 40)
+            energy[i] = new RhythmEnergy(.9f, .48f, .2f);
+        var trace = new TrackRhythmTrace { Decoder = "synthetic" };
+        long total = (long)energy.Length * hop;
+        var traced = TrackRhythmAnalyzer.AnalyzeEnergy(energy, hop, total, default, trace);
+        var untraced = TrackRhythmAnalyzer.AnalyzeEnergy(energy, hop, total);
+        Require(traced.BeatFrames.SequenceEqual(untraced.BeatFrames) &&
+            traced.Sections.SequenceEqual(untraced.Sections) &&
+            trace.Energy.Count == energy.Length && trace.Onsets.Length == traced.CandidateOnsets &&
+            trace.TempoScores is not null && trace.Attempts.Any(a => a.Decision == "accepted"),
+            "Opt-in trace lost evidence or changed the actual analysis.");
+        var wave = new TrackWaveform([], total, hop) { Rhythm = traced };
+        var captured = ManualBeatTap.Capture(traced.BeatFrames[0] + 13, origin, 240, wave, "test-version");
+        Require(captured.NearestBeatFrame == traced.BeatFrames[0] && captured.AppVersion == "test-version",
+            "Manual taps did not preserve frame-accurate observed grid context.");
+        await reports.AppendBeatTapAsync(tapId, "Tapped.mp3", "Tapped techno", "DJ",
+            "SAVED MACHINE ANALYSIS", captured, default);
+        var detailedReports = await reports.ReadAllAsync(default);
+        var diagnosticReport = detailedReports.Single(r => r.Id == tapId);
+        string detailedZip = Path.Combine(root, "detailed.zip");
+        await TrackReportArchive.CreateAsync([diagnosticReport], detailedZip,
+            key => Path.Combine(root, key + ".mp3"), default,
+            (_, _) => Task.FromResult(new TrackDiagnosticSnapshot(wave, null, trace)),
+            "test-version", "test-platform");
+        using (var detailed = ZipFile.OpenRead(detailedZip))
+        {
+            string Read(string name)
+            {
+                using var reader = new StreamReader(detailed.Entries.Single(e => e.FullName.EndsWith("/" + name)).Open());
+                return reader.ReadToEnd();
+            }
+            var rows = Read("energy.csv").Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Require(rows.Length == energy.Length + 1 && rows[1].StartsWith("0,0.02,0.03,0.01"),
+                "Energy envelope was reduced, rounded or exported using locale-dependent numbers.");
+            Require(Read("tempo-scores.csv").Contains("70,70.5,71") &&
+                Read("section-attempts.csv").Contains("accepted") &&
+                Read("tap-comparison.csv").Contains(captured.Frame.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                "Full tempo alternatives, section decisions or tap comparison are missing.");
+            var raw = JsonSerializer.Deserialize(Read("annotations.json"), TrackReportJson.Default.ListTrackIssueReport);
+            Require(raw?.Single().BeatTaps[^1] == captured &&
+                Read("analysis.txt") == "SAVED MACHINE ANALYSIS",
+                "Detailed export changed the recorded analysis or raw manual tap.");
+        }
+        string failedZip = Path.Combine(root, "diagnostic-failure.zip");
+        await TrackReportArchive.CreateAsync([diagnosticReport], failedZip,
+            key => Path.Combine(root, key + ".mp3"), default,
+            (_, _) => Task.FromException<TrackDiagnosticSnapshot>(new InvalidDataException("/private/path")));
+        using (var failed = ZipFile.OpenRead(failedZip))
+        {
+            using var reader = new StreamReader(failed.Entries.Single(e => e.Name == "error.txt").Open());
+            Require(!reader.ReadToEnd().Contains("/private/path") && failed.Entries.Any(e => e.Name == "Tapped.mp3"),
+                "A failed diagnostic pass exposed a path or discarded the original audio.");
         }
 
         await reports.ClearAsync(default);

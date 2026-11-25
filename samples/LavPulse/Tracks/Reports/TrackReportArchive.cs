@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.IO.Compression;
 using System.Text;
+using System.Text.Json;
+using Laveyana.Audio.Playback;
 
 namespace Laveyana.LavPulse.Tracks;
 
@@ -63,7 +65,9 @@ internal static class TrackReportArchive
     }
 
     internal static async Task CreateAsync(IReadOnlyList<TrackIssueReport> reports, string destination,
-        Func<string, string> mp3Path, CancellationToken token)
+        Func<string, string> mp3Path, CancellationToken token,
+        Func<string, CancellationToken, Task<TrackDiagnosticSnapshot>>? analyze = null,
+        string? appVersion = null, string? platform = null)
     {
         if (reports.Count == 0) throw new InvalidOperationException("Отчёт пуст. Нет сохранённых треков.");
         // Fail before writing the ZIP if a track disappeared or the selected SD card was removed.
@@ -86,8 +90,12 @@ internal static class TrackReportArchive
             {
                 await WriteText(zip, "README.txt",
                     "LavPulse diagnostic bundle. Includes the original MP3 files explicitly selected by the user.\n" +
-                    "Each track folder contains comments.txt, analysis.txt and original MP3 bytes.\n" +
-                    "No file-system paths are included; this ZIP is not uploaded automatically.\n", token);
+                    "Bundle schema: 2. Each track folder contains recorded analysis, comments, exact annotations and original MP3 bytes.\n" +
+                    "diagnostics/ contains a fresh export-time analysis, not necessarily the historical grid.\n" +
+                    "PCM frame coordinates are at 48000 Hz; the 10 ms envelope contains filter-band mean absolute amplitudes, not instrument stems.\n" +
+                    "Tap positions are approximate human observations, never ground truth.\n" +
+                    "No system file paths or device identifiers are intentionally included; this ZIP is not uploaded automatically.\n" +
+                    $"App version: {appVersion ?? "unknown"}; platform: {platform ?? "unknown"}; exported UTC: {DateTimeOffset.UtcNow:O}\n", token);
                 for (int i = 0; i < reports.Count; i++)
                 {
                     token.ThrowIfCancellationRequested();
@@ -100,6 +108,33 @@ internal static class TrackReportArchive
                             : string.Join(Environment.NewLine, report.Marks.Select(RenderMark)), token);
                     await WriteText(zip, baseName + "manual-beat-taps.txt",
                         RenderBeatTaps(report.BeatTaps ?? []), token);
+                    // Preserve exact original annotations including older reports
+                    // whose diagnostic snapshot fields are unavailable.
+                    var annotations = JsonSerializer.Serialize(new List<TrackIssueReport>
+                    {
+                        report with { Analysis = "" }
+                    }, TrackReportJson.Default.ListTrackIssueReport);
+                    await WriteText(zip, baseName + "annotations.json", annotations, token);
+                    if (analyze is not null)
+                    {
+                        TrackDiagnosticSnapshot? snapshot = null;
+                        try
+                        {
+                            snapshot = await analyze(audioFiles[i], token).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+                        catch (Exception ex) when (ex is IOException or InvalidDataException or
+                            UnauthorizedAccessException or NotSupportedException or InvalidOperationException)
+                        {
+                            // Error messages can contain private absolute file paths.
+                            // Keep original audio and annotations even when a fresh analysis fails.
+                            await WriteText(zip, baseName + "diagnostics/error.txt",
+                                "Fresh analysis unavailable: " + ex.GetType().Name, token);
+                        }
+                        if (snapshot is not null)
+                            await TrackDiagnosticCsv.WriteAsync(zip, baseName + "diagnostics/", report,
+                                snapshot, token).ConfigureAwait(false);
+                    }
                     string originalName = SafeName(report.FileName);
                     var entry = zip.CreateEntry(baseName + originalName, CompressionLevel.NoCompression);
                     await using var input = new FileStream(audioFiles[i], FileMode.Open, FileAccess.Read, FileShare.Read,
