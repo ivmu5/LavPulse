@@ -137,7 +137,7 @@ internal static partial class Program
         Require(traced.BeatFrames.SequenceEqual(untraced.BeatFrames) &&
             traced.Sections.SequenceEqual(untraced.Sections) &&
             trace.Energy.Count == energy.Length && trace.Onsets.Length == traced.CandidateOnsets &&
-            trace.TempoScores is not null && trace.Attempts.Any(a => a.Decision == "accepted"),
+            trace.TempoScores is not null && trace.Attempts.Any(a => a.Decision is "accepted" or "accepted_with_gaps"),
             "Opt-in trace lost evidence or changed the actual analysis.");
         var wave = new TrackWaveform([], total, hop) { Rhythm = traced };
         var captured = ManualBeatTap.Capture(traced.BeatFrames[0] + 13, origin, 240, wave, "test-version");
@@ -162,7 +162,9 @@ internal static partial class Program
             var rows = Read("energy.csv").Split('\n', StringSplitOptions.RemoveEmptyEntries);
             Require(rows.Length == energy.Length + 1 && rows[1].StartsWith("0,0.02,0.03,0.01"),
                 "Energy envelope was reduced, rounded or exported using locale-dependent numbers.");
-            Require(Read("tempo-scores.csv").Contains("70,70.5,71") &&
+            Require(Read("tempo-scores.csv").StartsWith("window,40,40.5,41", StringComparison.Ordinal) &&
+                Read("periodicity-scores.csv").StartsWith("window,40,40.5,41", StringComparison.Ordinal) &&
+                Read("predicted-beats.csv").StartsWith("frame", StringComparison.Ordinal) &&
                 Read("section-attempts.csv").Contains("accepted") &&
                 Read("tap-comparison.csv").Contains(captured.Frame.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                 "Full tempo alternatives, section decisions or tap comparison are missing.");
