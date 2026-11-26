@@ -54,3 +54,12 @@ No global cache reset or new analysis thresholds. CI and actual acceleration rem
 30. Validate transport fade frame count before modifying fade state.
 
 Targeted regressions cover constructor cleanup, cursor bounds and malformed PCM counts. Fixed explicit switch-expression precedence in the prior batch's test. No new playback settings or cache version change. CI for the latest head is pending.
+
+## Sixth batch (passes 31–34)
+
+31. Observe cancellation before allocating band evidence, during flux prefixes and phase choices, including empty input and early-return cases. Reject invalid hop rates; empty input no longer creates a phantom bin.
+32. Deduplicate overlapping integer correlation lags in MeasurePair, preserving band accumulation order and interpolation. Add comparisons with the full correlation for identical, nearby and separated tempos.
+33. Reject invalid meter section tempos and bounds before inferring bar accents; add cancellation checks during long continuity and phase scans. Add NaN-tempo regression.
+34. Reduce tempo compatibility to one logarithm using octave symmetry; preserve the three previous hypotheses to floating-point precision. Add symmetric half/double-tempo checks.
+
+Focused source audit, not an exhaustive repository-wide pass for each number. No cache version, settings, merge or release. New checks require CI; no measured speedup or real-track accuracy claim.

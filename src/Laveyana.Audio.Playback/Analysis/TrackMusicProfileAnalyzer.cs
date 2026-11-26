@@ -109,6 +109,8 @@ public static class TrackMusicProfileAnalyzer
         foreach(var section in rhythm.Sections)
         {
             token.ThrowIfCancellationRequested();
+            if (section is null || !double.IsFinite(section.Bpm) || section.Bpm < 40 || section.Bpm > 240 ||
+                section.StartFrame < 0 || section.EndFrame <= section.StartFrame || section.EndFrame > w.TotalFrames) continue;
             while(cursor<rhythm.BeatFrames.Length&&rhythm.BeatFrames[cursor]<section.StartFrame)cursor++;
             int first=cursor;
             while(cursor<rhythm.BeatFrames.Length&&rhythm.BeatFrames[cursor]<section.EndFrame)cursor++;
@@ -119,8 +121,11 @@ public static class TrackMusicProfileAnalyzer
             double period = 60d * PlaybackFormat.SampleRate / section.Bpm;
             bool discontinuous = false;
             for (int i=first+1; i<cursor; i++)
+            {
+                if ((i & 4095) == 0) token.ThrowIfCancellationRequested();
                 if (Math.Abs((rhythm.BeatFrames[i]-rhythm.BeatFrames[i-1])/period-1) > .35)
                 { discontinuous=true; break; }
+            }
             if(discontinuous)continue;
             var strength=new double[count];
             for(int i=0;i<count;i++)
@@ -146,6 +151,7 @@ public static class TrackMusicProfileAnalyzer
                 sums.Clear(); counts.Clear(); positives.Clear();
                 for(int j=0;j<count;j++)
                 {
+                    if ((j & 4095) == 0) token.ThrowIfCancellationRequested();
                     int phase=j%meter;
                     sums[phase]+=strength[j]; counts[phase]++;
                     if(strength[j]>mean*1.1)positives[phase]++;

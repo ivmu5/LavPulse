@@ -4,6 +4,25 @@ internal static class MusicProfileChecks
 {
     public static void Run()
     {
+        using (var cancelled = new CancellationTokenSource())
+        {
+            cancelled.Cancel();
+            try { _ = new RhythmBandEvidence([],100,cancelled.Token); throw new InvalidOperationException("Cancelled empty band analysis succeeded."); }
+            catch (OperationCanceledException) { }
+            var empty = new RhythmBandEvidence([],100,default);
+            Require(empty.Measure(0,0).Values.Length == 0,"Empty band evidence invented a sample.");
+            try { _ = empty.ChoosePhase(0,50,120,0,100,true,cancelled.Token); throw new InvalidOperationException("Cancelled phase shortcut succeeded."); }
+            catch (OperationCanceledException) { }
+        }
+        var signal = Enumerable.Range(0,1000).Select(i => new RhythmEnergy(i%50==0?1f:0f, i%25==0?.5f:0f,0)).ToArray();
+        var evidence = new RhythmBandEvidence(signal,100,default);
+        var full = evidence.Measure(0,signal.Length);
+        foreach (var pair in new (double A,double B)[] { (120,120),(120,121),(120,125),(40,240) })
+        {
+            var selective = evidence.MeasurePair(0,signal.Length,pair.A,pair.B);
+            Require(Math.Abs(selective.First-full.AtBpm(pair.A))<1e-12 && Math.Abs(selective.Second-full.AtBpm(pair.B))<1e-12,
+                "Shared lag probes changed the periodicity score.");
+        }
         var loud = new TrackLoudnessAnalyzer();
         var quiet = new TrackLoudnessAnalyzer();
         var silence = new TrackLoudnessAnalyzer();
@@ -56,6 +75,9 @@ internal static class MusicProfileChecks
         Require(profile.IsValid(waveform.TotalFrames)&&profile.Meter.Length==1&&
             profile.Meter[0].PulsesPerBar==4&&profile.Meter[0].Downbeats.SequenceEqual(beats.Where((_,i)=>i%4==0)),
             "Distinct repeated accents did not produce the expected meter hypothesis.");
+        var invalidMeter = waveform with { Rhythm = rhythm with { Sections = [rhythm.Sections[0] with { Bpm = double.NaN }] } };
+        Require(TrackMusicProfileAnalyzer.Derive(invalidMeter).Meter.Length == 0,
+            "A nonfinite tempo produced a meter hypothesis.");
         var flat=waveform with{Points=points.Select(_=>new WaveformPoint(.6f,.3f,.2f,.1f)).ToArray()};
         Require(TrackMusicProfileAnalyzer.Derive(flat).Meter.Length==0,"Uniform accents invented a bar.");
         var gapBeats=beats.Where((_,i)=>i!=10).ToArray();
@@ -74,6 +96,13 @@ internal static class MusicProfileChecks
         var withKey=waveform with{MusicalKey=key,MusicProfile=profile with{LocalKeys=[new(0,10000,key)]}};
         var match=MixCompatibilityAnalyzer.Compare(withKey,0,withKey,0);
         Require(match.Score is float score&&score>.99f&&match.Evidence>.99f,"Identical tracks were not compatible.");
+        var halfTempo = new TrackWaveform([], waveform.TotalFrames, hop)
+        {
+            Rhythm = new TrackBeatGrid(62.5,0,.8f,[]) { BeatFrames = [0,46080,92160,138240] }
+        };
+        Require(MixCompatibilityAnalyzer.Compare(withKey,0,halfTempo,0).Tempo is float halfScore && halfScore > .999f &&
+            MixCompatibilityAnalyzer.Compare(halfTempo,0,withKey,0).Tempo is float doubleScore && doubleScore > .999f,
+            "Octave-equivalent tempo compatibility changed.");
         var uncertain=withKey with{MusicProfile=profile with{LocalKeys=[new(0,10000,null)]}};
         Require(MixCompatibilityAnalyzer.Compare(withKey,0,uncertain,0).Harmony is null,
             "An uncertain local key was incorrectly replaced by a global harmony match.");

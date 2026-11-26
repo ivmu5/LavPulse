@@ -12,8 +12,13 @@ public static class MixCompatibilityAnalyzer
             return new(null,0,null,null,null);
         double a=outgoing.Rhythm is {HasBeatGrid:true} ar?ar.BpmAt(outFrame):0;
         double b=incoming.Rhythm is {HasBeatGrid:true} br?br.BpmAt(inFrame):0;
-        float? tempo=double.IsFinite(a)&&double.IsFinite(b)&&a>=40&&a<=240&&b>=40&&b<=240?(float)Math.Clamp(1-Math.Min(Math.Abs(Math.Log2(a/b)),
-            Math.Min(Math.Abs(Math.Log2(2*a/b)),Math.Abs(Math.Log2(a/(2*b)))))*5,0,1):null;
+        float? tempo = null;
+        if (double.IsFinite(a) && double.IsFinite(b) && a >= 40 && a <= 240 && b >= 40 && b <= 240)
+        {
+            // log2(2x) = log2(x) + 1; compare the same three octave hypotheses.
+            double ratio = Math.Abs(Math.Log2(a / b));
+            tempo = (float)Math.Clamp(1 - Math.Min(ratio, Math.Abs(ratio - 1)) * 5, 0, 1);
+        }
         // Do not turn an explicitly uncertain local section into a confident
         // harmonic match by borrowing the global key.
         var ka=KeyForMix(outgoing,outFrame);

@@ -14,9 +14,13 @@ internal sealed class RhythmBandEvidence
 
     public RhythmBandEvidence(IReadOnlyList<RhythmEnergy> energy, double hopsPerSecond, CancellationToken token)
     {
+        token.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(energy);
+        if (!double.IsFinite(hopsPerSecond) || hopsPerSecond <= 0 || hopsPerSecond > int.MaxValue / 16d)
+            throw new ArgumentOutOfRangeException(nameof(hopsPerSecond));
         _hopsPerSecond = hopsPerSecond;
         _bin = Math.Max(1, (int)Math.Round(hopsPerSecond / 50));
-        int count = (energy.Count - 1) / _bin + 1;
+        int count = energy.Count == 0 ? 0 : (energy.Count - 1) / _bin + 1;
         _flux = [new float[count], new float[count], new float[count]];
         _bassPrefix = new double[energy.Count + 1];
         _energyPrefix = new double[energy.Count + 1];
@@ -44,6 +48,7 @@ internal sealed class RhythmBandEvidence
             _fluxPrefix[band] = new double[count + 1];
             for (int i = 0; i < count; i++)
             {
+                if ((i & 4095) == 0) token.ThrowIfCancellationRequested();
                 _flux[band][i] = MathF.Sqrt(_flux[band][i]);
                 _fluxPrefix[band][i + 1] = _fluxPrefix[band][i] + _flux[band][i];
             }
@@ -141,6 +146,15 @@ internal sealed class RhythmBandEvidence
         lags[1] = validFirst ? lags[0]+1 : 0;
         lags[2] = validSecond ? (int)second : 0;
         lags[3] = validSecond ? lags[2]+1 : 0;
+        // Map repeated integer lags to the first occurrence. Nearby or identical
+        // tempos can share both correlation probes without changing interpolation.
+        Span<int> canonical = stackalloc int[4];
+        for (int j = 0; j < lags.Length; j++)
+        {
+            canonical[j] = j;
+            for (int k = 0; k < j; k++)
+                if (lags[k] == lags[j]) { canonical[j] = k; break; }
+        }
         Span<double> maximum = stackalloc double[4], sum = stackalloc double[4];
         maximum.Clear(); sum.Clear();
         foreach (float[] band in _flux)
@@ -159,7 +173,7 @@ internal sealed class RhythmBandEvidence
             for (int j=0;j<lags.Length;j++)
             {
                 int lag=lags[j];
-                if (lag==0) continue;
+                if (lag==0 || canonical[j] != j) continue;
                 token.ThrowIfCancellationRequested();
                 double dot=0;
                 for (int i=start;i<end-lag;i++)
@@ -169,7 +183,8 @@ internal sealed class RhythmBandEvidence
                 maximum[j]=Math.Max(maximum[j],value);
             }
         }
-        for(int j=0;j<4;j++) maximum[j]=.55*maximum[j]+.15*sum[j];
+        for(int j=0;j<4;j++)
+            maximum[j] = canonical[j] == j ? .55*maximum[j]+.15*sum[j] : maximum[canonical[j]];
         return (validFirst ? maximum[0]+(maximum[1]-maximum[0])*(first-lags[0]) : 0,
             validSecond ? maximum[2]+(maximum[3]-maximum[2])*(second-lags[2]) : 0);
     }
@@ -214,7 +229,8 @@ internal sealed class RhythmBandEvidence
     public PhaseChoice ChoosePhase(double phase, double period, double bpm, double start,
         double end, bool strongAnchor, CancellationToken token = default)
     {
-        if (end - start < 4 * period || bpm > 120 || strongAnchor)
+        token.ThrowIfCancellationRequested();
+        if (!double.IsFinite(period) || period <= 0 || end - start < 4 * period || bpm > 120 || strongAnchor)
             return new(phase, phase, 0, 0, false, false);
         var (normal,doubled) = MeasurePair((int)Math.Floor(start), (int)Math.Ceiling(end), bpm, bpm*2, token);
         if (normal < .075 || doubled < .10 || doubled < .65 * normal)
@@ -226,6 +242,7 @@ internal sealed class RhythmBandEvidence
             for (int offset = -2; offset <= 2; offset++)
             {
                 double candidate = phase + (parity * .5 + offset * .0625) * period;
+                token.ThrowIfCancellationRequested();
                 double score = PhaseScore(candidate, period, start, end);
                 if (score > best) { best = score; selected = candidate; }
             }
