@@ -202,6 +202,8 @@ public static class TrackMusicProfileAnalyzer
             w.FramesPerPoint > PlaybackFormat.SampleRate / 10 || w.FramesPerPoint <= 0) return [];
         var result=new List<TrackMeterSection>();
         int cursor=0;
+        Span<double> sums=stackalloc double[4];
+        Span<int> counts=stackalloc int[4], positives=stackalloc int[4];
         foreach(var section in rhythm.Sections)
         {
             token.ThrowIfCancellationRequested();
@@ -230,21 +232,25 @@ public static class TrackMusicProfileAnalyzer
                 }
                 strength[i]=peak;
             }
-            double mean=strength.Average();
+            double totalStrength=strength.Sum();
+            double mean=totalStrength/count;
             if(mean<.015)continue;
             // Compare repeated accents, requiring multiple complete bars.
             (int Meter,int Phase,double Score) best=(0,0,0),second=(0,0,0);
-            foreach(int meter in new[]{3,4})
+            for(int meter=3;meter<=4;meter++)
             {
                 if(count<meter*5)continue;
+                sums.Clear(); counts.Clear(); positives.Clear();
+                for(int j=0;j<count;j++)
+                {
+                    int phase=j%meter;
+                    sums[phase]+=strength[j]; counts[phase]++;
+                    if(strength[j]>mean*1.1)positives[phase]++;
+                }
                 for(int phase=0;phase<meter;phase++)
                 {
-                    double strong=0,weak=0;int ns=0,nw=0,positive=0;
-                    for(int j=0;j<count;j++)
-                    {
-                        if(j%meter==phase){strong+=strength[j];ns++;if(strength[j]>mean*1.1)positive++;}
-                        else{weak+=strength[j];nw++;}
-                    }
+                    double strong=sums[phase],weak=totalStrength-strong;
+                    int ns=counts[phase],nw=count-ns,positive=positives[phase];
                     double score=(strong/ns-weak/nw)/Math.Max(.015,mean)*(positive/(double)ns);
                     if(score>best.Score){second=best;best=(meter,phase,score);}
                     else if(score>second.Score)second=(meter,phase,score);

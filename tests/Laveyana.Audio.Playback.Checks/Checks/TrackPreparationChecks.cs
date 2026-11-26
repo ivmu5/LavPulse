@@ -504,6 +504,12 @@ internal static class TrackPreparationChecks
         result = RhythmTempoFamily.Resolve(raw, periodic, phase, 40, .5);
         Require(result.Ranking[0, 16] > result.Ranking[0, 112],
             "A genuine slow pulse was suppressed without evidence of a faster alias.");
+        Array.Clear(raw); Array.Clear(periodic); Array.Clear(phase);
+        Set(160,.4f,.2f,.3f);
+        result=RhythmTempoFamily.Resolve(raw,periodic,phase,40,.5);
+        // .4 local + .12 global + .04 family + .12 periodic, no unsupported quarter prior.
+        Require(Math.Abs(result.Ranking[0,240]-.488f)<.0001f,
+            "An empty quarter-rate candidate promoted a tempo.");
         Console.WriteLine("OK: independent octave decisions, bar aliases, true slow pulse and separate confidence.");
     }
 
@@ -593,6 +599,12 @@ internal static class TrackPreparationChecks
         var bands = new RhythmBandEvidence(energy, rate, CancellationToken.None);
         Require(bands.IsWeakOpening(250) && !bands.IsWeakOpening(950),
             "Relative opening gate did not distinguish very weak attacks from established rhythm.");
+        using (var cancelled = new CancellationTokenSource())
+        {
+            cancelled.Cancel();
+            try { bands.Measure(0,4000,cancelled.Token); throw new InvalidOperationException("Periodicity ignored cancellation."); }
+            catch (OperationCanceledException) { }
+        }
         var quiet = energy.Select(e => new RhythmEnergy(e.Low * .004f, e.Mid * .004f, e.High * .004f)).ToArray();
         var quietBands = new RhythmBandEvidence(quiet, rate, CancellationToken.None);
         Require(quietBands.IsWeakOpening(250) && !quietBands.IsWeakOpening(950),

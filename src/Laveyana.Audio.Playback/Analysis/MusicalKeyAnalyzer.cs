@@ -18,7 +18,8 @@ internal sealed class MusicalKeyAnalyzer
     private static readonly Complex[] Twiddles = Enumerable.Range(0, Size / 2)
         .Select(i => Complex.FromPolarCoordinates(1, -Math.Tau * i / Size)).ToArray();
 
-    private readonly int _rate;
+    private readonly double _binHz;
+    private readonly int _firstBin, _endBin;
     private readonly double _coefficient;
     private readonly Complex[] _fft = new Complex[Size];
     private readonly double[] _power = new double[Size / 2];
@@ -35,7 +36,9 @@ internal sealed class MusicalKeyAnalyzer
     public MusicalKeyAnalyzer(int sampleRate)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
-        _rate = sampleRate;
+        _binHz = sampleRate / (double)(Decimation * Size);
+        _firstBin = Math.Max(2, (int)Math.Ceiling(55 / _binHz));
+        _endBin = Math.Min(Size / 2 - 1, (int)Math.Floor(2200 / _binHz));
         _coefficient = 1 - Math.Exp(-Math.Tau * Math.Min(2200, sampleRate / 12d) / sampleRate);
     }
 
@@ -67,9 +70,8 @@ internal sealed class MusicalKeyAnalyzer
     {
         _total++;
         Transform();
-        double binHz = _rate / (double)(Decimation * Size);
-        int first = Math.Max(2, (int)Math.Ceiling(55 / binHz));
-        int end = Math.Min(Size / 2 - 1, (int)Math.Floor(2200 / binHz));
+        double binHz = _binHz;
+        int first = _firstBin, end = _endBin;
         if (end <= first) return;
         double total = 0, maximum = 0;
         for (int i = first - 1; i <= end; i++)
@@ -133,9 +135,22 @@ internal sealed class MusicalKeyAnalyzer
     private static TrackMusicalKey? Estimate(double[] chroma, int tonal, int total)
     {
         if (tonal < 3 || tonal < total * .15) return null;
-        double largest = chroma.Max();
-        if (chroma.Count(v => v >= largest * .12) < 3) return null;
-        var normalized = Normalize(chroma);
+        double largest = 0, mean = 0;
+        foreach (double value in chroma) { largest = Math.Max(largest,value); mean += value; }
+        mean /= chroma.Length;
+        int pitches = 0;
+        double square = 0;
+        Span<double> normalized = stackalloc double[12];
+        for (int i=0;i<12;i++)
+        {
+            if (chroma[i] >= largest*.12) pitches++;
+            double value = chroma[i]-mean;
+            normalized[i]=value;
+            square+=value*value;
+        }
+        if (pitches<3 || square<=0 || !double.IsFinite(square)) return null;
+        double scale=Math.Sqrt(square);
+        for (int i=0;i<12;i++) normalized[i]/=scale;
         double best = -2, second = -2;
         int tonic = 0, mode = 0;
         for (int m = 0; m < 2; m++)

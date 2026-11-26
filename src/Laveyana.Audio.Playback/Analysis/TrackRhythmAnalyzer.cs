@@ -291,7 +291,7 @@ public static class TrackRhythmAnalyzer
             weights[window] = totalWeight;
             strongWeights[window] = strongWeight;
             useAccents[window] = strongSquares > 0 && strongWeight * strongWeight / strongSquares >= 5;
-            correlations[window] = bands.Measure(center - radius, center + radius + 1);
+            correlations[window] = bands.Measure(center - radius, center + radius + 1, cancellationToken);
         }
 
         // Compute each onset's complex contribution once per candidate, then
@@ -598,7 +598,7 @@ public static class TrackRhythmAnalyzer
         // Keep the original phase for strongly coherent kick patterns.
         var phaseChoice = bands.ChoosePhase(phaseInHops, period, anchorBpm,
             Math.Max(fromHop, center - radius), Math.Min(toHop, center + radius),
-            useStrong && strongCoherence >= .65);
+            useStrong && strongCoherence >= .65, token);
         phaseInHops = phaseChoice.Phase;
         bool alternatePhase = phaseChoice.Alternate;
         if (alternatePhase) useStrong = false;
@@ -871,7 +871,7 @@ public static class TrackRhythmAnalyzer
             if (section.Bpm <= 120 && hasNeighbor)
             {
                 var correlation = bands.Measure((int)(section.StartFrame / hopFrames),
-                    (int)Math.Ceiling(section.EndFrame / (double)hopFrames));
+                    (int)Math.Ceiling(section.EndFrame / (double)hopFrames), token);
                 double normal = correlation.AtBpm(section.Bpm);
                 double doubled = correlation.AtBpm(section.Bpm * 2);
                 if (normal >= .075 && doubled >= .10 && doubled >= .65 * normal)
@@ -1002,13 +1002,17 @@ public static class TrackRhythmAnalyzer
                 if (pulse.Score < .35) break;
                 long correction = (long)Math.Round((pulse.Hop - expected) * hopFrames * .45);
                 long frame = (long)Math.Round(expected * hopFrames) + correction;
-                if (frame >= limit || frame < section.EndFrame) break;
+                if (frame >= limit) break;
+                // A supported extrapolated beat can still lie inside the
+                // previous section's trailing half-window. Continue probing
+                // rather than rejecting the entire extension at this boundary.
+                if (frame < section.EndFrame) continue;
                 tail.Add(new(frame, (float)Math.Clamp(.6 * pulse.Score + .4 * section.Confidence, 0, 1),
                     (int)correction, true, false, true));
             }
             if (tail.Count < 3 || predicted.Count + added.Count + tail.Count > MaximumBeatFrames) continue;
             double q = bands.Measure((int)(anchor / hopFrames),
-                (int)Math.Ceiling(tail[^1].Frame / (double)hopFrames)).AtBpm(section.Bpm);
+                (int)Math.Ceiling(tail[^1].Frame / (double)hopFrames), token).AtBpm(section.Bpm);
             if (q < .15) continue;
             long end = Math.Min(limit, tail[^1].Frame + (long)(period / 2) + 1);
             replaced.Add((section.EndFrame, end));
@@ -1018,11 +1022,29 @@ public static class TrackRhythmAnalyzer
                     LowerBound(onsets, section.StartFrame / (double)hopFrames) };
         }
         if (added.Count == 0) return;
-        predicted.RemoveAll(e => replaced.Any(g => e.Frame >= g.Start && e.Frame < g.End));
+        RemoveReplacedPredictions(predicted, replaced, includeStart: true);
         predicted.AddRange(added);
         predicted.Sort((a, b) => a.Frame.CompareTo(b.Frame));
         beats.Clear();
         beats.AddRange(predicted.Where(e => e.Confirmed).Select(e => e.Frame));
+    }
+
+    private static void RemoveReplacedPredictions(List<TrackBeatEstimate> predicted,
+        List<(long Start, long End)> ranges, bool includeStart)
+    {
+        // Ranges are generated in chronological order, but callers may have
+        // unsorted predictions. Binary search does not depend on their order.
+        predicted.RemoveAll(e =>
+        {
+            int lo = 0, hi = ranges.Count;
+            while (lo < hi)
+            {
+                int mid = lo + (hi - lo) / 2;
+                if (ranges[mid].End <= e.Frame) lo = mid + 1;
+                else hi = mid;
+            }
+            return lo < ranges.Count && (includeStart ? e.Frame >= ranges[lo].Start : e.Frame > ranges[lo].Start);
+        });
     }
 
     // Bridge only bounded gaps between already confirmed, compatible regions.
@@ -1067,7 +1089,7 @@ public static class TrackRhythmAnalyzer
             double interval = distance / steps;
             int from = (int)Math.Clamp(first / hopFrames, 0, int.MaxValue);
             int to = (int)Math.Clamp(last / hopFrames + 1, 0, int.MaxValue);
-            double correlation = bands.Measure(from, to).AtBpm(bpm);
+            double correlation = bands.Measure(from, to, token).AtBpm(bpm);
             var bridge = new List<TrackBeatEstimate>(steps - 1);
             int supported = 0, consecutiveMisses = 0, maxMisses = 0, troughs = 0;
             for (int step = 1; step < steps; step++)
@@ -1109,7 +1131,7 @@ public static class TrackRhythmAnalyzer
         }
         if (added.Count == 0) return;
         // The original predictions in the gap must not coexist with its replacement.
-        predicted.RemoveAll(e => replaced.Any(g => e.Frame > g.Start && e.Frame < g.End));
+        RemoveReplacedPredictions(predicted, replaced, includeStart: false);
         predicted.AddRange(added);
         predicted.Sort((a, b) => a.Frame.CompareTo(b.Frame));
         beats.Clear();
