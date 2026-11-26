@@ -365,6 +365,15 @@ internal static class LocalTrackStoreChecks
         Require(!File.Exists(caches[0].Path) && File.Exists(caches[1].Path) &&
             File.Exists(caches[2].Path) && !File.Exists(caches[3].Path),
             "Startup retained played or distant PCM, or deleted an occupied/preloaded track.");
+        store.ClaimRestoredPcm(files[1]);
+        // A queue edit before the retained next track is opened must release its
+        // disk cache as well; it has no in-memory prepared entry yet.
+        var removed = store.TakeUnclaimedPcm([files[1]]);
+        Require(removed.Count == 1 && removed[0].Pcm == caches[2].Path,
+            "Unclaimed startup PCM escaped the changed retention horizon.");
+        foreach (var (file, pcm) in removed) store.EvictPcm(file, pcm);
+        Require(!File.Exists(caches[2].Path) && File.Exists(caches[1].Path),
+            "Unclaimed PCM cleanup removed the current deck or retained distant audio.");
         foreach (var file in files)
             Require(File.Exists(file.LocalPath) && await store.ReadAnalysisAsync(file, default) is { Rhythm: not null },
                 "PCM eviction removed original audio or compact rhythm analysis.");

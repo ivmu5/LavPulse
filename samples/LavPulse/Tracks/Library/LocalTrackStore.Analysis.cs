@@ -63,10 +63,32 @@ internal sealed partial class LocalTrackStore
         return info.Exists ? info.Length : null;
     }
 
-    public void EvictPcm(TrackFile file, CachedTrack track)
+    public void EvictPcm(TrackFile file, CachedTrack track) => EvictPcm(file, track.Path);
+
+    internal void EvictPcm(TrackFile file, string pcm)
     {
-        track.Delete();
+        CachedTrack.DeleteCacheFile(pcm);
         TrackStorageChanged?.Invoke(file.LocalPath!);
+    }
+
+    // Called after a prepared entry takes responsibility for the persisted PCM.
+    internal void ClaimRestoredPcm(TrackFile file)
+    {
+        if (file.LocalPath is { } path) _restoredPcm.TryRemove(path, out _);
+    }
+
+    // Called under the player's cache gate. A new preparation must await the
+    // resulting cleanup task before reading the saved PCM reference.
+    internal List<(TrackFile File, string Pcm)> TakeUnclaimedPcm(IReadOnlyCollection<TrackFile> retained)
+    {
+        var removed = new List<(TrackFile File, string Pcm)>();
+        if (_restoredPcm.IsEmpty) return removed;
+        var paths = new HashSet<string>(retained.Where(file => file.LocalPath is not null)
+            .Select(file => file.LocalPath!), _restoredPcm.Comparer);
+        foreach (var item in _restoredPcm)
+            if (!paths.Contains(item.Key) && _restoredPcm.TryRemove(item.Key, out var cache))
+                removed.Add(cache);
+        return removed;
     }
 
     public async Task SaveAnalysisAsync(TrackFile file, TrackWaveform waveform, TrackAudioInfo? info,

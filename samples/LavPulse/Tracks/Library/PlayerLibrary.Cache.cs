@@ -29,7 +29,7 @@ internal sealed partial class PlayerLibrary
         // The lookahead is a retention policy, not just a preparation hint.
         // Remove completed PCM outside it even below the former byte budget.
         // Pending work is allowed to finish; its completion triggers another trim.
-        var evicted = new List<(TrackFile File, CachedTrack Track)>();
+        var evicted = new List<(TrackFile File, string Pcm)>();
         foreach (var (file, entry) in _prepared.ToArray())
         {
             if (!entry.Work.IsCompletedSuccessfully || file == selected || file == armed ||
@@ -42,8 +42,12 @@ internal sealed partial class PlayerLibrary
             _prepared.Remove(file);
             _pcmAccess.Remove(file);
             _decodedFiles.TryRemove(track, out _);
-            evicted.Add((file, track));
+            evicted.Add((file, track.Path));
         }
+        var retained = upcoming.Concat(_prepared.Keys).ToList();
+        if (selected is not null) retained.Add(selected);
+        if (armed is not null) retained.Add(armed);
+        evicted.AddRange(store.TakeUnclaimedPcm(retained));
         if (evicted.Count != 0) _cacheCleanup = DeleteAsync(_cacheCleanup, evicted);
 
         TrimArtwork(_metadata, _tagAccess, ArtworkBudgetBytes);
@@ -73,9 +77,13 @@ internal sealed partial class PlayerLibrary
         }
     }
 
-    private Task DeleteAsync(Task previous, List<(TrackFile File, CachedTrack Track)> tracks) => Task.Run(async () =>
+    private Task DeleteAsync(Task previous, List<(TrackFile File, string Pcm)> tracks) => Task.Run(async () =>
     {
         await previous.ConfigureAwait(false);
-        foreach (var (file, track) in tracks) store.EvictPcm(file, track);
+        foreach (var (file, pcm) in tracks)
+        {
+            try { store.EvictPcm(file, pcm); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }
+        }
     });
 }

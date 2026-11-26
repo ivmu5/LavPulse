@@ -200,6 +200,7 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
             tags ??= await preparation.ReadMetadataAsync(file, token).ConfigureAwait(false);
             var cached = new CachedTrack(file.Name, pcm, analysis.Waveform, tags, analysis.AudioInfo);
             _decodedFiles[cached] = file;
+            store.ClaimRestoredPcm(file);
             return cached;
         }
 
@@ -219,6 +220,7 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
                 throw;
             }
             _decodedFiles[track] = file;
+            store.ClaimRestoredPcm(file);
             return track;
         }
         finally

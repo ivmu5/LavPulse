@@ -28,7 +28,7 @@ public sealed partial class MainPage
         allowed &= !_analysisBackgroundExpired || _worker is not null;
 #endif
         var work = _queueAnalysis.Update(upcoming, allowed, pcmLookahead, analysisLookahead);
-        if (!IsLoadingFirst)
+        if (!IsLoadingFirst && _queue.Current is not null)
         {
             _playback.ReleaseRetiredReaders();
             var snapshot = _playback.Snapshot;

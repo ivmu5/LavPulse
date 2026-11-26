@@ -10,6 +10,8 @@ namespace Laveyana.LavPulse.Tracks;
 internal sealed partial class LocalTrackStore(string root)
 {
     private readonly ConcurrentDictionary<string, byte> _analyzed = new();
+    private readonly ConcurrentDictionary<string, (TrackFile File, string Pcm)> _restoredPcm =
+        new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     private readonly Dictionary<(string Id, string Name, string Folder), StoredLibraryTrack> _library = new();
     private readonly SemaphoreSlim _analysisWrites = new(1);
     private string MediaDirectory => Path.Combine(root, "media");
@@ -129,7 +131,10 @@ internal sealed partial class LocalTrackStore(string root)
                 token.ThrowIfCancellationRequested();
                 if (await ReadAnalysisAsync(file, token).ConfigureAwait(false) is { } analysis &&
                     FindPcm(analysis) is { } pcm)
+                {
                     retained.Add(pcm);
+                    _restoredPcm[file.LocalPath!] = (file, pcm);
+                }
             }
             PrunePcm(retained, token);
         }
