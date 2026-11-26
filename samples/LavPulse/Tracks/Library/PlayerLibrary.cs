@@ -183,14 +183,11 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
         if (previous is not null)
         {
             // Wait for the superseded writer to finish cleaning its file before replacing its result.
-            try
-            {
-                var existing = await previous.WaitAsync(token).ConfigureAwait(false);
-                token.ThrowIfCancellationRequested();
-                return existing;
-            }
-            catch (Exception ex) when (!token.IsCancellationRequested)
-            { System.Diagnostics.Debug.WriteLine(ex.Message); }
+            // Do not abandon the superseded task even if this selection is
+            // cancelled: CloseAsync tracks the replacement, not its predecessor.
+            try { return await previous.ConfigureAwait(false); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex.Message); }
+            token.ThrowIfCancellationRequested();
         }
 
         // A prior eviction may still be deleting the PCM named by this track's saved analysis.

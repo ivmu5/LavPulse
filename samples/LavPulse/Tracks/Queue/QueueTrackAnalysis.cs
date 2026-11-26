@@ -82,7 +82,8 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
                     _cancelled.Remove(file);
                     // A completed task must publish its result before returning.
                     // Otherwise the same queue item would spin forever.
-                    if (_upcoming.Contains(file) && !(next.PreparePcm ? isPrepared(file) : isAnalyzed!(file)))
+                    if (_upcoming.Take(next.PreparePcm ? _pcmLookahead : _analysisLookahead).Contains(file) &&
+                        !(next.PreparePcm ? isPrepared(file) : isAnalyzed!(file)))
                         _failed.Add(file);
                 }
             }
