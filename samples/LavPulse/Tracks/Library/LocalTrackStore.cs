@@ -9,9 +9,9 @@ namespace Laveyana.LavPulse.Tracks;
 /// <summary>Owns the imported MP3 copies, queue manifest and versioned analysis data.</summary>
 internal sealed partial class LocalTrackStore(string root)
 {
-    // Soft limit: active and armed tracks must remain playable even if oversized.
-    internal const long PcmBudgetBytes = 96L * 1024 * 1024;
     private readonly ConcurrentDictionary<string, byte> _analyzed = new();
+    private readonly ConcurrentDictionary<string, (TrackFile File, string Pcm)> _restoredPcm =
+        new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     private readonly Dictionary<(string Id, string Name, string Folder), StoredLibraryTrack> _library = new();
     private readonly SemaphoreSlim _analysisWrites = new(1);
     private string MediaDirectory => Path.Combine(root, "media");
@@ -87,7 +87,7 @@ internal sealed partial class LocalTrackStore(string root)
         finally { ArrayPool<byte>.Shared.Return(buffer); }
     }
 
-    public async Task<(TrackFile[] Tracks, TrackFile? Current)> ReadQueueAsync(CancellationToken token)
+    public async Task<(TrackFile[] Tracks, TrackFile? Current)> ReadQueueAsync(CancellationToken token, int pcmLookahead = 1)
     {
         // Version 11 separates metric pulse rates and aligns compatible section phases.
         // MP3s, queue and PCM cache remain intact; only previous analysis manifests are removed.
@@ -119,13 +119,25 @@ internal sealed partial class LocalTrackStore(string root)
             if (entry.Id == manifest!.Current) current = file;
             if (File.Exists(AnalysisPath(file))) _analyzed[file.LocalPath!] = 0;
         }
-        string? activePcm = null;
-        if ((current ?? result.FirstOrDefault()) is { } active &&
-            await ReadAnalysisAsync(active, token).ConfigureAwait(false) is { } analysis)
+        // The previous process may have exited before its asynchronous eviction.
+        // Keep only the saved current track and its configured successors.
+        int start = current is null ? 0 : result.IndexOf(current);
+        var retained = new HashSet<string>(OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        if (Directory.Exists(PcmDirectory))
         {
-            activePcm = FindPcm(analysis);
+            foreach (var file in result.Skip(Math.Max(0, start)).Take(1 + Math.Clamp(pcmLookahead, 1, 20)))
+            {
+                token.ThrowIfCancellationRequested();
+                if (await ReadAnalysisAsync(file, token).ConfigureAwait(false) is { } analysis &&
+                    FindPcm(analysis) is { } pcm)
+                {
+                    retained.Add(pcm);
+                    _restoredPcm[file.LocalPath!] = (file, pcm);
+                }
+            }
+            PrunePcm(retained, token);
         }
-        PrunePcm(activePcm, token);
         return (result.ToArray(), current);
     }
 

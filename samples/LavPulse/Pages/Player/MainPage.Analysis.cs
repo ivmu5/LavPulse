@@ -8,8 +8,6 @@ namespace Laveyana.LavPulse;
 /// <summary>Partial player coordinator: analysis workflow.</summary>
 public sealed partial class MainPage
 {
-    private const int QueueLookahead = 10;
-    private const int PcmLookahead = 1;
 #if IOS
     private nint _analysisBackgroundTask = UIApplication.BackgroundTaskInvalid;
     private bool _analysisBackgroundExpired;
@@ -19,14 +17,9 @@ public sealed partial class MainPage
     {
         if (_closed) return;
 
-        var upcoming = _queue.GetUpcoming(QueueLookahead);
-        if (!IsLoadingFirst)
-        {
-            var snapshot = _playback.Snapshot;
-            var presented = _playback.PresentedSnapshot;
-            _library.Trim(snapshot.Current?.Track, snapshot.Incoming?.Track, _selected, _armed, upcoming.Take(PcmLookahead).ToArray(),
-                presented.Current?.Track, presented.Incoming?.Track, _shownCurrent, _shownIncoming);
-        }
+        int analysisLookahead = _settings.QueueAnalysisLookahead;
+        int pcmLookahead = _settings.QueuePcmLookahead;
+        var upcoming = _queue.GetUpcoming(Math.Max(analysisLookahead, pcmLookahead));
 
         // Give the initial deck its selected track before starting the lookahead.
         bool allowed = _queue.Current is not null;
@@ -34,7 +27,16 @@ public sealed partial class MainPage
         if (_windowVisible) _analysisBackgroundExpired = false;
         allowed &= !_analysisBackgroundExpired || _worker is not null;
 #endif
-        var work = _queueAnalysis.Update(upcoming, allowed, _analysisQueue);
+        var work = _queueAnalysis.Update(upcoming, allowed, pcmLookahead, analysisLookahead);
+        if (!IsLoadingFirst && _queue.Current is not null)
+        {
+            _playback.ReleaseRetiredReaders();
+            var snapshot = _playback.Snapshot;
+            var presented = _playback.PresentedSnapshot;
+            _library.Trim(snapshot.Current?.Track, snapshot.Incoming?.Track, _selected, _armed,
+                upcoming.Take(pcmLookahead).ToArray(),
+                presented.Current?.Track, presented.Incoming?.Track, _shownCurrent, _shownIncoming);
+        }
         if (!_queueAnalysis.IsRunning) return;
 
 #if ANDROID
@@ -92,7 +94,13 @@ public sealed partial class MainPage
 
     private void OnQueueAnalysisProgress()
     {
-        if (_windowVisible) Dispatcher.Dispatch(ScheduleQueueRefresh);
+        Dispatcher.Dispatch(() =>
+        {
+            if (_closed) return;
+            // Cache lifetime is independent of whether the player is visible.
+            if (_windowVisible && IsPlayerVisible) ScheduleQueueRefresh();
+            else UpdateQueueAnalysis();
+        });
     }
 
     /// <summary>Prepares PCM, artwork and both waveforms without blocking the UI thread.</summary>

@@ -43,6 +43,10 @@ internal static class PlayerPreferences
             StorageDirectory = Preferences.Default.Get("library-storage-requested", defaults.StorageDirectory),
             AnalysisParallelism = Math.Clamp(Preferences.Default.Get("analysis-parallelism", defaults.AnalysisParallelism),
                 PlayerSettings.DefaultAnalysisParallelism, PlayerSettings.MaximumAnalysisParallelism),
+            QueueAnalysisLookahead = Math.Clamp(Preferences.Default.Get("queue-analysis-lookahead", defaults.QueueAnalysisLookahead),
+                0, PlayerSettings.MaximumQueueAnalysisLookahead),
+            QueuePcmLookahead = Math.Clamp(Preferences.Default.Get("queue-pcm-lookahead", defaults.QueuePcmLookahead),
+                1, PlayerSettings.MaximumQueuePcmLookahead),
             ScanReturnSeconds = Math.Clamp(Preferences.Default.Get("scan-return-seconds", defaults.ScanReturnSeconds),
                 0, PlayerSettings.MaximumScanReturnSeconds),
             ShowOnLockScreen = Preferences.Default.Get("show-player-on-lock-screen", defaults.ShowOnLockScreen),
@@ -91,6 +95,8 @@ internal static class PlayerPreferences
         Preferences.Default.Set("automix", settings.AutoMix);
         Preferences.Default.Set("library-storage-requested", settings.StorageDirectory);
         Preferences.Default.Set("analysis-parallelism", settings.AnalysisParallelism);
+        Preferences.Default.Set("queue-analysis-lookahead", settings.QueueAnalysisLookahead);
+        Preferences.Default.Set("queue-pcm-lookahead", settings.QueuePcmLookahead);
         Preferences.Default.Set("scan-return-seconds", settings.ScanReturnSeconds);
         Preferences.Default.Set("show-player-on-lock-screen", settings.ShowOnLockScreen);
         Preferences.Default.Set("hide-status-bar", settings.HideStatusBar);

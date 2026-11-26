@@ -5,14 +5,13 @@ namespace Laveyana.LavPulse.Tracks;
 /// <summary>Prepares the current lookahead one track at a time, independently of the UI dispatcher.</summary>
 internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<TrackFile, Task> prepare,
     Action progress, CancellationToken lifetime,
-    Func<TrackFile, bool>? isAnalyzed = null, Func<TrackFile, Task>? analyze = null,
-    int pcmLookahead = int.MaxValue)
+    Func<TrackFile, bool>? isAnalyzed = null, Func<TrackFile, Task>? analyze = null)
 {
     private readonly object _gate = new();
     private readonly HashSet<TrackFile> _failed = [];
     private TrackFile[] _upcoming = [];
-    private TrackFile[] _queue = [];
-    private int _analysisIndex;
+    private int _pcmLookahead;
+    private int _analysisLookahead;
     private bool _allowed;
     private bool _running;
 
@@ -21,23 +20,17 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
         get { lock (_gate) return _running; }
     }
 
-    public Task? Update(TrackFile[] upcoming, bool allowed, TrackFile[]? queue = null)
+    public Task? Update(TrackFile[] upcoming, bool allowed, int pcmLookahead, int analysisLookahead)
     {
         lock (_gate)
         {
-            queue ??= [];
-            bool queueChanged = !ReferenceEquals(_queue, queue) && !_queue.SequenceEqual(queue);
-            bool changed = queueChanged || !_upcoming.SequenceEqual(upcoming);
+            bool changed = !_upcoming.SequenceEqual(upcoming) ||
+                _pcmLookahead != pcmLookahead || _analysisLookahead != analysisLookahead;
             _upcoming = upcoming;
-            _queue = queue;
-            if (changed)
-            {
-                _failed.RemoveWhere(file => !upcoming.Contains(file) && !queue.Contains(file));
-            }
+            _pcmLookahead = Math.Max(0, pcmLookahead);
+            _analysisLookahead = Math.Max(0, analysisLookahead);
+            if (changed) _failed.RemoveWhere(file => !upcoming.Contains(file));
             _allowed = allowed;
-            // Keep the compact scan's progress across UI refreshes, but recheck from the start
-            // after edits or when starting a new pass (a saved analysis may have been invalidated).
-            if (queueChanged || !_running) _analysisIndex = 0;
             if (_running || lifetime.IsCancellationRequested || FindNext().File is null) return null;
 
             _running = true;
@@ -53,24 +46,15 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
     private (TrackFile? File, bool PreparePcm) FindNext()
     {
         if (!_allowed) return default;
-        foreach (var file in _upcoming.Take(Math.Max(0, pcmLookahead)))
+        foreach (var file in _upcoming.Take(_pcmLookahead))
         {
             if (!_failed.Contains(file) && !isPrepared(file)) return (file, true);
         }
         // Scan the wider lookahead without materializing decoded audio.
         if (isAnalyzed is not null && analyze is not null)
-            foreach (var file in _upcoming)
+            foreach (var file in _upcoming.Take(_analysisLookahead))
                 if (!_failed.Contains(file) && !isPrepared(file) && !isAnalyzed(file))
                     return (file, false);
-        if (isAnalyzed is not null)
-        {
-            while (_analysisIndex < _queue.Length)
-            {
-                var file = _queue[_analysisIndex];
-                if (!_failed.Contains(file) && !isAnalyzed(file)) return (file, false);
-                _analysisIndex++;
-            }
-        }
         return default;
     }
 
@@ -100,7 +84,7 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
             {
                 lock (_gate)
                 {
-                    if (_upcoming.Contains(file) || _queue.Contains(file)) _failed.Add(file);
+                    if (_upcoming.Contains(file)) _failed.Add(file);
                 }
                 System.Diagnostics.Debug.WriteLine($"LavPulse background analysis: {file.Name}: {ex}");
             }
