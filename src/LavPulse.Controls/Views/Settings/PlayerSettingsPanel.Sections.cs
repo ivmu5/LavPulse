@@ -15,7 +15,13 @@ public sealed partial class PlayerSettingsPanel
         int selected = Math.Clamp(_settings.AnalysisParallelism, TrackAnalysisParallelism.Automatic, maximum);
         var parallelism = Select("Параллельные задачи анализа", options, selected, preview: null,
             value => _settings = _settings with { AnalysisParallelism = value }, maxColumns: 4);
-        return Section("Производительность анализа", parallelism);
+        var scrollReturn = Number("Возврат к активным трекам", "с",
+            new(0, PlayerSettings.MaximumScanReturnSeconds, PlayerSettings.DefaultScanReturnSeconds, 1),
+            _settings.ScanReturnSeconds, value => _settings = _settings with { ScanReturnSeconds = value });
+        var hint = MixerStyle.Label("После ручной прокрутки история остаётся на экране до истечения указанного времени. " +
+            "0 — не возвращаться автоматически. Настройка не влияет на очередь воспроизведения.", 11, MixerColor.Muted);
+        return new VerticalStackLayout { Spacing = 8, Children =
+            { Section("Производительность анализа", parallelism), Section("Прокрутка анализа", scrollReturn.Row, hint) } };
     }
 
     private View CreatePlaybackSection()

@@ -14,6 +14,8 @@ public sealed partial class TrackLibraryPanel
         private Button? _skipScan;
         private Label? _scanStats;
         private bool _scanCompleted;
+        internal TrackScanHistory.Entry? ScanEntry { get; private set; }
+        internal bool IsActiveScan => ScanEntry is { Result: null };
         private readonly Label _chevron = MixerStyle.Label("", 14, MixerColor.Accent);
         private readonly Label _title = TrackLabel(MixerStyle.PhoneFont(13, 12), MixerColor.Text, bold: true);
         private readonly Label _details = TrackLabel(MixerStyle.PhoneFont(11, 10), MixerColor.Muted);
@@ -100,6 +102,24 @@ public sealed partial class TrackLibraryPanel
                 if (_row is { } row) await _panel.RunAsync(() => _panel.SelectAsync(row), "Не удалось открыть папку");
             };
             Body.GestureRecognizers.Add(tap);
+        }
+
+        internal void BindScan(TrackScanHistory.Entry? entry)
+        {
+            if (!ReferenceEquals(ScanEntry, entry))
+            {
+                ScanEntry = entry;
+                _scanCompleted = false;
+                Opacity = 1;
+                if (_skipScan is not null)
+                {
+                    _skipScan.IsVisible = true;
+                    _skipScan.IsEnabled = true;
+                }
+                if (_scanStats is not null) _scanStats.IsVisible = false;
+                Bind(entry is null ? null : new TreeRow([], entry.File));
+            }
+            if (entry?.Result is { } result && !_scanCompleted) CompleteScan(result);
         }
 
         public void Bind(TreeRow? row)

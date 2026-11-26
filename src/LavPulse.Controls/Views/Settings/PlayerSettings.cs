@@ -66,6 +66,10 @@ public sealed record PlayerSettings
     public bool AutoMix { get; init; } = true;
     /// <summary>Zero selects a limit automatically based on the processors available to the app.</summary>
     public int AnalysisParallelism { get; init; } = DefaultAnalysisParallelism;
+    public const int DefaultScanReturnSeconds = 10;
+    public const int MaximumScanReturnSeconds = 60;
+    /// <summary>Seconds of inactivity before returning to active scans; zero disables return after manual scrolling.</summary>
+    public int ScanReturnSeconds { get; init; } = DefaultScanReturnSeconds;
     /// <summary>Empty = private app storage; otherwise a selected drive or folder containing LavPulse/library.</summary>
     public string StorageDirectory { get; init; } = "";
     public bool ShowOnLockScreen { get; init; }
