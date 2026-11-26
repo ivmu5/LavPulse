@@ -102,7 +102,19 @@ internal static class WindowsTrackDrag
                 deferral.Complete();
             }
 
-            await receive(files);
+            // The view can close or switch panels while reading the native
+            // payload. Do not invoke an empty or no-longer-accepted import.
+            try
+            {
+                if (files.Count > 0 && canDrop()) await receive(files);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                // This is an async-void WinUI callback; an escaping exception
+                // would otherwise reach the dispatcher as unhandled.
+                System.Diagnostics.Debug.WriteLine($"LavPulse file drop: {ex}");
+            }
         }
 
         Microsoft.UI.Xaml.DragEventHandler dragOver = OnDragOver;

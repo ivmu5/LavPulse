@@ -112,6 +112,10 @@ internal static partial class Program
 
     private static async Task CheckManualScanControlsAsync()
     {
+        try { using var invalid = new TrackScanBatch(0, default); throw new Exception("Zero scan parallelism accepted."); }
+        catch (ArgumentOutOfRangeException) { }
+        try { using var invalid = new TrackScanBatch(-1, default); throw new Exception("Negative scan parallelism accepted."); }
+        catch (ArgumentOutOfRangeException) { }
         Require(TrackAnalysisParallelism.Resolve(8, processors: 2) == 1 &&
             TrackAnalysisParallelism.Resolve(8, processors: 4) == 3 &&
             TrackAnalysisParallelism.Resolve(8, processors: 64) == 8,
