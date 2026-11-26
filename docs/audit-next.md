@@ -1,12 +1,12 @@
 # Further cumulative audit — first batch
 
-Baseline: green merged PR #110, master 1a5fc10. Twenty-four focused passes, not a completed 100-pass audit. Passes 4–24 build on preceding commits.
+Baseline: green merged PR #110, master 1a5fc10. Thirty focused passes, not a completed 100-pass audit. Passes 4–30 build on preceding commits.
 
 1. Selective band autocorrelation in phase/gap/tail recovery: evaluate only two or four relevant lags, preserving the original formula. Full tempo-window correlation remains unchanged. Add 100 fixed-seed numerical equivalence cases.
 2. Cache and cancellation validation: reject null section/window entries; respect cancellation even on empty analysis or empty correlation ranges.
 3. Explicit PCM contract: waveform analysis requires 48 kHz stereo PCM (as already produced by import). External hosts with other sample rates must resample first; this is a deliberate behavioral change, not a new decoder limitation. Add regression and document in both READMEs.
 
-No blanket cache invalidation, threshold change, release or merge. Performance improvement must be measured; compilation and new checks depend on CI. Real-track validation and the remaining 76 review passes are not complete.
+No blanket cache invalidation, threshold change, release or merge. Performance improvement must be measured; compilation and new checks depend on CI. Real-track validation and the remaining 70 review passes are not complete.
 
 ## Second batch (passes 4–10)
 
@@ -43,3 +43,14 @@ All new checks await CI. No measured performance or real-track accuracy claim. N
 24. Validate PCM16 decode destination before writing. New regression cases for odd PCM8 RIFF, partial buffers, invalid samples, resampler end and disposal.
 
 No global cache reset or new analysis thresholds. CI and actual acceleration remain unverified for this batch.
+
+## Fifth batch (passes 25–30)
+
+25. Centralize decoder/analysis normalization in PcmNormalization, retaining SIMD and scalar behavior, including exactly aliased spans.
+26. Acquire decoder ownership before reading optional metadata; dispose on constructor failure, including property getter exceptions.
+27. Observe cancellation after the recording loop before reusing cached analysis; skip empty PCM writes.
+28. Clamp initial deck cursor position like Seek and reject negative length.
+29. Validate EQ input frame count and prevent nonfinite input from contaminating active recursive filters or their transition.
+30. Validate transport fade frame count before modifying fade state.
+
+Targeted regressions cover constructor cleanup, cursor bounds and malformed PCM counts. Fixed explicit switch-expression precedence in the prior batch's test. No new playback settings or cache version change. CI for the latest head is pending.

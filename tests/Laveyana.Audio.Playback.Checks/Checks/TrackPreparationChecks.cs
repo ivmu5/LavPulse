@@ -397,7 +397,7 @@ internal static class TrackPreparationChecks
 
     private static void CheckDecoderContracts()
     {
-        float[] samples=Enumerable.Range(0,64).Select(i=>i%8 switch
+        float[] samples=Enumerable.Range(0,64).Select(i=>(i%8) switch
         {
             0=>float.NaN,1=>float.PositiveInfinity,2=>float.NegativeInfinity,
             3=>2f,4=>-2f,_=>i/64f
@@ -410,6 +410,14 @@ internal static class TrackPreparationChecks
                 output[..samples.Length].SequenceEqual(samples.Select(v=>float.IsFinite(v)?Math.Clamp(v,-1,1):0))&&
                 output[^1]==10,"Native normalization or unused buffer tail changed.");
         }
+        var throwing=new MetadataFailureDecoder();
+        try { using var invalid=new Mp3PcmSource(throwing);throw new InvalidOperationException("Invalid decoder constructed."); }
+        catch(IOException) { }
+        Require(throwing.Disposals==1,"Decoder constructor failure leaked native resources.");
+        Require(new DeckCursor(10,-1).Position==0&&new DeckCursor(10,12).Position==10,
+            "Initial cursor position bypassed seek bounds.");
+        try { _=new DeckCursor(-1,0);throw new InvalidOperationException("Negative cursor length accepted."); }
+        catch(ArgumentOutOfRangeException) { }
         var decoder=new BlockDecoder(1,[[.25f,.5f]],44100);
         var resampled=new Mp3PcmSource(decoder);
         Require(resampled.Read([])==0&&resampled.Read(new float[1])==0&&decoder.Reads==0,
@@ -461,6 +469,15 @@ internal static class TrackPreparationChecks
     private static void Require(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
+    }
+
+    private sealed class MetadataFailureDecoder : IMp3SampleDecoder
+    {
+        public int Channels=>throw new IOException("metadata failure");
+        public int SampleRate=>48000;
+        public int Disposals{get;private set;}
+        public int ReadSamples(float[] destination)=>0;
+        public void Dispose()=>Disposals++;
     }
 
     private sealed class BlockDecoder(int channels, float[][] blocks,int sampleRate=PlaybackFormat.SampleRate) : IMp3SampleDecoder

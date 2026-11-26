@@ -30,6 +30,8 @@ internal sealed class TransportFadeSource(IPcmSource source, int startMillisecon
         }
 
         int read = source.Read(destination[..(requested * PlaybackFormat.Channels)]);
+        if((uint)read>(uint)requested)
+            throw new InvalidDataException("Invalid PCM frame count before transport fade.");
         if (pause == NoPause)
         {
             int fade = Math.Min(read, _startFrames - _startedFrames);

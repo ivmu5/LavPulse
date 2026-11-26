@@ -148,6 +148,19 @@ internal static partial class Program
         Span<float> block = stackalloc float[PlaybackFormat.Channels * 10];
         Require(output.RequestPause(300) && output.Read(block) == 4, "Could not render the short tail.");
         Require(block[0] == 1 && block[6] == 0 && output.Read(block) == 0, "The short tail did not fade to zero.");
+        var malformed=new InvalidFrameSource();
+        var invalidFade=new TransportFadeSource(malformed,100);
+        try { invalidFade.Read(block);throw new InvalidOperationException("Invalid transport frame count accepted."); }
+        catch(InvalidDataException) { }
+        var invalidEq=new MasterEqualizerSource(malformed);
+        try { invalidEq.Read(block);throw new InvalidOperationException("Invalid equalizer frame count accepted."); }
+        catch(InvalidDataException) { }
+    }
+
+    private sealed class InvalidFrameSource : Laveyana.Audio.IPcmSource
+    {
+        public int SampleRate=>48000;
+        public int Read(Span<float> destination)=>destination.Length/2+1;
     }
 
     private static async Task CheckStartupAndRate(CachedTrack first, CachedTrack second)

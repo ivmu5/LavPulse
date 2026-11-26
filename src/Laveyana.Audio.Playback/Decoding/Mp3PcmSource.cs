@@ -1,4 +1,3 @@
-using System.Numerics;
 using NLayer;
 
 namespace Laveyana.Audio.Playback;
@@ -36,21 +35,30 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
 
     internal Mp3PcmSource(IMp3SampleDecoder decoder)
     {
-        _channels = decoder.Channels;
-        _sourceRate = decoder.SampleRate;
-        if (_channels is not (1 or 2) || _sourceRate <= 0 || _sourceRate > 192_000)
-        {
-            decoder.Dispose();
-            throw new InvalidDataException("Ожидался аудиофайл с одним или двумя каналами до 192 кГц.");
-        }
-
-        _samples = new float[4096 * _channels];
+        ArgumentNullException.ThrowIfNull(decoder);
         _decoder = decoder;
-        if (_sourceRate > PlaybackFormat.SampleRate)
-            _downsample = new DownsampleFilter(_sourceRate);
+        try
+        {
+            _channels = decoder.Channels;
+            _sourceRate = decoder.SampleRate;
+            if (_channels is not (1 or 2) || _sourceRate <= 0 || _sourceRate > 192_000)
+                throw new InvalidDataException("Ожидался аудиофайл с одним или двумя каналами до 192 кГц.");
+            _samples = new float[4096 * _channels];
+            if (_sourceRate > PlaybackFormat.SampleRate)
+                _downsample = new DownsampleFilter(_sourceRate);
+        }
+        catch
+        {
+            // Preserve the original construction error even if native cleanup fails.
+            try { decoder.Dispose(); }
+            catch(Exception ex){System.Diagnostics.Debug.WriteLine(ex);}
+            throw;
+        }
     }
 
     public int SampleRate => PlaybackFormat.SampleRate;
+    internal int NativeRate => _sourceRate;
+    internal int NativeChannels => _channels;
 
     /// <summary>Interpolates decoded frames onto the mixer format with no per-block allocation.</summary>
     public int Read(Span<float> destination)
@@ -101,12 +109,12 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
             var output = destination.Slice(frames * 2, count * 2);
             if (_channels == 2)
             {
-                NormalizeStereo(samples,output);
+                PcmNormalization.Copy(samples,output);
             }
             else
             {
                 for (int i = 0; i < count; i++)
-                    output[i * 2] = output[i * 2 + 1] = Normalize(samples[i]);
+                    output[i * 2] = output[i * 2 + 1] = PcmNormalization.Sample(samples[i]);
             }
             _offset += samples.Length;
             frames += count;
@@ -123,33 +131,12 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
             return false;
         }
 
-        float left = Normalize(_samples[_offset]);
-        float right = Normalize(_samples[_offset + _channels - 1]);
+        float left = PcmNormalization.Sample(_samples[_offset]);
+        float right = PcmNormalization.Sample(_samples[_offset + _channels - 1]);
         _offset += _channels;
         frame = _downsample is null ? new StereoFrame(left, right) : _downsample.Process(left, right);
         return true;
     }
-
-    private static void NormalizeStereo(ReadOnlySpan<float> input,Span<float> output)
-    {
-        int i=0;
-        if(Vector.IsHardwareAccelerated)
-        {
-            int width=Vector<float>.Count;
-            var max=Vector<float>.One;
-            var min=-max;
-            var finiteMax=new Vector<float>(float.MaxValue);
-            for(;i<=input.Length-width;i+=width)
-            {
-                var value=new Vector<float>(input[i..]);
-                value=Vector.ConditionalSelect(Vector.LessThanOrEqual(Vector.Abs(value),finiteMax),value,Vector<float>.Zero);
-                Vector.Min(max,Vector.Max(min,value)).CopyTo(output[i..]);
-            }
-        }
-        for(;i<input.Length;i++)output[i]=Normalize(input[i]);
-    }
-
-    private static float Normalize(float value) => float.IsFinite(value) ? Math.Clamp(value, -1f, 1f) : 0;
 
     private bool RefillSamples()
     {

@@ -89,7 +89,7 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
             // Custom PCM sources can bypass decoder validation. Prevent one
             // nonfinite sample from poisoning both recursive band filters.
             var block = pcm.AsSpan(0, frames * channels);
-            NormalizeBlock(block);
+            PcmNormalization.Copy(block,block);
             loudness?.Add(block);
             if (pipeline is null) key!.Add(block, token);
             else pipeline.Submit(block);
@@ -174,25 +174,6 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         double totalMs = watch.Elapsed.TotalMilliseconds;
         return waveform with { MusicProfile = profile, Timing = new(readMs, rhythmMs,
             totalMs - readMs - rhythmMs, totalMs) };
-    }
-
-    private static void NormalizeBlock(Span<float> block)
-    {
-        int i=0;
-        if(Vector.IsHardwareAccelerated)
-        {
-            int width=Vector<float>.Count;
-            var max=Vector<float>.One;
-            var min=-max;
-            var finiteMax=new Vector<float>(float.MaxValue);
-            for(;i<=block.Length-width;i+=width)
-            {
-                var value=new Vector<float>(block[i..]);
-                value=Vector.ConditionalSelect(Vector.LessThanOrEqual(Vector.Abs(value),finiteMax),value,Vector<float>.Zero);
-                Vector.Min(max,Vector.Max(min,value)).CopyTo(block[i..]);
-            }
-        }
-        for(;i<block.Length;i++)block[i]=float.IsFinite(block[i])?Math.Clamp(block[i],-1,1):0;
     }
 
     private static WaveformPoint ToPoint(Vector4 peak) => new(peak.X, peak.Y, peak.Z, peak.W);

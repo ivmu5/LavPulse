@@ -152,10 +152,10 @@ public sealed class TrackPreparation(string cacheDirectory)
 
         (TrackWaveform, TrackAudioInfo?) Record(IMp3SampleDecoder native, string backend)
         {
-            int rate = native.SampleRate, channels = native.Channels;
+            using var decoder = new Mp3PcmSource(native);
+            int rate = decoder.NativeRate, channels = decoder.NativeChannels;
             string codec = native.Codec ?? extension.TrimStart('.').ToUpperInvariant();
             int bits = native is WaveSampleDecoder wave ? wave.BitsPerSample : 0;
-            using var decoder = new Mp3PcmSource(native);
             var result = AnalyzeOrRecord(decoder, pcmPath, waveform, token, trace, parallelKey);
             if (trace is not null) trace.Decoder = backend;
             if (mp3) return (result, null);
@@ -219,6 +219,7 @@ public sealed class TrackPreparation(string cacheDirectory)
                 frames += read;
             }
         }
+        token.ThrowIfCancellationRequested();
         if (frames == waveform.TotalFrames) return waveform;
 
         // A different decoder can produce a different count of padded frames for the same MP3.
@@ -257,6 +258,7 @@ public sealed class TrackPreparation(string cacheDirectory)
         public int Read(Span<float> destination)
         {
             int frames = source.Read(destination);
+            if(frames==0)return 0;
             int samples = frames * PcmMixer.ChannelCount;
             if (_buffer.Length < samples)
             {
