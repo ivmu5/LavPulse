@@ -66,7 +66,7 @@ internal static class MusicProfileChecks
         Console.WriteLine("OK: loudness, conservative meter, derived cache, compatibility and excerpt metrics.");
     }
 
-    public static void CheckNormalization(CachedTrack track)
+    public static void CheckNormalization(CachedTrack track, CachedTrack next)
     {
         var normalized = new CachedTrack(track.Name, track.Path, track.Waveform with
         {
@@ -82,7 +82,17 @@ internal static class MusicProfileChecks
         queue.SetLoudnessNormalization(false);
         for(int i=0;i<30;i++)Require(queue.Read(block)>0,"Normalization interrupted playback.");
         Require(Math.Abs(block[0]-.25)<.0002,"Disabling normalization did not restore unity gain.");
-        Console.WriteLine("OK: optional deck loudness gain and smooth bypass.");
+        using var large = new QueueSource();
+        large.SetAutoMix(false);
+        large.SetFirst(track);
+        float[] oversized = new float[PlaybackFormat.BlockFrames*PlaybackFormat.Channels*3];
+        Require(large.Read(oversized)==oversized.Length/PlaybackFormat.Channels,
+            "Oversized direct read exceeded the PCM scratch buffer.");
+        large.SetCrossfadeDuration(100);
+        Require(large.SetNext(next)&&large.RequestMix(),"Large-block mix was not armed.");
+        Require(large.Read(oversized)==oversized.Length/PlaybackFormat.Channels &&
+            oversized.All(float.IsFinite),"Oversized mix exceeded the PCM scratch buffer.");
+        Console.WriteLine("OK: optional deck loudness gain, smooth bypass and bounded large reads.");
     }
 
     private static void Require(bool value,string message)

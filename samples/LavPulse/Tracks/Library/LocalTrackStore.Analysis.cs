@@ -106,6 +106,8 @@ internal sealed partial class LocalTrackStore
     public async Task SaveAnalysisAsync(TrackFile file, TrackWaveform waveform, TrackAudioInfo? info,
         string? pcm, CancellationToken token, bool replaceAnalysis = false)
     {
+        token.ThrowIfCancellationRequested();
+        if (pcm is null && !replaceAnalysis && HasAnalysis(file)) return;
         var rhythm = waveform.Rhythm ?? TrackRhythmAnalyzer.Analyze(waveform);
         var profile = TrackMusicProfileAnalyzer.Derive(waveform with { Rhythm = rhythm }, waveform.MusicProfile, token);
         await _analysisWrites.WaitAsync(token).ConfigureAwait(false);

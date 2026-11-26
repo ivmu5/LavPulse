@@ -13,17 +13,29 @@ internal sealed class ParallelKeyAnalysis : IDisposable
     private readonly CancellationTokenSource _stop;
     private readonly Task<TrackMusicalKey?> _worker;
     private readonly MusicalKeyAnalyzer? _analyzer;
+    private readonly TrackLoudnessAnalyzer? _loudness;
+    internal TrackLoudness? Loudness => _loudness?.Finish();
     // Only accessed after Join, when the consumer no longer touches its state.
     internal TrackKeySection[] LocalKeys => _analyzer?.FinishLocal() ?? [];
     private readonly record struct Block(float[] Samples, int Count);
     public CancellationToken Token { get; }
 
     public ParallelKeyAnalysis(int sampleRate, CancellationToken token)
-        : this(new MusicalKeyAnalyzer(sampleRate), token) { }
+        : this(new MusicalKeyAnalyzer(sampleRate),
+            sampleRate == PlaybackFormat.SampleRate ? new TrackLoudnessAnalyzer() : null, token) { }
 
-    private ParallelKeyAnalysis(MusicalKeyAnalyzer analyzer, CancellationToken token)
-        : this((samples, count, cancellation) => analyzer.Add(samples.AsSpan(0, count), cancellation),
-            analyzer.Finish, token) { _analyzer = analyzer; }
+    private ParallelKeyAnalysis(MusicalKeyAnalyzer analyzer, TrackLoudnessAnalyzer? loudness, CancellationToken token)
+        : this((samples, count, cancellation) =>
+        {
+            var block = samples.AsSpan(0, count);
+            loudness?.Add(block);
+            cancellation.ThrowIfCancellationRequested();
+            analyzer.Add(block, cancellation);
+        }, analyzer.Finish, token)
+    {
+        _analyzer = analyzer;
+        _loudness = loudness;
+    }
 
     // Separate consumer seam for deterministic cancellation and fault tests.
     internal ParallelKeyAnalysis(Action<float[], int, CancellationToken> consume,

@@ -63,6 +63,20 @@ internal static class LocalTrackStoreChecks
                 mediaBytes + AnalysisBytes(tracks[1]) + new FileInfo(ready.Path).Length,
             "Track storage did not include exactly the cache files that exist after reopening.");
 
+        // Simulate a v13 manifest written before the optional music profile.
+        // Reading it must reconstruct only derived features and keep PCM.
+        string manifestPath = Path.Combine(root, "analysis-v13",
+            Path.GetFileNameWithoutExtension(tracks[1].LocalPath) + ".json");
+        string currentJson = await File.ReadAllTextAsync(manifestPath);
+        var legacy = System.Text.Json.Nodes.JsonNode.Parse(currentJson)!.AsObject();
+        legacy.Remove("MusicProfile");
+        await File.WriteAllTextAsync(manifestPath, legacy.ToJsonString());
+        var migrated = await reopened.ReadAnalysisAsync(tracks[1], default);
+        Require(migrated?.MusicProfile is { HasCurrentDerived:true, LoudnessVersion:0, LocalKeyVersion:0 } &&
+            migrated.MusicProfile.Loudness is null && reopened.FindPcm(migrated)==ready.Path,
+            "Legacy analysis was discarded or invented audio-derived features.");
+        await File.WriteAllTextAsync(manifestPath,currentJson);
+
         var points = ready.Waveform.Points.ToArray();
         points[0] = points[0] with { Peak = 0.193f };
         var rescanned = new TrackWaveform(points, ready.Waveform.TotalFrames, ready.Waveform.FramesPerPoint)

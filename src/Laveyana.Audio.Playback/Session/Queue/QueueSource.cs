@@ -238,7 +238,8 @@ internal sealed class QueueSource : IPcmSource, IDisposable
         int written = 0;
         while (state.Current is { } current && written < destination.Length / PlaybackFormat.Channels)
         {
-            int requested = destination.Length / PlaybackFormat.Channels - written;
+            int requested = Math.Min(PlaybackFormat.BlockFrames,
+                destination.Length / PlaybackFormat.Channels - written);
             var output = destination[(written * PlaybackFormat.Channels)..];
             long remaining = current.Source.RemainingAtRate(state.Speed);
             bool autoAdvance = state.AutoMix && !state.RepeatOne;

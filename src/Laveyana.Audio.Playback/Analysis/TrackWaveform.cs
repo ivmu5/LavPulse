@@ -64,7 +64,8 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         var rhythmEnergy = new List<RhythmEnergy>();
         long totalFrames = 0;
         var key = pipeline is null ? new MusicalKeyAnalyzer(source.SampleRate) : null;
-        var loudness = source.SampleRate == PlaybackFormat.SampleRate ? new TrackLoudnessAnalyzer() : null;
+        var loudness = pipeline is null && source.SampleRate == PlaybackFormat.SampleRate
+            ? new TrackLoudnessAnalyzer() : null;
         var watch = System.Diagnostics.Stopwatch.StartNew();
 
         while (true)
@@ -154,12 +155,13 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         long keyEnd = localKeys.Length == 0 ? 0 : localKeys[^1].EndFrame;
         if (keyEnd < totalFrames && localKeys.Length < 8192)
             localKeys = [..localKeys, new TrackKeySection(keyEnd,totalFrames,null)];
+        var measuredLoudness = pipeline is null ? loudness?.Finish() : pipeline.Loudness;
         var profile = new TrackMusicProfile
         {
             LocalKeyVersion = TrackMusicProfile.CurrentLocalKeyVersion,
             LocalKeys = localKeys,
-            LoudnessVersion = loudness is null ? 0 : TrackLoudness.Version,
-            Loudness = loudness?.Finish()
+            LoudnessVersion = measuredLoudness is null ? 0 : TrackLoudness.Version,
+            Loudness = measuredLoudness
         };
         waveform = waveform with { Rhythm = rhythm, MusicalKey = musicalKey };
         profile = TrackMusicProfileAnalyzer.Derive(waveform, profile, token);
