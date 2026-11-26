@@ -137,15 +137,28 @@ internal static partial class Program
 
         using var stop = new TrackScanBatch(3, default);
         int work = 0;
+        var stoppedResults = new List<TrackScanResult>();
         var stopped = stop.RunAsync(files, async (_, token) =>
         {
             work++;
             await Task.Delay(Timeout.Infinite, token);
             return true;
-        }, (_, _, _) => { }, _ => throw new InvalidOperationException("Cancelled scan was counted."));
+        }, (_, _, _) => { }, _ => throw new InvalidOperationException("Cancelled scan was counted."),
+            finishedRow: stoppedResults.Add);
         stop.Stop();
         Require(await stopped.WaitAsync(timeout) == (0, 0, 0) && work == 3,
             "Stopping a parallel scan started a queued track or counted a skip.");
+        Require(stoppedResults.Count == 3 && stoppedResults.All(result =>
+            result.Outcome == TrackScanOutcome.Stopped && result.Elapsed >= TimeSpan.Zero),
+            "Cancelled scan rows were not finalized.");
+        using var unavailableSize = new TrackScanBatch(1, default);
+        var measured = new List<TrackScanResult>();
+        var sizeFailure = await unavailableSize.RunAsync([files[0]], (_, _) => Task.FromResult(true),
+            (_, _, _) => { }, _ => { },
+            (_, _) => throw new IOException("Simulated unavailable storage"), measured.Add);
+        Require(sizeFailure == (1, 0, 0) && measured.Single() is
+            { BeforeBytes: null, AfterBytes: null, Outcome: TrackScanOutcome.Scanned },
+            "Failed storage measurement changed a successful analysis outcome.");
 
         var slots = new TrackAnalysisSlots(2);
         await slots.AcquireAsync(scan: true, default);

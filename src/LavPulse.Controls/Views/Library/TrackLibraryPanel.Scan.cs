@@ -22,6 +22,9 @@ public sealed partial class TrackLibraryPanel
     private const int CompletedHistoryLimit = 6;
     private readonly Queue<LibraryTreeItem> _completedScans = new();
     private readonly Dictionary<LibraryTreeItem, ScanMotion> _scanMotions = new();
+    private readonly List<LibraryTreeItem> _motionKeys = new();
+    private bool _scanFollowQueued;
+    private int _scanGeneration;
     private TaskCompletionSource? _scanDone;
     private sealed record ScanMotion(double Offset, double? Start = null);
     private readonly Dictionary<TrackFile, LibraryTreeItem> _activeScans = new(ReferenceEqualityComparer.Instance);
@@ -38,7 +41,9 @@ public sealed partial class TrackLibraryPanel
         double elapsed = time - _scanPulseStart.Value;
         foreach (var row in _activeScans.Values) row.DrawLoadingPulse(elapsed);
         bool hadMotion = _scanMotions.Count > 0;
-        foreach (var row in _scanMotions.Keys.ToArray())
+        _motionKeys.Clear();
+        _motionKeys.AddRange(_scanMotions.Keys);
+        foreach (var row in _motionKeys)
         {
             var motion = _scanMotions[row];
             double start = motion.Start ?? time;
@@ -47,6 +52,7 @@ public sealed partial class TrackLibraryPanel
             if (progress >= 1) _scanMotions.Remove(row);
             else if (motion.Start is null) _scanMotions[row] = motion with { Start = start };
         }
+        _motionKeys.Clear();
         if (hadMotion && !NeedsScanFrames) ScanAnimationChanged?.Invoke();
     }
 
@@ -237,11 +243,16 @@ public sealed partial class TrackLibraryPanel
     private void FollowScanTail()
     {
         // Follow incoming work only if the user is already near the end.
-        // Coalesce naturally via the dispatcher, without additional animations.
-        if (_scanScroll.ScrollY + _scanScroll.Height + TrackListLayout.Stride < _scanRows.Height) return;
-        Dispatcher.Dispatch(() =>
+        if (_scanFollowQueued || _scanScroll.ScrollY + _scanScroll.Height + TrackListLayout.Stride < _scanRows.Height) return;
+        _scanFollowQueued = true;
+        int generation = _scanGeneration;
+        double previousScroll = _scanScroll.ScrollY;
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(16), () =>
         {
-            if (_closed || !_scanPanel.IsVisible || _scanRows.Children.Count == 0) return;
+            if (generation != _scanGeneration) return;
+            _scanFollowQueued = false;
+            if (_closed || !_scanPanel.IsVisible || _scanRows.Children.Count == 0 ||
+                _scanScroll.Height <= 0 || _scanScroll.ScrollY < previousScroll - TrackListLayout.Stride) return;
             _ = _scanScroll.ScrollToAsync(0, Math.Max(0, TrackListLayout.RowsHeight(_scanRows.Children.Count) -
                 _scanScroll.Height), false);
         });
@@ -255,6 +266,9 @@ public sealed partial class TrackLibraryPanel
         _activeScans.Clear();
         _completedScans.Clear();
         _scanMotions.Clear();
+        _motionKeys.Clear();
+        _scanFollowQueued = false;
+        _scanGeneration++;
         UpdateScanAnimation(animated);
     }
 
