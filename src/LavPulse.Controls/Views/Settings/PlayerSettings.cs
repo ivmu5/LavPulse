@@ -66,6 +66,12 @@ public sealed record PlayerSettings
     public bool AutoMix { get; init; } = true;
     /// <summary>Zero selects a limit automatically based on the processors available to the app.</summary>
     public int AnalysisParallelism { get; init; } = DefaultAnalysisParallelism;
+    public const int DefaultQueueAnalysisLookahead = 10;
+    public const int MaximumQueueAnalysisLookahead = 100;
+    public const int DefaultQueuePcmLookahead = 1;
+    public const int MaximumQueuePcmLookahead = 20;
+    public int QueueAnalysisLookahead { get; init; } = DefaultQueueAnalysisLookahead;
+    public int QueuePcmLookahead { get; init; } = DefaultQueuePcmLookahead;
     public const int DefaultScanReturnSeconds = 10;
     public const int MaximumScanReturnSeconds = 60;
     /// <summary>Seconds of inactivity before returning to active scans; zero disables return after manual scrolling.</summary>

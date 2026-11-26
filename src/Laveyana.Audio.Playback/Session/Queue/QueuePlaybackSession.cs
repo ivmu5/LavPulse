@@ -16,6 +16,9 @@ public sealed class QueuePlaybackSession : IDisposable
     public QueuePlaybackSession() => _equalizer = new(_queue);
 
     public QueueSnapshot Snapshot => _queue.Snapshot;
+
+    /// <summary>Closes retired readers on the control thread before evicting PCM files.</summary>
+    public void ReleaseRetiredReaders() => _queue.DrainRetired();
     /// <summary>Presentation-time snapshot; use for drawing only, never for audio transport decisions.</summary>
     public QueueSnapshot PresentedSnapshot => Volatile.Read(ref _mix)?.PresentedSnapshot ?? _queue.Snapshot;
     public ISpectrumSource? Spectrum => Volatile.Read(ref _mix);

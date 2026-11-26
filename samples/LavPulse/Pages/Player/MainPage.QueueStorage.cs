@@ -13,7 +13,7 @@ public sealed partial class MainPage
         var token = _lifetime.Token;
         try
         {
-            var restored = await Task.Run(() => _trackStore.ReadQueueAsync(token), token);
+            var restored = await Task.Run(() => _trackStore.ReadQueueAsync(token, _settings.QueuePcmLookahead), token);
             if (_closed) return;
             _queue.AddRange(_library.Add(restored.Tracks, []));
             _analysisQueue = _queue.Tracks.ToArray();

@@ -84,6 +84,7 @@ internal static class LocalTrackStoreChecks
         rebuilt.Delete();
 
         await CheckScanOrderAsync(tracks);
+        await CheckStartupPcmRetentionAsync(directory);
         await CheckFolderLibraryAsync(directory);
         await CheckLegacyQueueAsync(directory, first);
         CheckMetadataCache();
@@ -310,6 +311,7 @@ internal static class LocalTrackStoreChecks
 
     private static async Task CheckScanOrderAsync(TrackFile[] tracks)
     {
+        TrackFile[] files = [.. tracks, TrackFile.FromPath("third.mp3"), TrackFile.FromPath("fourth.mp3")];
         var order = new List<string>();
         var prepared = new HashSet<TrackFile>();
         var analyzed = new HashSet<TrackFile>();
@@ -327,16 +329,45 @@ internal static class LocalTrackStoreChecks
             return Task.CompletedTask;
         }
 
-        var lookahead = new QueueTrackAnalysis(prepared.Contains, Prepare, () => { }, default, analyzed.Contains, Analyze,
-            pcmLookahead: 1);
-        await lookahead.Update(tracks, allowed: true, tracks)!;
+        var lookahead = new QueueTrackAnalysis(prepared.Contains, Prepare, () => { }, default, analyzed.Contains, Analyze);
+        await lookahead.Update(files, allowed: true, pcmLookahead: 1, analysisLookahead: 2)!;
         lookahead.Finish();
         Require(order.SequenceEqual(["pcm:second.mp3", "scan:first.mp3"]) &&
-            lookahead.Update(tracks, allowed: true, tracks) is null,
-            "The worker skipped queue priority or repeated completed analysis.");
-        await lookahead.Update([tracks[1]], allowed: true, tracks)!;
+            lookahead.Update(files, true, 1, 2) is null,
+            "The worker exceeded its configured horizon or repeated completed analysis.");
+        await lookahead.Update(files, true, 2, 3)!;
         lookahead.Finish();
-        Require(order.Last() == "pcm:first.mp3", "The next track was not prepared when the queue advanced.");
+        Require(order.SequenceEqual(["pcm:second.mp3", "scan:first.mp3", "pcm:first.mp3", "scan:third.mp3"]),
+            "Changed horizons were not applied or PCM did not take precedence.");
+        await lookahead.Update(files[2..], true, 1, 0)!;
+        lookahead.Finish();
+        Require(order.Last() == "pcm:third.mp3" && !analyzed.Contains(files[3]) &&
+            lookahead.Update(files[2..], true, 1, 0) is null,
+            "Disabling compact scan prevented necessary PCM or scanned beyond it.");
+    }
+
+    private static async Task CheckStartupPcmRetentionAsync(string directory)
+    {
+        var store = new LocalTrackStore(Path.Combine(directory, "retention"));
+        var files = new List<TrackFile>();
+        var caches = new List<CachedTrack>();
+        var preparation = new TrackPreparation(store.PcmDirectory);
+        for (int i = 0; i < 4; i++)
+        {
+            var file = await store.CopyAsync(Source($"retention-{i}.mp3", (byte)(20 + i)), default);
+            var cache = await preparation.ImportAsync(file, default);
+            await store.SaveAnalysisAsync(file, cache.Waveform, cache.AudioInfo, cache.Path, default);
+            files.Add(file);
+            caches.Add(cache);
+        }
+        await store.SaveQueueAsync(store.Snapshot(files, files[1]));
+        await store.ReadQueueAsync(default, pcmLookahead: 1);
+        Require(!File.Exists(caches[0].Path) && File.Exists(caches[1].Path) &&
+            File.Exists(caches[2].Path) && !File.Exists(caches[3].Path),
+            "Startup retained played or distant PCM, or deleted an occupied/preloaded track.");
+        foreach (var file in files)
+            Require(File.Exists(file.LocalPath) && await store.ReadAnalysisAsync(file, default) is { Rhythm: not null },
+                "PCM eviction removed original audio or compact rhythm analysis.");
     }
 
     private static TrackFile Source(string name, byte marker) => new(name, async (output, token) =>

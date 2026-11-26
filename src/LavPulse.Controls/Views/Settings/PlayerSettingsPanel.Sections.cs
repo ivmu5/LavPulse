@@ -20,8 +20,19 @@ public sealed partial class PlayerSettingsPanel
             _settings.ScanReturnSeconds, value => _settings = _settings with { ScanReturnSeconds = value });
         var hint = MixerStyle.Label("После ручной прокрутки история остаётся на экране до истечения указанного времени. " +
             "0 — не возвращаться автоматически. Настройка не влияет на очередь воспроизведения.", 11, MixerColor.Muted);
+        var analysisAhead = Number("Анализировать следующих треков", "тр.",
+            new(0, PlayerSettings.MaximumQueueAnalysisLookahead, PlayerSettings.DefaultQueueAnalysisLookahead, 1),
+            _settings.QueueAnalysisLookahead, value => _settings = _settings with { QueueAnalysisLookahead = value });
+        var pcmAhead = Number("Предзагружать следующих треков", "тр.",
+            new(1, PlayerSettings.MaximumQueuePcmLookahead, PlayerSettings.DefaultQueuePcmLookahead, 1),
+            _settings.QueuePcmLookahead, value => _settings = _settings with { QueuePcmLookahead = value });
+        var queueHint = MixerStyle.Label("Анализ сохраняет BPM и волны без полного PCM. 0 отключает отдельный фоновый анализ. " +
+            "Предзагрузка готовит звук для переходов (минимум 1); она также анализирует ещё не изученные треки. " +
+            "PCM вне заданного горизонта удаляется, когда деки его больше не используют.", 11, MixerColor.Muted);
         return new VerticalStackLayout { Spacing = 8, Children =
-            { Section("Производительность анализа", parallelism), Section("Прокрутка анализа", scrollReturn.Row, hint) } };
+            { Section("Производительность анализа", parallelism),
+              Section("Очередь и предзагрузка", analysisAhead.Row, pcmAhead.Row, queueHint),
+              Section("Прокрутка анализа", scrollReturn.Row, hint) } };
     }
 
     private View CreatePlaybackSection()

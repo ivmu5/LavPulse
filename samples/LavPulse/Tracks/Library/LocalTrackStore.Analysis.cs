@@ -96,16 +96,13 @@ internal sealed partial class LocalTrackStore
         TrackStorageChanged?.Invoke(file.LocalPath!);
     }
 
-    private void PrunePcm(string? activePcm, CancellationToken token)
+    private void PrunePcm(IReadOnlySet<string> retained, CancellationToken token)
     {
         if (!Directory.Exists(PcmDirectory)) return;
-        long bytes = 0;
-        foreach (var pcm in new DirectoryInfo(PcmDirectory).EnumerateFiles("lavpulse-*.pcm")
-            .OrderByDescending(file => file.FullName == activePcm).ThenByDescending(file => file.LastWriteTimeUtc))
+        foreach (var pcm in Directory.EnumerateFiles(PcmDirectory, "lavpulse-*.pcm"))
         {
             token.ThrowIfCancellationRequested();
-            if (pcm.FullName != activePcm && pcm.Length > PcmBudgetBytes - bytes) CachedTrack.DeleteCacheFile(pcm.FullName);
-            else bytes += pcm.Length;
+            if (!retained.Contains(pcm)) CachedTrack.DeleteCacheFile(pcm);
         }
     }
 }

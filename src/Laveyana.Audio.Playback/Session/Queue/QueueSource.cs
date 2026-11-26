@@ -66,7 +66,7 @@ internal sealed class QueueSource : IPcmSource, IDisposable
     private bool Publish(Publication expected, State state) =>
         ReferenceEquals(Interlocked.CompareExchange(ref _published, new Publication(state), expected), expected);
 
-    private void DrainRetired()
+    internal void DrainRetired()
     {
         while (_retired.TryDequeue(out var voice)) voice.Dispose();
     }
