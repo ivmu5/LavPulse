@@ -9,7 +9,8 @@ namespace Laveyana.LavPulse.Tracks;
 /// <summary>Owns the imported MP3 copies, queue manifest and versioned analysis data.</summary>
 internal sealed partial class LocalTrackStore(string root)
 {
-    internal const long PcmBudgetBytes = 256L * 1024 * 1024;
+    // Soft limit: active and armed tracks must remain playable even if oversized.
+    internal const long PcmBudgetBytes = 96L * 1024 * 1024;
     private readonly ConcurrentDictionary<string, byte> _analyzed = new();
     private readonly Dictionary<(string Id, string Name, string Folder), StoredLibraryTrack> _library = new();
     private readonly SemaphoreSlim _analysisWrites = new(1);
@@ -21,13 +22,19 @@ internal sealed partial class LocalTrackStore(string root)
     /// <summary>Resolve an imported original MP3, never a decoded PCM cache or arbitrary path.</summary>
     internal string ReportAudioPath(string id)
     {
-        if (!ValidId(id)) throw new InvalidDataException("Некорректный ID оригинального MP3.");
-        return MediaPath(id);
+        if (!ValidId(id)) throw new InvalidDataException("Некорректный ID оригинального аудиофайла.");
+        foreach (string extension in TrackFile.StorageExtensions)
+        {
+            string path = Path.Combine(MediaDirectory, id + extension);
+            if (File.Exists(path)) return path;
+        }
+        throw new FileNotFoundException("Оригинальный аудиофайл недоступен.");
     }
     public event Action<string>? TrackStorageChanged;
 
     public async Task<TrackFile> CopyAsync(TrackFile file, CancellationToken token)
     {
+        if (!TrackFile.IsSupportedAudio(file.Name)) throw new NotSupportedException("Формат аудио не поддерживается на этой платформе.");
         Directory.CreateDirectory(MediaDirectory);
         string temp = Path.Combine(MediaDirectory, $"{Guid.NewGuid():N}.tmp");
         try
@@ -40,7 +47,7 @@ internal sealed partial class LocalTrackStore(string root)
             }
 
             token.ThrowIfCancellationRequested();
-            string path = MediaPath(id);
+            string path = MediaPath(id, file.Name);
             if (!File.Exists(path))
             {
                 try { File.Move(temp, path); }
@@ -169,8 +176,8 @@ internal sealed partial class LocalTrackStore(string root)
 
     private TrackFile? RestoreTrack(StoredTrack track)
     {
-        if (!ValidId(track.Id) || string.IsNullOrEmpty(track.Name) || !TrackFile.IsMp3(track.Name)) return null;
-        string path = MediaPath(track.Id);
+        if (!ValidId(track.Id) || string.IsNullOrEmpty(track.Name) || !TrackFile.IsKnownAudio(track.Name)) return null;
+        string path = MediaPath(track.Id, track.Name);
         var info = new FileInfo(path);
         return info.Exists ? TrackFile.FromPath(path) with { Name = track.Name, SizeBytes = info.Length } : null;
     }
@@ -207,7 +214,7 @@ internal sealed partial class LocalTrackStore(string root)
             });
     }
 
-    private string MediaPath(string id) => Path.Combine(MediaDirectory, id + ".mp3");
+    private string MediaPath(string id, string name) => Path.Combine(MediaDirectory, id + TrackFile.StorageExtension(name));
     private string AnalysisPath(TrackFile file) => Path.Combine(AnalysisDirectory, Id(file) + ".json");
     private static string Id(TrackFile file) => Path.GetFileNameWithoutExtension(file.LocalPath!);
     private static bool ValidId(string? id) => id is { Length: 64 } && id.All(char.IsAsciiHexDigitUpper);

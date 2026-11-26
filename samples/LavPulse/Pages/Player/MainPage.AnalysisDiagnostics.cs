@@ -44,11 +44,11 @@ public sealed partial class MainPage
         try
         {
             if (_library.Find(track) is not { LocalPath: { } path })
-                throw new FileNotFoundException("Оригинальный MP3 недоступен.");
+                throw new FileNotFoundException("Оригинальный аудиофайл недоступен.");
             string id = Path.GetFileNameWithoutExtension(path);
             await previous;
             if (!File.Exists(path))
-                throw new FileNotFoundException("Оригинальный MP3 недоступен.");
+                throw new FileNotFoundException("Оригинальный аудиофайл недоступен.");
             var analysisTask = _tapAnalysisReports.GetValue(track, key => Task.Run(() =>
                 TrackAnalysisReport.Create(key.Name, key.Waveform, key.AudioInfo, key.Title, key.Artist, key.Album)));
             string analysis = await analysisTask;
@@ -97,7 +97,7 @@ public sealed partial class MainPage
         try
         {
             if (_library.Find(track) is not { LocalPath: { } path } || !File.Exists(path))
-                throw new FileNotFoundException("Оригинальный MP3 недоступен.");
+                throw new FileNotFoundException("Оригинальный аудиофайл недоступен.");
             string id = Path.GetFileNameWithoutExtension(path);
             long end = track.Waveform.TotalFrames;
             long startFrame = Math.Clamp(selection.StartFrame, 0, end);

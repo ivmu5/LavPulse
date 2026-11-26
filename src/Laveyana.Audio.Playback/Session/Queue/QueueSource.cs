@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 namespace Laveyana.Audio.Playback;
 
 /// <summary>Describes a deck's track, position and physical input.</summary>
@@ -12,279 +14,258 @@ public readonly record struct QueueSnapshot(PlayingTrack? Current, PlayingTrack?
     public bool IsMixing => MixPending || Incoming.HasValue;
 }
 
-/// <summary>Owns the current and next PCM readers and mixes transitions on the audio timeline.</summary>
+/// <summary>Single render owner with atomic state publication. Control edits may wait
+/// for the current block; the renderer never acquires a control-thread monitor.</summary>
 internal sealed class QueueSource : IPcmSource, IDisposable
 {
-    private readonly object _gate = new();
-    private readonly object _snapshotGate = new();
-    private QueueSnapshot _snapshot;
-    private bool _disposed;
+    private struct State
+    {
+        public Voice? Current, Next;
+        public int FadeLength, FadePosition, CrossfadeFrames;
+        public bool Manual, AutoMix, RepeatOne, QueueEnabled, Disposed;
+        public double Speed;
+        public long? SeekFrame;
+    }
+
+    // An immutable publication owns its state value. A render lease prevents
+    // control CAS from replacing/disposing a reader while it is being used.
+    private sealed class Publication(State state, bool rendering = false)
+    {
+        public readonly State State = state;
+        public readonly bool Rendering = rendering;
+        public readonly QueueSnapshot Snapshot = new(
+            state.Current is { } current ? new PlayingTrack(current.Track,
+                state.SeekFrame ?? current.Cursor.Position, current.Deck, state.Speed) : null,
+            state.FadeLength != 0 && state.Next is { } next
+                ? new PlayingTrack(next.Track, next.Cursor.Position, next.Deck) : null)
+        { MixPending = state.Manual };
+    }
+
+    private Publication _published = new(new State
+    {
+        AutoMix = true, QueueEnabled = true, Speed = 1,
+        CrossfadeFrames = 6 * PlaybackFormat.SampleRate
+    });
+    private readonly ConcurrentQueue<Voice> _retired = new();
     private readonly float[] _other = new float[PlaybackFormat.BlockFrames * PlaybackFormat.Channels];
-    private Voice? _current;
-    private Voice? _next;
-    private int _fadeLength;
-    private int _fadePosition;
-    private bool _manual;
-    private bool _autoMix = true;
-    private bool _repeatOne;
-    private bool _queueEnabled = true;
-    private int _crossfadeFrames = 6 * PlaybackFormat.SampleRate;
 
     public int SampleRate => PlaybackFormat.SampleRate;
+    public QueueSnapshot Snapshot => Volatile.Read(ref _published).Snapshot;
 
-    /// <summary>Opens the cache before taking ownership of the initial reader.</summary>
+    private Publication WaitForIdle()
+    {
+        var spin = new SpinWait();
+        while (true)
+        {
+            var publication = Volatile.Read(ref _published);
+            if (!publication.Rendering) return publication;
+            spin.SpinOnce();
+        }
+    }
+
+    private bool Publish(Publication expected, State state) =>
+        ReferenceEquals(Interlocked.CompareExchange(ref _published, new Publication(state), expected), expected);
+
+    private void DrainRetired()
+    {
+        while (_retired.TryDequeue(out var voice)) voice.Dispose();
+    }
+
     public void SetFirst(CachedTrack track)
     {
-        lock (_gate)
+        DrainRetired();
+        var initial = WaitForIdle().State;
+        if (initial.Disposed || initial.Current is not null) return;
+        Voice? replacement = new(track, Deck.A);
+        try
         {
-            if (_disposed || _current is not null) return;
-        }
-
-        var voice = new Voice(track, Deck.A);
-        lock (_gate)
-        {
-            if (!_disposed && _current is null)
+            while (true)
             {
-                _current = voice;
-                PublishSnapshot();
+                var expected = WaitForIdle();
+                var state = expected.State;
+                if (state.Disposed || state.Current is not null) return;
+                state.Current = replacement;
+                if (!Publish(expected, state)) continue;
+                replacement = null;
                 return;
             }
         }
-        voice.Dispose();
+        finally { replacement?.Dispose(); }
     }
 
-    /// <summary>Opens the next cache outside the render lock and revalidates before replacing it.</summary>
     public bool SetNext(CachedTrack? track, CachedTrack? expectedCurrent = null)
     {
-        Voice? replacement = null;
-        Voice? retired = null;
+        DrainRetired();
+        var initial = WaitForIdle().State;
+        if (!CanSetNext(initial, track, expectedCurrent)) return false;
+        if (ReferenceEquals(initial.Next?.Track, track)) return true;
+        Voice? replacement = track is null ? null : new Voice(track, Deck.A);
         try
         {
-            lock (_gate)
+            while (true)
             {
-                if (!CanSetNext(track, expectedCurrent)) return false;
-                if (ReferenceEquals(_next?.Track, track)) return true;
-                if (track is null)
-                {
-                    retired = ReplaceNext(null);
-                    return true;
-                }
-            }
-
-            replacement = new Voice(track, Deck.A);
-            lock (_gate)
-            {
-                if (!CanSetNext(track, expectedCurrent)) return false;
-                if (ReferenceEquals(_next?.Track, track)) return true;
-
-                replacement.Deck = _current!.Deck == Deck.A ? Deck.B : Deck.A;
-                retired = ReplaceNext(replacement);
+                var expected = WaitForIdle();
+                var state = expected.State;
+                if (!CanSetNext(state, track, expectedCurrent)) return false;
+                if (ReferenceEquals(state.Next?.Track, track)) return true;
+                if (replacement is not null)
+                    replacement.Deck = state.Current!.Deck == Deck.A ? Deck.B : Deck.A;
+                var previous = state.Next;
+                state.Next = replacement;
+                state.Manual = false;
+                if (!Publish(expected, state)) continue;
                 replacement = null;
+                previous?.Dispose();
                 return true;
             }
         }
-        finally
+        finally { replacement?.Dispose(); }
+    }
+
+    private static bool CanSetNext(State state, CachedTrack? track, CachedTrack? expectedCurrent) =>
+        !state.Disposed && state.Current is not null && state.FadeLength == 0 &&
+        !ReferenceEquals(state.Current.Track, track) &&
+        (expectedCurrent is null || !state.Manual && ReferenceEquals(state.Current.Track, expectedCurrent));
+
+    private bool Edit(Func<State, State?> edit)
+    {
+        DrainRetired();
+        while (true)
         {
-            replacement?.Dispose();
-            retired?.Dispose();
+            var expected = WaitForIdle();
+            if (expected.State.Disposed) return false;
+            var changed = edit(expected.State);
+            if (changed is not { } state) return false;
+            if (Publish(expected, state)) return true;
         }
     }
 
-    private bool CanSetNext(CachedTrack? track, CachedTrack? expectedCurrent) =>
-        _current is not null && _fadeLength == 0 && !ReferenceEquals(_current.Track, track) &&
-        (expectedCurrent is null || !_manual && ReferenceEquals(_current.Track, expectedCurrent));
-
-    private Voice? ReplaceNext(Voice? voice)
+    public bool RequestMix() => Edit(state =>
     {
-        var previous = _next;
-        _next = voice;
-        _manual = false;
-        PublishSnapshot();
-        return previous;
-    }
+        if (!state.QueueEnabled || state.Next is null || state.FadeLength != 0) return null;
+        state.Manual = true;
+        return state;
+    });
 
-    /// <summary>Arms the selected track for a transition on the next audio block.</summary>
-    public bool RequestMix()
+    public void SetAutoMix(bool enabled) => Edit(state => { state.AutoMix = enabled; return state; });
+    public void SetRepeatOne(bool enabled) => Edit(state => { state.RepeatOne = enabled; return state; });
+    public void SetQueueEnabled(bool enabled) => Edit(state =>
     {
-        lock (_gate)
-        {
-            if (!_queueEnabled || _next is null || _fadeLength != 0)
-            {
-                return false;
-            }
-
-            _manual = true;
-            PublishSnapshot();
-            return true;
-        }
-    }
-
-    /// <summary>Enables or disables automatic transitions at the tail of a track.</summary>
-    public void SetAutoMix(bool enabled)
-    {
-        lock (_gate)
-        {
-            _autoMix = enabled;
-        }
-    }
-
-    public void SetRepeatOne(bool enabled)
-    {
-        lock (_gate)
-        {
-            _repeatOne = enabled;
-        }
-    }
-
-    /// <summary>Changes which feed can advance the transport without touching the decks in a running mix.</summary>
-    public void SetQueueEnabled(bool enabled)
-    {
-        lock (_gate)
-        {
-            _queueEnabled = enabled;
-            if (!enabled)
-            {
-                _manual = false;
-                PublishSnapshot();
-            }
-        }
-    }
-
-    /// <summary>Stores the maximum overlap for future transitions.</summary>
+        state.QueueEnabled = enabled;
+        if (!enabled) state.Manual = false;
+        return state;
+    });
     public void SetCrossfadeDuration(int milliseconds)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(milliseconds);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(milliseconds, 12000);
-        lock (_gate)
-        {
-            _crossfadeFrames = PlaybackFormat.SampleRate * milliseconds / 1000;
-        }
+        Edit(state => { state.CrossfadeFrames = PlaybackFormat.SampleRate * milliseconds / 1000; return state; });
     }
 
-    /// <summary>Changes the current deck's speed outside a transition, leaving the next deck at its original speed.</summary>
     public bool TrySetSpeed(CachedTrack track, double rate)
     {
         if (!double.IsFinite(rate) || rate < .75 || rate > 1.25)
-        {
             throw new ArgumentOutOfRangeException(nameof(rate));
-        }
-
-        lock (_gate)
+        return Edit(state =>
         {
-            if (_current is not { } current || !ReferenceEquals(track, current.Track) || _manual || _fadeLength != 0)
-            {
-                return false;
-            }
-
-            current.Speed = rate;
-            PublishSnapshot();
-            return true;
-        }
+            if (state.Current is not { } current || !ReferenceEquals(track, current.Track) ||
+                state.Manual || state.FadeLength != 0) return null;
+            state.Speed = rate;
+            return state;
+        });
     }
 
-    /// <summary>Seeks only the current track, outside a transition.</summary>
-    public bool TrySeek(CachedTrack track, long frame)
+    public bool TrySeek(CachedTrack track, long frame) => Edit(state =>
     {
-        lock (_gate)
-        {
-            if (_current is not { } current || !ReferenceEquals(track, current.Track) || _manual || _fadeLength != 0)
-            {
-                return false;
-            }
+        if (state.Current is not { } current || !ReferenceEquals(track, current.Track) ||
+            state.Manual || state.FadeLength != 0) return null;
+        // Only the render owner applies this seek to the cursor.
+        state.SeekFrame = Math.Clamp(frame, 0, current.Cursor.Length);
+        return state;
+    });
 
-            current.Cursor.Seek(frame);
-            PublishSnapshot();
-            return true;
-        }
-    }
-
-    /// <summary>Reads the last consistent deck state without waiting for cache reads.</summary>
-    public QueueSnapshot Snapshot
-    {
-        get
-        {
-            lock (_snapshotGate) return _snapshot;
-        }
-    }
-
-    private void PublishSnapshot()
-    {
-        var snapshot = new QueueSnapshot(_current?.Snapshot, _fadeLength != 0 ? _next?.Snapshot : null)
-        {
-            MixPending = _manual
-        };
-        lock (_snapshotGate) _snapshot = snapshot;
-    }
-
-    /// <summary>Renders a block before releasing an outgoing reader outside the render lock.</summary>
+    /// <summary>Claims one render block using CAS; no monitor or control-side
+    /// waiting, and reader retirement never closes a file on the render path.</summary>
     public int Read(Span<float> destination)
     {
+        Publication expected;
+        while (true)
+        {
+            expected = Volatile.Read(ref _published);
+            if (expected.State.Disposed) return 0;
+            if (expected.Rendering) throw new InvalidOperationException("Concurrent queue render.");
+            var lease = new Publication(expected.State, rendering: true);
+            if (ReferenceEquals(Interlocked.CompareExchange(ref _published, lease, expected), expected)) break;
+        }
+
+        var state = expected.State;
         Voice? retired = null;
         try
         {
-            lock (_gate)
+            if (state.SeekFrame is long frame && state.Current is { } current)
             {
-                int written = ReadBlock(destination, ref retired);
-                PublishSnapshot();
-                return written;
+                current.Cursor.Seek(frame);
+                state.SeekFrame = null;
             }
+            return ReadBlock(destination, ref state, ref retired);
         }
         finally
         {
-            retired?.Dispose();
+            if (retired is not null) _retired.Enqueue(retired);
+            Volatile.Write(ref _published, new Publication(state));
         }
     }
 
-    private int ReadBlock(Span<float> destination, ref Voice? retired)
+    private int ReadBlock(Span<float> destination, ref State state, ref Voice? retired)
     {
         int written = 0;
-        while (_current is { } current && written < destination.Length / PlaybackFormat.Channels)
+        while (state.Current is { } current && written < destination.Length / PlaybackFormat.Channels)
         {
             int requested = destination.Length / PlaybackFormat.Channels - written;
             var output = destination[(written * PlaybackFormat.Channels)..];
-            long remaining = current.Source.RemainingAtRate(current.Speed);
-            bool autoAdvance = _autoMix && !_repeatOne;
-            if ((_queueEnabled || _fadeLength > 0) && _next is { } next)
+            long remaining = current.Source.RemainingAtRate(state.Speed);
+            bool autoAdvance = state.AutoMix && !state.RepeatOne;
+            if ((state.QueueEnabled || state.FadeLength > 0) && state.Next is { } next)
             {
-                if (_fadeLength == 0 && (_manual || autoAdvance && remaining <= _crossfadeFrames))
+                if (state.FadeLength == 0 && (state.Manual || autoAdvance && remaining <= state.CrossfadeFrames))
                 {
-                    _manual = false;
-                    int length = (int)Math.Min(_crossfadeFrames,
-                        Math.Min(remaining, Math.Max(0, next.Source.RemainingAtRate(next.Speed) - 1)));
+                    state.Manual = false;
+                    int length = (int)Math.Min(state.CrossfadeFrames,
+                        Math.Min(remaining, Math.Max(0, next.Source.RemainingAtRate(1) - 1)));
                     if (length < 2)
                     {
-                        retired = Promote();
+                        retired = Promote(ref state);
                         continue;
                     }
 
-                    _fadeLength = length;
+                    state.FadeLength = length;
                 }
 
-                if (_fadeLength > 0)
+                if (state.FadeLength > 0)
                 {
-                    int frames = Math.Min(requested, _fadeLength - _fadePosition);
-                    MixFade(current, next, output[..(frames * PlaybackFormat.Channels)]);
+                    int frames = Math.Min(requested, state.FadeLength - state.FadePosition);
+                    MixFade(current, next, output[..(frames * PlaybackFormat.Channels)], state.Speed, state.FadePosition, state.FadeLength);
                     written += frames;
-                    _fadePosition += frames;
-                    if (_fadePosition == _fadeLength)
+                    state.FadePosition += frames;
+                    if (state.FadePosition == state.FadeLength)
                     {
-                        retired = Promote();
+                        retired = Promote(ref state);
                     }
                     continue;
                 }
 
                 if (autoAdvance)
                 {
-                    requested = (int)Math.Min(requested, remaining - _crossfadeFrames);
+                    requested = (int)Math.Min(requested, remaining - state.CrossfadeFrames);
                 }
             }
 
-            if (_repeatOne && remaining == 0 && current.Cursor.Length > 0)
+            if (state.RepeatOne && remaining == 0 && current.Cursor.Length > 0)
             {
                 current.Cursor.Seek(0);
                 continue;
             }
-            int read = current.Source.ReadAtRate(output[..(requested * PlaybackFormat.Channels)], current.Speed);
+            int read = current.Source.ReadAtRate(output[..(requested * PlaybackFormat.Channels)], state.Speed);
             written += read;
             if (read == 0)
             {
@@ -296,14 +277,14 @@ internal sealed class QueueSource : IPcmSource, IDisposable
     }
 
     /// <summary>Applies a mirrored hyperbolic gain curve, normalized to keep the combined gain power constant.</summary>
-    private void MixFade(Voice outgoing, Voice incoming, Span<float> buffer)
+    private void MixFade(Voice outgoing, Voice incoming, Span<float> buffer, double speed, int fadePosition, int fadeLength)
     {
         var second = _other.AsSpan(0, buffer.Length);
-        outgoing.Source.ReadAtRate(buffer, outgoing.Speed);
-        incoming.Source.ReadAtRate(second, incoming.Speed);
+        outgoing.Source.ReadAtRate(buffer, speed);
+        incoming.Source.ReadAtRate(second, 1);
         for (int frame = 0; frame < buffer.Length / PlaybackFormat.Channels; frame++)
         {
-            float progress = (float)(_fadePosition + frame) / (_fadeLength - 1);
+            float progress = (float)(fadePosition + frame) / (fadeLength - 1);
             (float enter, float leave) = HyperbolicFade.Gains(progress);
             int index = frame * PlaybackFormat.Channels;
             buffer[index] = buffer[index] * leave + second[index] * enter;
@@ -312,31 +293,37 @@ internal sealed class QueueSource : IPcmSource, IDisposable
     }
 
     /// <summary>Transfers ownership of the incoming reader to the current deck.</summary>
-    private Voice? Promote()
+    private static Voice? Promote(ref State state)
     {
-        var previous = _current;
-        _current = _next;
-        _next = null;
-        _fadeLength = _fadePosition = 0;
+        var previous = state.Current;
+        state.Current = state.Next;
+        state.Next = null;
+        state.FadeLength = state.FadePosition = 0;
+        state.Speed = 1;
+        state.SeekFrame = null;
         return previous;
     }
 
-    /// <summary>Releases the cache readers after the output has stopped.</summary>
     public void Dispose()
     {
-        Voice? current;
-        Voice? next;
-        lock (_gate)
+        while (true)
         {
-            _disposed = true;
-            current = _current;
-            next = _next;
-            _current = _next = null;
-            _manual = false;
-            PublishSnapshot();
+            var expected = WaitForIdle();
+            var state = expected.State;
+            if (state.Disposed) break;
+            var current = state.Current;
+            var next = state.Next;
+            state.Disposed = true;
+            state.Current = state.Next = null;
+            state.Manual = false;
+            state.SeekFrame = null;
+            state.FadeLength = state.FadePosition = 0;
+            if (!Publish(expected, state)) continue;
+            current?.Dispose();
+            next?.Dispose();
+            break;
         }
-        current?.Dispose();
-        next?.Dispose();
+        DrainRetired();
     }
 
     private sealed class Voice : IDisposable
@@ -348,14 +335,10 @@ internal sealed class QueueSource : IPcmSource, IDisposable
             Cursor = new DeckCursor(track.Waveform.TotalFrames, 0);
             Source = new CachedPcmSource(track.Path, Cursor);
         }
-
         public CachedTrack Track { get; }
         public Deck Deck { get; set; }
         public DeckCursor Cursor { get; }
         public CachedPcmSource Source { get; }
-        public double Speed { get; set; } = 1;
-        public PlayingTrack Snapshot => new(Track, Cursor.Position, Deck, Speed);
-
         public void Dispose() => Source.Dispose();
     }
 }

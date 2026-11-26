@@ -8,7 +8,7 @@
 	<array>
 		<dict>
 			<key>CFBundleTypeName</key>
-			<string>MP3 Audio</string>
+			<string>Audio</string>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 			<key>LSHandlerRank</key>
@@ -16,6 +16,9 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>public.mp3</string>
+				<string>com.microsoft.waveform-audio</string>
+				<string>org.xiph.ogg</string>
+				<string>org.xiph.vorbis</string>
 			</array>
 		</dict>
 	</array>

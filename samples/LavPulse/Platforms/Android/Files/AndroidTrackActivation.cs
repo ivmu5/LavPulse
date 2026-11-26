@@ -11,18 +11,28 @@ internal static class AndroidTrackActivation
     {
         if (intent?.Action != Intent.ActionView || intent.Data is not { } uri) return;
 
-        if (uri.Scheme == "file" && uri.Path is { } path && TrackFile.IsMp3(path))
+        if (uri.Scheme == "file" && uri.Path is { } path && TrackFile.IsSupportedAudio(path))
         {
             SystemTrackRequests.Open([TrackFile.FromPath(path)]);
         }
         else if (uri.Scheme == "content" && Android.App.Application.Context.ContentResolver is { } resolver)
         {
-            bool mp3Mime = intent.Type is "audio/mpeg" or "audio/mp3" or "audio/x-mp3";
-            _ = Task.Run(() => OpenContent(resolver, uri, mp3Mime));
+            string? extension = intent.Type switch
+            {
+                "audio/mpeg" or "audio/mp3" or "audio/x-mp3" => ".mp3",
+                "audio/wav" or "audio/x-wav" or "audio/wave" => ".wav",
+                "audio/ogg" or "application/ogg" => ".ogg",
+                "audio/flac" or "audio/x-flac" => ".flac",
+                "audio/aac" or "audio/aacp" => ".aac",
+                "audio/mp4" or "audio/x-m4a" => ".m4a",
+                "audio/opus" => ".opus",
+                _ => null
+            };
+            _ = Task.Run(() => OpenContent(resolver, uri, extension));
         }
     }
 
-    private static void OpenContent(ContentResolver resolver, AndroidUri uri, bool mp3Mime)
+    private static void OpenContent(ContentResolver resolver, AndroidUri uri, string? extension)
     {
         string name = string.Empty;
         try
@@ -36,10 +46,10 @@ internal static class AndroidTrackActivation
         }
 
         if (string.IsNullOrWhiteSpace(name)) name = uri.LastPathSegment ?? "Трек";
-        if (!TrackFile.IsMp3(name))
+        if (!TrackFile.IsSupportedAudio(name))
         {
-            if (!mp3Mime || Path.HasExtension(name)) return;
-            name += ".mp3";
+            if (extension is null || Path.HasExtension(name)) return;
+            name += extension;
         }
 
         SystemTrackRequests.Open([TrackFile.FromStream(name, () => Task.FromResult(

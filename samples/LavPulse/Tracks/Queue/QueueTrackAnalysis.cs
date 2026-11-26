@@ -5,7 +5,8 @@ namespace Laveyana.LavPulse.Tracks;
 /// <summary>Prepares the current lookahead one track at a time, independently of the UI dispatcher.</summary>
 internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<TrackFile, Task> prepare,
     Action progress, CancellationToken lifetime,
-    Func<TrackFile, bool>? isAnalyzed = null, Func<TrackFile, Task>? analyze = null)
+    Func<TrackFile, bool>? isAnalyzed = null, Func<TrackFile, Task>? analyze = null,
+    int pcmLookahead = int.MaxValue)
 {
     private readonly object _gate = new();
     private readonly HashSet<TrackFile> _failed = [];
@@ -52,10 +53,15 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
     private (TrackFile? File, bool PreparePcm) FindNext()
     {
         if (!_allowed) return default;
-        foreach (var file in _upcoming)
+        foreach (var file in _upcoming.Take(Math.Max(0, pcmLookahead)))
         {
             if (!_failed.Contains(file) && !isPrepared(file)) return (file, true);
         }
+        // Scan the wider lookahead without materializing decoded audio.
+        if (isAnalyzed is not null && analyze is not null)
+            foreach (var file in _upcoming)
+                if (!_failed.Contains(file) && !isPrepared(file) && !isAnalyzed(file))
+                    return (file, false);
         if (isAnalyzed is not null)
         {
             while (_analysisIndex < _queue.Length)

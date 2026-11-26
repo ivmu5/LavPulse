@@ -57,6 +57,8 @@ public sealed partial class MainPage : ContentPage
     {
 #if ANDROID
         var preparation = new TrackPreparation(_trackStore.PcmDirectory, AndroidMp3Decoder.Open);
+#elif WINDOWS
+        var preparation = new TrackPreparation(_trackStore.PcmDirectory, WindowsAudioDecoder.Open);
 #else
         var preparation = new TrackPreparation(_trackStore.PcmDirectory);
 #endif
@@ -65,7 +67,8 @@ public sealed partial class MainPage : ContentPage
         if (AppLibraryStorage.StartupError is { } storageError)
             _view.Status.Text = $"Хранилище: {storageError}";
         _queueAnalysis = new QueueTrackAnalysis(file => _library.GetPrepared(file) is not null,
-            _library.PrepareAsync, OnQueueAnalysisProgress, _lifetime.Token, _library.HasAnalysis, _library.AnalyzeAsync);
+            _library.PrepareAsync, OnQueueAnalysisProgress, _lifetime.Token, _library.HasAnalysis, _library.AnalyzeAsync,
+            pcmLookahead: PcmLookahead);
 #if IOS
         SafeAreaEdges = new SafeAreaEdges(SafeAreaRegions.Container);
 #else

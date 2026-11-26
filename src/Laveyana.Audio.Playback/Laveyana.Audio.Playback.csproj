@@ -8,6 +8,7 @@
   <ItemGroup>
     <ProjectReference Include="../Laveyana.Audio/Laveyana.Audio.csproj" />
     <PackageReference Include="NLayer" Version="3.0.1" />
+    <PackageReference Include="NVorbis" Version="0.10.5" />
     <InternalsVisibleTo Include="Laveyana.Audio.Playback.Checks" />
     <InternalsVisibleTo Include="Laveyana.LavPulse" />
   </ItemGroup>

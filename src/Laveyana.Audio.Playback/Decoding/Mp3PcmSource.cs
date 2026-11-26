@@ -2,12 +2,13 @@ using NLayer;
 
 namespace Laveyana.Audio.Playback;
 
-/// <summary>Reads interleaved mono or stereo samples at the MP3's native sample rate.</summary>
+/// <summary>Reads interleaved mono or stereo samples at the encoded audio's native rate.</summary>
 internal interface IMp3SampleDecoder : IDisposable
 {
     int Channels { get; }
     int SampleRate { get; }
     int ReadSamples(float[] destination);
+    string? Codec => null;
 }
 
 // Used during import to prepare the waveform and PCM cache.
@@ -17,6 +18,7 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
     private readonly float[] _samples;
     private readonly int _channels;
     private readonly int _sourceRate;
+    private readonly DownsampleFilter? _downsample;
 
     private int _offset;
     private int _available;
@@ -34,14 +36,16 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
     {
         _channels = decoder.Channels;
         _sourceRate = decoder.SampleRate;
-        if (_channels is not (1 or 2) || _sourceRate <= 0 || _sourceRate > PlaybackFormat.SampleRate)
+        if (_channels is not (1 or 2) || _sourceRate <= 0 || _sourceRate > 192_000)
         {
             decoder.Dispose();
-            throw new InvalidDataException("Ожидался MP3 с одним или двумя каналами до 48 кГц.");
+            throw new InvalidDataException("Ожидался аудиофайл с одним или двумя каналами до 192 кГц.");
         }
 
         _samples = new float[4096 * _channels];
         _decoder = decoder;
+        if (_sourceRate > PlaybackFormat.SampleRate)
+            _downsample = new DownsampleFilter(_sourceRate);
     }
 
     public int SampleRate => PlaybackFormat.SampleRate;
@@ -69,7 +73,7 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
             frames++;
 
             _phase += _sourceRate;
-            if (_phase >= PlaybackFormat.SampleRate)
+            while (_phase >= PlaybackFormat.SampleRate && _hasCurrent)
             {
                 _phase -= PlaybackFormat.SampleRate;
                 _current = _next;
@@ -119,7 +123,7 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
         float left = Math.Clamp(_samples[_offset], -1f, 1f);
         float right = Math.Clamp(_samples[_offset + _channels - 1], -1f, 1f);
         _offset += _channels;
-        frame = new StereoFrame(left, right);
+        frame = _downsample is null ? new StereoFrame(left, right) : _downsample.Process(left, right);
         return true;
     }
 
@@ -139,6 +143,46 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
     public void Dispose() => _decoder.Dispose();
 
     private readonly record struct StereoFrame(float Left, float Right);
+
+    // Fourth-order low pass before rate reduction. The mixer remains at 48 kHz.
+    private sealed class DownsampleFilter(int sourceRate)
+    {
+        private readonly Biquad _left1 = new(sourceRate, .5411961);
+        private readonly Biquad _left2 = new(sourceRate, 1.306563);
+        private readonly Biquad _right1 = new(sourceRate, .5411961);
+        private readonly Biquad _right2 = new(sourceRate, 1.306563);
+
+        public StereoFrame Process(float left, float right) => new(
+            (float)Math.Clamp(_left2.Process(_left1.Process(left)), -1, 1),
+            (float)Math.Clamp(_right2.Process(_right1.Process(right)), -1, 1));
+
+        private sealed class Biquad
+        {
+            private readonly double _b0, _b1, _b2, _a1, _a2;
+            private double _z1, _z2;
+
+            public Biquad(int rate, double q)
+            {
+                double omega = 2 * Math.PI * (PlaybackFormat.SampleRate * .42) / rate;
+                double c = Math.Cos(omega);
+                double alpha = Math.Sin(omega) / (2 * q);
+                double a0 = 1 + alpha;
+                _b0 = (1 - c) / (2 * a0);
+                _b1 = (1 - c) / a0;
+                _b2 = _b0;
+                _a1 = -2 * c / a0;
+                _a2 = (1 - alpha) / a0;
+            }
+
+            public double Process(double input)
+            {
+                double output = _b0 * input + _z1;
+                _z1 = _b1 * input - _a1 * output + _z2;
+                _z2 = _b2 * input - _a2 * output;
+                return output;
+            }
+        }
+    }
 
     private sealed class NLayerDecoder(MpegFile file) : IMp3SampleDecoder
     {

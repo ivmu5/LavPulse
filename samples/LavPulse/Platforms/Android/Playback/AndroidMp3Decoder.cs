@@ -7,9 +7,9 @@ using Stream = System.IO.Stream;
 
 namespace Laveyana.LavPulse.Tracks;
 
-/// <summary>Decodes MP3 with Android's media stack and exposes the original mono or stereo rate.</summary>
+/// <summary>Decodes audio with Android's media stack and exposes the original mono or stereo rate.</summary>
 internal sealed class AndroidMp3Decoder(MediaExtractor extractor, MediaCodec codec, int channels, int sampleRate,
-    CancellationToken token) : IMp3SampleDecoder
+    CancellationToken token, string mime) : IMp3SampleDecoder
 {
     private static readonly TimeSpan OutputTimeout = TimeSpan.FromSeconds(2);
     private readonly MediaCodec.BufferInfo _info = new();
@@ -21,6 +21,15 @@ internal sealed class AndroidMp3Decoder(MediaExtractor extractor, MediaCodec cod
 
     public int Channels => channels;
     public int SampleRate => sampleRate;
+    public string Codec => mime switch
+    {
+        "audio/mpeg" => "MP3",
+        "audio/mp4a-latm" => "AAC",
+        "audio/flac" => "FLAC",
+        "audio/opus" => "Opus",
+        "audio/vorbis" => "Ogg Vorbis",
+        _ => mime
+    };
 
     public static IMp3SampleDecoder? Open(Stream source, CancellationToken token)
     {
@@ -32,25 +41,33 @@ internal sealed class AndroidMp3Decoder(MediaExtractor extractor, MediaCodec cod
         try
         {
             SetFileSource(extractor, file);
-            if (extractor.TrackCount != 1) return null;
-            using var format = extractor.GetTrackFormat(0);
-            if (format.GetString(MediaFormat.KeyMime) != "audio/mpeg") return null;
+            int selected = -1;
+            for (int i = 0; i < extractor.TrackCount; i++)
+            {
+                using var candidate = extractor.GetTrackFormat(i);
+                if (candidate.GetString(MediaFormat.KeyMime) is "audio/mpeg" or "audio/mp4a-latm"
+                    or "audio/flac" or "audio/opus" or "audio/vorbis")
+                { selected = i; break; }
+            }
+            if (selected < 0) return null;
+            using var format = extractor.GetTrackFormat(selected);
+            string mime = format.GetString(MediaFormat.KeyMime)!;
             int channels = format.GetInteger(MediaFormat.KeyChannelCount);
             int rate = format.GetInteger(MediaFormat.KeySampleRate);
-            if (channels is not (1 or 2) || rate <= 0 || rate > PlaybackFormat.SampleRate) return null;
+            if (channels is not (1 or 2) || rate <= 0 || rate > 192_000) return null;
 
-            extractor.SelectTrack(0);
-            codec = MediaCodec.CreateDecoderByType("audio/mpeg");
+            extractor.SelectTrack(selected);
+            codec = MediaCodec.CreateDecoderByType(mime);
             codec.Configure(format, null, null, MediaCodecConfigFlags.None);
             codec.Start();
-            var decoder = new AndroidMp3Decoder(extractor, codec, channels, rate, token);
+            var decoder = new AndroidMp3Decoder(extractor, codec, channels, rate, token, mime);
             extractor = null;
             codec = null;
             return decoder;
         }
         catch (Java.Lang.Exception ex)
         {
-            throw new InvalidDataException("Системный декодер Android не открыл MP3.", ex);
+            throw new InvalidDataException("Системный декодер Android не открыл аудиофайл.", ex);
         }
         finally
         {
@@ -61,11 +78,11 @@ internal sealed class AndroidMp3Decoder(MediaExtractor extractor, MediaCodec cod
     private static void SetFileSource(MediaExtractor extractor, FileStream file)
     {
         using var fd = ParcelFileDescriptor.FromFd(file.SafeFileHandle.DangerousGetHandle().ToInt32())
-            ?? throw new InvalidDataException("Android не открыл дескриптор MP3.");
+            ?? throw new InvalidDataException("Android не открыл дескриптор аудио.");
         try
         {
             using var descriptor = fd.FileDescriptor
-                ?? throw new InvalidDataException("Android вернул пустой дескриптор MP3.");
+                ?? throw new InvalidDataException("Android вернул пустой дескриптор аудио.");
             extractor.SetDataSource(descriptor, 0, file.Length);
         }
         finally
@@ -86,7 +103,7 @@ internal sealed class AndroidMp3Decoder(MediaExtractor extractor, MediaCodec cod
         }
         catch (Java.Lang.Exception ex)
         {
-            throw new InvalidDataException("Системный декодер Android не прочитал MP3.", ex);
+            throw new InvalidDataException("Системный декодер Android не прочитал аудиофайл.", ex);
         }
     }
 

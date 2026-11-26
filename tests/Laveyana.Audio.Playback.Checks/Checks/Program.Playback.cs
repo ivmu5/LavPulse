@@ -361,4 +361,38 @@ internal static partial class Program
             Require(session.Spectrum is null, "A failed playback run retained a stale mixer.");
         }
     }
+    private static async Task CheckConcurrentQueueControl(CachedTrack track)
+    {
+        using var queue = new QueueSource();
+        queue.SetFirst(track);
+        queue.SetRepeatOne(true);
+        using var start = new ManualResetEventSlim(false);
+        var render = Task.Run(() =>
+        {
+            var block = new float[BlockSize * PlaybackFormat.Channels];
+            start.Wait();
+            for (int i = 0; i < 256; i++)
+            {
+                Require(queue.Read(block) == BlockSize, "Concurrent transport interrupted rendering.");
+                for (int sample = 0; sample < block.Length; sample += 2)
+                    Require(Math.Abs(block[sample] - .25f) < .0001f && Math.Abs(block[sample + 1]) < .0001f,
+                        "Concurrent transport corrupted PCM.");
+                Thread.Yield();
+            }
+        });
+        var control = Task.Run(() =>
+        {
+            start.Wait();
+            for (int i = 0; i < 128; i++)
+            {
+                Require(queue.TrySeek(track, i * 37L), "Concurrent seek was lost.");
+                Require(queue.TrySetSpeed(track, i % 2 == 0 ? .95 : 1.05), "Concurrent speed edit was lost.");
+                Require(queue.Snapshot.Current?.Track == track, "Concurrent control changed the current deck.");
+                Thread.Yield();
+            }
+        });
+        start.Set();
+        await Task.WhenAll(render, control).WaitAsync(TimeSpan.FromSeconds(15));
+        Console.WriteLine("OK: concurrent queue rendering and transport control.");
+    }
 }

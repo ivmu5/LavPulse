@@ -1,3 +1,4 @@
+using Laveyana.Audio.Playback;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
@@ -19,17 +20,21 @@ internal static class WindowsFileAssociation
             string command = $"\"{executable}\" --open \"%1\"";
             using var classes = Registry.CurrentUser.CreateSubKey(@"Software\Classes");
             using var type = classes.CreateSubKey(ProgId);
-            type.SetValue(string.Empty, "MP3 Audio");
+            type.SetValue(string.Empty, "LavPulse Audio");
             WriteDefault(type, "DefaultIcon", $"\"{executable}\",0");
             WriteDefault(type, @"shell\open\command", command);
-            using var openWith = classes.CreateSubKey(@".mp3\OpenWithProgids");
-            openWith.SetValue(ProgId, Array.Empty<byte>(), RegistryValueKind.None);
+            foreach (string extension in TrackFile.SupportedExtensions)
+            {
+                using var openWith = classes.CreateSubKey(extension + @"\OpenWithProgids");
+                openWith.SetValue(ProgId, Array.Empty<byte>(), RegistryValueKind.None);
+            }
 
             using var app = classes.CreateSubKey($@"Applications\{fileName}");
             app.SetValue("FriendlyAppName", "LavPulse");
             WriteDefault(app, @"shell\open\command", command);
             using var supported = app.CreateSubKey("SupportedTypes");
-            supported.SetValue(".mp3", string.Empty);
+            foreach (string extension in TrackFile.SupportedExtensions)
+                supported.SetValue(extension, string.Empty);
 
             // Keep existing Open With selections working through the executable rename.
             using var previous = classes.OpenSubKey($@"Applications\{App.PreviousExecutableName}", writable: true);
@@ -40,7 +45,8 @@ internal static class WindowsFileAssociation
             capabilities.SetValue("ApplicationName", "LavPulse");
             capabilities.SetValue("ApplicationDescription", "LavPulse music player");
             using var associations = capabilities.CreateSubKey("FileAssociations");
-            associations.SetValue(".mp3", ProgId);
+            foreach (string extension in TrackFile.SupportedExtensions)
+                associations.SetValue(extension, ProgId);
             using var registered = Registry.CurrentUser.CreateSubKey(@"Software\RegisteredApplications");
             registered.SetValue("LavPulse", Capabilities);
             SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero);

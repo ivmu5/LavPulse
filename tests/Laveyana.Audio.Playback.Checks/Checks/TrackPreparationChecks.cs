@@ -5,6 +5,7 @@ internal static class TrackPreparationChecks
     public static async Task RunAsync(string directory)
     {
         CheckNativeRate();
+        await CheckWaveFormatsAsync(directory);
         CheckRhythmAnalysis();
         CheckHighResolutionRhythmAnalysis();
         CheckPercussiveFiltering();
@@ -592,6 +593,67 @@ internal static class TrackPreparationChecks
         Require(quietBands.IsWeakOpening(250) && !quietBands.IsWeakOpening(950),
             "Relative opening gate depended on absolute track gain.");
         Console.WriteLine("OK: relative opening salience and quiet-master invariance.");
+    }
+
+    internal static MemoryStream CreateWave(int rate = 48_000, int bits = 24, int channels = 2)
+    {
+        var stream = new MemoryStream();
+        int frames = rate / 2, bytes = bits / 8, length = frames * channels * bytes;
+        using (var writer = new BinaryWriter(stream, System.Text.Encoding.ASCII, leaveOpen: true))
+        {
+            writer.Write("RIFF"u8); writer.Write(36 + length);
+            writer.Write("WAVE"u8); writer.Write("fmt "u8); writer.Write(16);
+            writer.Write((short)1); writer.Write((short)channels); writer.Write(rate);
+            writer.Write(rate * channels * bytes); writer.Write((short)(channels * bytes));
+            writer.Write((short)bits); writer.Write("data"u8); writer.Write(length);
+            for (int i = 0; i < frames; i++)
+                for (int c = 0; c < channels; c++)
+                    if (bits == 16) writer.Write((short)(c == 0 ? 8192 : -8192));
+                    else
+                    {
+                        int sample = c == 0 ? 0x200000 : -0x200000;
+                        writer.Write((byte)sample); writer.Write((byte)(sample >> 8)); writer.Write((byte)(sample >> 16));
+                    }
+        }
+        stream.Position = 0;
+        return stream;
+    }
+
+    private static async Task CheckWaveFormatsAsync(string directory)
+    {
+        foreach (var format in new[] { (48000, 24, 2), (44100, 16, 1), (96000, 24, 2) })
+        {
+            var input = TrackFile.FromStream("fixture.wav", () => Task.FromResult<Stream>(
+                CreateWave(format.Item1, format.Item2, format.Item3)));
+            var cached = await new TrackPreparation(directory).ImportAsync(input, default);
+            try
+            {
+                Require(cached.Waveform.TotalFrames == 24000 &&
+                    cached.AudioInfo?.SampleRate == format.Item1 &&
+                    cached.PcmSizeBytes == new FileInfo(cached.Path).Length,
+                    "WAV preparation did not preserve duration or original audio information.");
+                using var reader = new CachedPcmSource(cached.Path, new DeckCursor(24000, 12000));
+                var samples = new float[PlaybackFormat.BlockFrames * PlaybackFormat.Channels];
+                Require(reader.Read(samples) == PlaybackFormat.BlockFrames &&
+                    Math.Abs(samples[0] - .25f) < .005f &&
+                    Math.Abs(samples[1] - (format.Item3 == 1 ? .25f : -.25f)) < .005f,
+                    "PCM WAV samples or mono/downsampling conversion are incorrect.");
+            }
+            finally { cached.Delete(); }
+        }
+
+        var truncated = TrackFile.FromStream("broken.wav", () => Task.FromResult<Stream>(
+            new MemoryStream(CreateWave().ToArray()[..60])));
+        try
+        {
+            var invalid = await new TrackPreparation(directory).ImportAsync(truncated, default);
+            invalid.Delete();
+            throw new InvalidOperationException("A truncated WAV was accepted.");
+        }
+        catch (InvalidDataException) { }
+        Require(!Directory.EnumerateFiles(directory, "lavpulse-*").Any(),
+            "Malformed WAV left a temporary PCM file.");
+        Console.WriteLine("OK: PCM WAV import, mono, 24-bit, 96 kHz downsampling and malformed-file cleanup.");
     }
 
 }

@@ -12,6 +12,29 @@ public sealed record TrackFile(string Name, Func<Stream, CancellationToken, Task
     public static bool IsMp3(string name)
         => string.Equals(Path.GetExtension(name), ".mp3", StringComparison.OrdinalIgnoreCase);
 
+    private static readonly string[] PortableExtensions = [".mp3", ".wav", ".ogg", ".oga"];
+    private static readonly string[] NativeExtensions = [".flac", ".aac", ".m4a"];
+    private static readonly string[] AllExtensions = [.. PortableExtensions, .. NativeExtensions, ".opus"];
+    private static readonly IReadOnlyList<string> CurrentExtensions = Array.AsReadOnly(
+        OperatingSystem.IsAndroid() ? AllExtensions :
+        OperatingSystem.IsWindows() ? new string[] { ".mp3", ".wav", ".ogg", ".oga", ".flac", ".aac", ".m4a" } : PortableExtensions);
+
+    /// <summary>Importable extensions on this runtime. Containers and actual decoder
+    /// capabilities are validated during preparation, not by the filename.</summary>
+    public static IReadOnlyList<string> SupportedExtensions => CurrentExtensions;
+    public static bool IsSupportedAudio(string name) =>
+        CurrentExtensions.Contains(Path.GetExtension(name), StringComparer.OrdinalIgnoreCase);
+    public static bool IsKnownAudio(string name) =>
+        AllExtensions.Contains(Path.GetExtension(name), StringComparer.OrdinalIgnoreCase);
+
+    internal static IReadOnlyList<string> StorageExtensions => AllExtensions;
+    internal static string StorageExtension(string name)
+    {
+        string extension = Path.GetExtension(name).ToLowerInvariant();
+        if (!AllExtensions.Contains(extension)) throw new InvalidDataException("Неподдерживаемое расширение аудио.");
+        return extension == ".oga" ? ".ogg" : extension;
+    }
+
     /// <summary>Creates a selection whose backing stream can be opened lazily.</summary>
     public static TrackFile FromStream(string name, Func<Task<Stream>> open)
     {

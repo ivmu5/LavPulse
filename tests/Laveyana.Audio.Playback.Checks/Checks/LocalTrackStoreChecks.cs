@@ -13,6 +13,7 @@ internal static class LocalTrackStoreChecks
         var duplicate = await store.CopyAsync(Source("copy.mp3", 1), default);
         Require(first.LocalPath == duplicate.LocalPath, "Identical imports duplicated local media.");
         await CheckStreamedCopyAsync(store);
+        await CheckWaveStorageAsync(directory);
         await CheckStorageMigrationAsync(directory);
         long mediaBytes = new FileInfo(first.LocalPath!).Length;
         Require(await store.ReadTrackStorageSizeAsync(first, default) == mediaBytes,
@@ -326,12 +327,16 @@ internal static class LocalTrackStoreChecks
             return Task.CompletedTask;
         }
 
-        var lookahead = new QueueTrackAnalysis(prepared.Contains, Prepare, () => { }, default, analyzed.Contains, Analyze);
-        await lookahead.Update([tracks[0]], allowed: true, tracks)!;
+        var lookahead = new QueueTrackAnalysis(prepared.Contains, Prepare, () => { }, default, analyzed.Contains, Analyze,
+            pcmLookahead: 1);
+        await lookahead.Update(tracks, allowed: true, tracks)!;
         lookahead.Finish();
         Require(order.SequenceEqual(["pcm:second.mp3", "scan:first.mp3"]) &&
-            lookahead.Update([tracks[0]], allowed: true, tracks) is null,
+            lookahead.Update(tracks, allowed: true, tracks) is null,
             "The worker skipped queue priority or repeated completed analysis.");
+        await lookahead.Update([tracks[1]], allowed: true, tracks)!;
+        lookahead.Finish();
+        Require(order.Last() == "pcm:first.mp3", "The next track was not prepared when the queue advanced.");
     }
 
     private static TrackFile Source(string name, byte marker) => new(name, async (output, token) =>
@@ -373,5 +378,18 @@ internal static class LocalTrackStoreChecks
             "A custom seekable import was replaced by its original stream factory.");
         File.Delete(saved.LocalPath!);
         File.Delete(customized.LocalPath!);
+    }
+    private static async Task CheckWaveStorageAsync(string directory)
+    {
+        var store = new LocalTrackStore(Path.Combine(directory, "wave-library"));
+        var file = TrackFile.FromStream("test.WAV", () => Task.FromResult<Stream>(TrackPreparationChecks.CreateWave()));
+        var local = await store.CopyAsync(file, default);
+        Require(Path.GetExtension(local.LocalPath) == ".wav", "WAV extension was not preserved.");
+        await store.SaveQueueAsync(store.Snapshot([local], local));
+        var reopened = new LocalTrackStore(Path.Combine(directory, "wave-library"));
+        var restored = await reopened.ReadQueueAsync(default);
+        Require(restored.Tracks.Single().LocalPath == local.LocalPath &&
+            reopened.ReportAudioPath(Path.GetFileNameWithoutExtension(local.LocalPath!)) == local.LocalPath,
+            "WAV library restoration failed.");
     }
 }

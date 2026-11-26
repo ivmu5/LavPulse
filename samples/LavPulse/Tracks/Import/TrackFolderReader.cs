@@ -20,7 +20,7 @@ internal static class TrackFolderReader
                 token.ThrowIfCancellationRequested();
                 if (entry is DirectoryInfo)
                     folders.Add(FromDirectory(entry.FullName, entry.Name, open, readScoped));
-                else if (entry is FileInfo file && TrackFile.IsMp3(file.Name))
+                else if (entry is FileInfo file && TrackFile.IsSupportedAudio(file.Name))
                     files.Add(open(file.FullName) with { SizeBytes = file.Exists ? file.Length : null });
             }
             return TrackFolder.FromFiles(name, files) with

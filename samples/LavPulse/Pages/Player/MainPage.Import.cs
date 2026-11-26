@@ -34,7 +34,7 @@ public sealed partial class MainPage
                 {
                     token.ThrowIfCancellationRequested();
                     var file = item.File;
-                    if (!TrackFile.IsMp3(file.Name)) continue;
+                    if (!TrackFile.IsSupportedAudio(file.Name)) continue;
                     TrackFile local;
                     try { local = alreadyLocal ? file : await Task.Run(() => _trackStore.CopyAsync(file, token), token); }
                     catch (Exception ex) when (ex is not OperationCanceledException)

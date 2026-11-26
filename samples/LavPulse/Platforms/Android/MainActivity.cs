@@ -13,7 +13,9 @@ namespace Laveyana.LavPulse;
 // Keep the launcher component registered by previous versions after the assembly rename.
 [Activity(Name = "crc645d4c19df811ab518.MainActivity", Theme = "@style/Maui.SplashTheme", MainLauncher = true, Exported = true, LaunchMode = LaunchMode.SingleTask, ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation | ConfigChanges.UiMode | ConfigChanges.ScreenLayout | ConfigChanges.SmallestScreenSize | ConfigChanges.Density)]
 [IntentFilter([Intent.ActionView], Categories = [Intent.CategoryDefault], DataSchemes = ["content", "file"],
-    DataMimeTypes = ["audio/mpeg", "audio/mp3", "audio/x-mp3"])]
+    DataMimeTypes = ["audio/mpeg", "audio/mp3", "audio/x-mp3", "audio/wav", "audio/x-wav",
+        "audio/wave", "audio/ogg", "application/ogg", "audio/flac", "audio/x-flac", "audio/aac",
+        "audio/aacp", "audio/mp4", "audio/x-m4a", "audio/opus"])]
 public class MainActivity : MauiAppCompatActivity
 {
     private ActivityResultLauncher? _folderLauncher;

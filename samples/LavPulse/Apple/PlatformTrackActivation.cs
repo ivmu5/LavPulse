@@ -7,7 +7,7 @@ internal static class PlatformTrackActivation
 {
     internal static bool Open(NSUrl url)
     {
-        if (!url.IsFileUrl || url.Path is not { } path || !TrackFile.IsMp3(path)) return false;
+        if (!url.IsFileUrl || url.Path is not { } path || !TrackFile.IsSupportedAudio(path)) return false;
 
         var file = TrackFile.FromStream(Path.GetFileName(path), () =>
             Task.FromResult(PlatformTrackFolder.OpenScopedFile(url, path))) with

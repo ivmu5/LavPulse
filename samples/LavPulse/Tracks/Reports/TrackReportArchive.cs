@@ -6,7 +6,7 @@ using Laveyana.Audio.Playback;
 
 namespace Laveyana.LavPulse.Tracks;
 
-/// <summary>Exports annotated diagnostics and original MP3 bytes into a user-requested ZIP.</summary>
+/// <summary>Exports annotated diagnostics and original audio bytes into a user-requested ZIP.</summary>
 internal static class TrackReportArchive
 {
     internal static string RenderText(IReadOnlyList<TrackIssueReport> reports)
@@ -65,7 +65,7 @@ internal static class TrackReportArchive
     }
 
     internal static async Task CreateAsync(IReadOnlyList<TrackIssueReport> reports, string destination,
-        Func<string, string> mp3Path, CancellationToken token,
+        Func<string, string> audioPath, CancellationToken token,
         Func<string, CancellationToken, Task<TrackDiagnosticSnapshot>>? analyze = null,
         string? appVersion = null, string? platform = null)
     {
@@ -75,7 +75,7 @@ internal static class TrackReportArchive
         {
             if (report.Id.Length != 64 || !report.Id.All(char.IsAsciiHexDigitUpper))
                 throw new InvalidDataException("Некорректный идентификатор трека в отчёте.");
-            string path = mp3Path(report.Id);
+            string path = audioPath(report.Id);
             if (!File.Exists(path))
                 throw new FileNotFoundException($"Оригинал MP3 для «{report.Title}» недоступен.", path);
             return path;
@@ -89,8 +89,8 @@ internal static class TrackReportArchive
             using (var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
             {
                 await WriteText(zip, "README.txt",
-                    "LavPulse diagnostic bundle. Includes the original MP3 files explicitly selected by the user.\n" +
-                    "Bundle schema: 2. Each track folder contains recorded analysis, comments, exact annotations and original MP3 bytes.\n" +
+                    "LavPulse diagnostic bundle. Includes the original audio files explicitly selected by the user.\n" +
+                    "Bundle schema: 2. Each track folder contains recorded analysis, comments, exact annotations and original audio bytes.\n" +
                     "diagnostics/ contains a fresh export-time analysis, not necessarily the historical grid.\n" +
                     "PCM frame coordinates are at 48000 Hz; the 10 ms envelope contains filter-band mean absolute amplitudes, not instrument stems.\n" +
                     "Tap positions are approximate human observations, never ground truth.\n" +
@@ -135,7 +135,7 @@ internal static class TrackReportArchive
                             await TrackDiagnosticCsv.WriteAsync(zip, baseName + "diagnostics/", report,
                                 snapshot, token).ConfigureAwait(false);
                     }
-                    string originalName = SafeName(report.FileName);
+                    string originalName = SafeName(report.FileName, audioFiles[i]);
                     var entry = zip.CreateEntry(baseName + originalName, CompressionLevel.NoCompression);
                     await using var input = new FileStream(audioFiles[i], FileMode.Open, FileAccess.Read, FileShare.Read,
                         128 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
@@ -155,16 +155,18 @@ internal static class TrackReportArchive
         }
     }
 
-    private static string SafeName(string fileName)
+    private static string SafeName(string fileName, string audioPath)
     {
         string name = Path.GetFileName(fileName);
-        if (!name.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase)) name += ".mp3";
+        string extension = Path.GetExtension(audioPath).ToLowerInvariant();
+        if (!TrackFile.IsKnownAudio("audio" + extension)) extension = ".bin";
+        name = Path.GetFileNameWithoutExtension(name) + extension;
         var invalid = Path.GetInvalidFileNameChars();
         var chars = name.Select(ch => invalid.Contains(ch) || ch is '/' or '\\' or ':' || char.IsControl(ch)
             ? '_' : ch).ToArray();
         string safe = new string(chars).Trim('.', ' ');
-        if (safe.Length > 110) safe = safe[..106] + ".mp3";
-        return string.IsNullOrWhiteSpace(safe) ? "original.mp3" : safe;
+        if (safe.Length > 110) safe = safe[..(110 - extension.Length)] + extension;
+        return string.IsNullOrWhiteSpace(safe) ? "original" + extension : safe;
     }
 
     private static string Time(long frames)
