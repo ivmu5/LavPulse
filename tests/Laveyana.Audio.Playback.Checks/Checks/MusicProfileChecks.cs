@@ -148,7 +148,7 @@ internal static class MusicProfileChecks
             if(_read)return 0;
             _read=true;
             for(int i=0;i<destination.Length;i++)
-                destination[i]=i%4 switch{0=>float.NaN,1=>float.MaxValue,2=>float.NegativeInfinity,_=>-float.MaxValue};
+                destination[i]=(i%4) switch{0=>float.NaN,1=>float.MaxValue,2=>float.NegativeInfinity,_=>-float.MaxValue};
             return destination.Length/2;
         }
     }
