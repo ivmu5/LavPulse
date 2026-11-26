@@ -169,6 +169,7 @@ public sealed partial class TrackLibraryPanel
             _scanPosition.Text = _message.Text;
             _scanScroll.IsEnabled = true;
             _scanScroll.SetEndPadding(0);
+            _previousScanPositions.Clear();
             _stopScan.IsEnabled = true;
             _stopScan.Text = "Готово";
             // Keep the final results visible until dismissed. Closing the panel
@@ -247,8 +248,10 @@ public sealed partial class TrackLibraryPanel
         try
         {
             _scanScroll.SetItems(_scanHistory.Items);
-            _scanScroll.SetEndPadding(_scanHistory.ActiveCount > 0
-                ? QueueViewport.EndPadding(_scanScroll.Height, TrackListLayout.RowHeight) : 0);
+            // Keep the padding between completion and scheduling the next
+            // task even with parallelism=1. Removing it here would briefly
+            // clamp the native scroll position back into history.
+            _scanScroll.SetEndPadding(QueueViewport.EndPadding(_scanScroll.Height, TrackListLayout.RowHeight));
         }
         finally { _scanUpdating = false; }
         if (CanFollowScan) FollowScanHead();
