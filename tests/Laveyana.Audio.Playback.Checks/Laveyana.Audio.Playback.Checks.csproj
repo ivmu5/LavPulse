@@ -11,6 +11,7 @@
     <Compile Include="../../samples/LavPulse/Tracks/Queue/PlaybackQueue.cs" Link="PlaybackQueue.cs" />
     <Compile Include="../../samples/LavPulse/Tracks/Import/TrackFolderReader.cs" Link="TrackFolderReader.cs" />
     <Compile Include="../../samples/LavPulse/Tracks/Import/SystemAudioFileName.cs" Link="SystemAudioFileName.cs" />
+    <Compile Include="../../samples/LavPulse/Tracks/Import/SystemTrackRequests.cs" Link="SystemTrackRequests.cs" />
     <Compile Include="../../samples/LavPulse/Tracks/Library/LocalTrackStore.cs" Link="LocalTrackStore.cs" />
     <Compile Include="../../samples/LavPulse/Tracks/Library/LibraryStorageMigration.cs" Link="LibraryStorageMigration.cs" />
     <Compile Include="../../samples/LavPulse/Tracks/Reports/TrackIssueReport.cs" Link="TrackIssueReport.cs" />

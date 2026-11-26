@@ -17,8 +17,9 @@ public sealed partial class MainPage
 
     internal void ProcessSystemTrackRequests()
     {
-        if (SystemTrackRequests.HasPending && !_openingSystemTracks && CanOpenSystemTracks)
-            _ = OpenSystemTracksAsync();
+        if (_openingSystemTracks || !CanOpenSystemTracks) return;
+        if (SystemTrackRequests.HasPending) _ = OpenSystemTracksAsync();
+        else RestoreActivationFallback();
     }
 
     private bool CanOpenSystemTracks => _canOpenSystemTracks && _localQueueReady && !_closed && _windowVisible &&
@@ -66,13 +67,16 @@ public sealed partial class MainPage
         finally
         {
             _openingSystemTracks = false;
-            if (!_closed && !SystemTrackRequests.HasPending)
-            {
-                var fallback = _restoredActivationFallback;
-                _restoredActivationFallback = null;
-                if (fallback is not null && _playback.Snapshot.Current is null && !IsLoadingFirst)
-                    _ = LoadFirstAsync(fallback);
-            }
+            RestoreActivationFallback();
         }
+    }
+
+    private void RestoreActivationFallback()
+    {
+        if (_closed || SystemTrackRequests.HasOutstanding) return;
+        var fallback = _restoredActivationFallback;
+        _restoredActivationFallback = null;
+        if (fallback is not null && _playback.Snapshot.Current is null && !IsLoadingFirst)
+            _ = LoadFirstAsync(fallback);
     }
 }

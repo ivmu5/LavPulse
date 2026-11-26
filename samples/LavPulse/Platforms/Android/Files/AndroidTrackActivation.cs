@@ -18,7 +18,13 @@ internal static class AndroidTrackActivation
         else if (uri.Scheme == "content" && Android.App.Application.Context.ContentResolver is { } resolver)
         {
             string? mime = intent.Type;
-            _ = Task.Run(() => OpenContent(resolver, uri, mime));
+            SystemTrackRequests.BeginResolve();
+            _ = Task.Run(() =>
+            {
+                try { OpenContent(resolver, uri, mime); }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"LavPulse file activation: {ex}"); }
+                finally { SystemTrackRequests.EndResolve(); }
+            });
         }
     }
 

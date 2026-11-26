@@ -18,6 +18,28 @@ internal static partial class Program
             "Unsupported names must not be disguised as audio.");
         Require(SystemAudioFileName.Resolve("track", null, "audio/x-opus") == "track.opus",
             "Opus MIME alias was not recognized.");
-        Console.WriteLine("OK: system audio file names and MIME aliases.");
+        CheckSystemAudioRequestPriority();
+        Console.WriteLine("OK: system audio file names, MIME aliases and pending activation priority.");
+    }
+
+    private static void CheckSystemAudioRequestPriority()
+    {
+        var track = Laveyana.Audio.Playback.TrackFile.FromPath("requested.wav");
+        Require(!SystemTrackRequests.HasOutstanding, "Unexpected file activation in test process.");
+        SystemTrackRequests.BeginResolve();
+        try
+        {
+            Require(SystemTrackRequests.HasOutstanding && !SystemTrackRequests.HasPending,
+                "An unresolved native request must take priority over restoring a deck.");
+            SystemTrackRequests.Open([track]);
+        }
+        finally { SystemTrackRequests.EndResolve(); }
+        Require(SystemTrackRequests.HasOutstanding &&
+            SystemTrackRequests.TryTake(out var files) && files?.Single() == track,
+            "Resolved request was lost during native activation.");
+        Require(!SystemTrackRequests.HasOutstanding, "A completed request retained its startup reservation.");
+        SystemTrackRequests.BeginResolve();
+        SystemTrackRequests.EndResolve();
+        Require(!SystemTrackRequests.HasOutstanding, "Rejected file activation blocked normal startup.");
     }
 }

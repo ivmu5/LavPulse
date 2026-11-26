@@ -20,7 +20,7 @@ public sealed partial class MainPage
             _localQueueReady = true;
             UpdateQueue();
             // A file activation on cold startup takes precedence over restoring a paused deck.
-            if (SystemTrackRequests.HasPending)
+            if (SystemTrackRequests.HasOutstanding)
                 _restoredActivationFallback = restored.Current ?? _queue.Tracks.FirstOrDefault();
             else if (_queue.Tracks.Count > 0)
                 _ = LoadFirstAsync(restored.Current);
