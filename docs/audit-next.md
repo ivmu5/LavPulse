@@ -91,3 +91,18 @@ Regression checks cover slot cancellation/accounting, mutable scheduler arrays, 
 50. Skip scalar/SIMD mixing work on exactly zero-gain decks after reading them; clear a muted single-input output. Source advancement and other decks remain intact; signed zero may become positive zero, with no audible difference.
 
 Added regression checks for sampled diagnostics, reused meter scratch and muted-deck advancement/isolation. Existing synthetic rhythm, tonal, profile and PCM checks remain applicable. No thresholds, cache schema or settings changed. Static inspection only; no allocation benchmark, GC trace, device run or verified build for this batch yet.
+
+## Ninth batch (passes 51–60)
+
+51. Resolve the storage root once to an absolute path and use platform path comparison for the analysis index.
+52. Check import cancellation before filesystem changes and flush completed media copies before publication.
+53. Repair a truncated content-addressed original on explicit reimport and publish actual compressed size. Same-length existing copies are not rehashed; this is not a full integrity scan.
+54. Observe startup cancellation before legacy cleanup; do not prune PCM on missing or unreadable queue manifests. A valid empty queue still releases obsolete PCM.
+55. Reject invalid PCM frame counts and paths outside the managed cache for explicit save/eviction. This is lexical path validation, not protection against arbitrary external symlink changes.
+56. Open the analysis manifest directly for storage sizing, avoiding redundant existence probes; tolerate missing or inaccessible size reads.
+57. Respect cancellation even on missing or malformed JSON and before returning deserialized data.
+58. Isolate post-commit storage observers so a throwing subscriber cannot turn a committed import into a failed operation or prevent other subscribers from being notified.
+59. Serialize library dictionary reads/edits and copy folder arrays at input and snapshot boundaries; no caller-owned mutable membership arrays.
+60. Flush migration copies to disk and check cancellation immediately before publishing each verified file. Source remains intact until preferences are committed; this is not a multi-file transaction or directory-fsync guarantee.
+
+Added storage recovery checks for cancellation, truncated originals, corrupt/empty queue pruning, out-of-root deletion, malformed PCM lengths, observer faults and folder snapshot isolation. No cache schema change, blanket media deletion, release or merge. Build and device validation pending.

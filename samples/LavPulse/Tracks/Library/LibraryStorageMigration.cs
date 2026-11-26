@@ -112,9 +112,12 @@ internal static class LibraryStorageMigration
                 {
                     await input.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
                     await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    output.Flush(flushToDisk: true);
                 }
                 if (!await FilesEqualAsync(file, temporary, cancellationToken).ConfigureAwait(false))
                     throw new IOException($"Не удалось проверить копию: {relative}");
+                cancellationToken.ThrowIfCancellationRequested();
                 File.Move(temporary, target, overwrite: true);
             }
             finally

@@ -9,15 +9,18 @@ namespace Laveyana.LavPulse.Tracks;
 /// <summary>Owns the imported MP3 copies, queue manifest and versioned analysis data.</summary>
 internal sealed partial class LocalTrackStore(string root)
 {
-    private readonly ConcurrentDictionary<string, byte> _analyzed = new();
+    private readonly string _root = Path.GetFullPath(root);
+    private readonly ConcurrentDictionary<string, byte> _analyzed = new(
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, (TrackFile File, string Pcm)> _restoredPcm =
         new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+    private readonly object _libraryGate = new();
     private readonly Dictionary<(string Id, string Name, string Folder), StoredLibraryTrack> _library = new();
     private readonly SemaphoreSlim _analysisWrites = new(1);
-    private string MediaDirectory => Path.Combine(root, "media");
-    private string AnalysisDirectory => Path.Combine(root, "analysis-v13");
-    private string QueuePath => Path.Combine(root, "queue.json");
-    public string PcmDirectory => Path.Combine(root, "pcm-v1");
+    private string MediaDirectory => Path.Combine(_root, "media");
+    private string AnalysisDirectory => Path.Combine(_root, "analysis-v13");
+    private string QueuePath => Path.Combine(_root, "queue.json");
+    public string PcmDirectory => Path.Combine(_root, "pcm-v1");
 
     /// <summary>Resolve an imported original MP3, never a decoded PCM cache or arbitrary path.</summary>
     internal string ReportAudioPath(string id)
@@ -34,6 +37,8 @@ internal sealed partial class LocalTrackStore(string root)
 
     public async Task<TrackFile> CopyAsync(TrackFile file, CancellationToken token)
     {
+        ArgumentNullException.ThrowIfNull(file);
+        token.ThrowIfCancellationRequested();
         if (!TrackFile.IsSupportedAudio(file.Name)) throw new NotSupportedException("Формат аудио не поддерживается на этой платформе.");
         Directory.CreateDirectory(MediaDirectory);
         string temp = Path.Combine(MediaDirectory, $"{Guid.NewGuid():N}.tmp");
@@ -44,16 +49,24 @@ internal sealed partial class LocalTrackStore(string root)
                 FileShare.None, 64 * 1024, FileOptions.Asynchronous))
             {
                 id = Convert.ToHexString(await CopyAndHashAsync(file, stream, token).ConfigureAwait(false));
+                await stream.FlushAsync(token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+                stream.Flush(flushToDisk: true);
             }
 
             token.ThrowIfCancellationRequested();
             string path = MediaPath(id, file.Name);
+            long size = new FileInfo(temp).Length;
             if (!File.Exists(path))
             {
                 try { File.Move(temp, path); }
                 catch (IOException) when (File.Exists(path)) { }
             }
-            return TrackFile.FromPath(path) with { Name = file.Name };
+            // The new copy is content-addressed. Repair an existing truncated
+            // copy without replacing healthy same-length duplicates on every import.
+            if (File.Exists(temp) && new FileInfo(path).Length != size)
+                File.Move(temp, path, overwrite: true);
+            return TrackFile.FromPath(path) with { Name = file.Name, SizeBytes = size };
         }
         finally
         {
@@ -89,11 +102,13 @@ internal sealed partial class LocalTrackStore(string root)
 
     public async Task<(TrackFile[] Tracks, TrackFile? Current)> ReadQueueAsync(CancellationToken token, int pcmLookahead = 1)
     {
+        token.ThrowIfCancellationRequested();
         // Version 13 includes a global musical key estimate.
         // MP3s, queue and PCM cache remain intact; only previous analysis manifests are removed.
         foreach (string version in new[] { "analysis-v1", "analysis-v2", "analysis-v3", "analysis-v4", "analysis-v5", "analysis-v6", "analysis-v7", "analysis-v8", "analysis-v9", "analysis-v10", "analysis-v11", "analysis-v12" })
         {
-            try { Directory.Delete(Path.Combine(root, version), recursive: true); }
+            token.ThrowIfCancellationRequested();
+            try { Directory.Delete(Path.Combine(_root, version), recursive: true); }
             catch (DirectoryNotFoundException) { }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
@@ -105,7 +120,8 @@ internal sealed partial class LocalTrackStore(string root)
             if (entry?.Track is not { } track || RestoreTrack(track) is not { } file ||
                 entry.Folders is null || entry.Folders.Any(folder => string.IsNullOrEmpty(folder?.Id) || string.IsNullOrEmpty(folder.Name)))
                 continue;
-            _library.TryAdd((track.Id, track.Name, FolderKey(entry.Folders)), entry);
+            lock (_libraryGate)
+                _library.TryAdd((track.Id, track.Name, FolderKey(entry.Folders)), entry);
             if (File.Exists(AnalysisPath(file))) _analyzed[file.LocalPath!] = 0;
         }
 
@@ -124,7 +140,9 @@ internal sealed partial class LocalTrackStore(string root)
         int start = current is null ? 0 : result.IndexOf(current);
         var retained = new HashSet<string>(OperatingSystem.IsWindows()
             ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
-        if (Directory.Exists(PcmDirectory))
+        // A missing/unreadable manifest is not evidence that every PCM is
+        // unwanted. Keep it until a valid queue can establish the horizon.
+        if (manifest?.Tracks is not null && Directory.Exists(PcmDirectory))
         {
             foreach (var file in result.Skip(Math.Max(0, start)).Take(1 + Math.Clamp(pcmLookahead, 1, 20)))
             {
@@ -146,27 +164,36 @@ internal sealed partial class LocalTrackStore(string root)
 
     public StoredQueue Snapshot(IReadOnlyList<TrackFile> tracks, TrackFile? current) =>
         new(tracks.Select(file => new StoredTrack(Id(file), file.Name)).ToArray(),
-            current is null ? null : Id(current), _library.Values.ToArray());
+            current is null ? null : Id(current), LibrarySnapshot());
 
     public bool Remember(TrackFile file, StoredFolder[] folders)
     {
         var track = new StoredTrack(Id(file), file.Name);
         if (File.Exists(AnalysisPath(file))) _analyzed.TryAdd(file.LocalPath!, 0);
-        return _library.TryAdd((track.Id, track.Name, FolderKey(folders)), new(track, folders));
+        var owned = (StoredFolder[])folders.Clone();
+        lock (_libraryGate)
+            return _library.TryAdd((track.Id, track.Name, FolderKey(owned)), new(track, owned));
     }
 
     public int ForgetLibraryItem(string folderId, TrackFile? file)
     {
-        if (file is not null)
-            return _library.Remove((Id(file), file.Name, folderId)) ? 1 : 0;
-        if (folderId.Length == 0) return 0;
+        lock (_libraryGate)
+        {
+            if (file is not null)
+                return _library.Remove((Id(file), file.Name, folderId)) ? 1 : 0;
+            if (folderId.Length == 0) return 0;
 
-        var entries = _library.Keys.Where(key => key.Folder.StartsWith(folderId, StringComparison.Ordinal)).ToArray();
-        foreach (var entry in entries) _library.Remove(entry);
-        return entries.Length;
+            var entries = _library.Keys.Where(key => key.Folder.StartsWith(folderId, StringComparison.Ordinal)).ToArray();
+            foreach (var entry in entries) _library.Remove(entry);
+            return entries.Length;
+        }
     }
 
-    public StoredLibraryTrack[] LibrarySnapshot() => _library.Values.ToArray();
+    public StoredLibraryTrack[] LibrarySnapshot()
+    {
+        lock (_libraryGate)
+            return _library.Values.Select(entry => entry with { Folders = (StoredFolder[])entry.Folders.Clone() }).ToArray();
+    }
 
     public TrackFolderSource OpenLibrary(IReadOnlyList<StoredLibraryTrack> entries)
     {
@@ -234,14 +261,18 @@ internal sealed partial class LocalTrackStore(string root)
     private static async Task<T?> ReadAsync<T>(string path, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> type,
         CancellationToken token) where T : class
     {
+        token.ThrowIfCancellationRequested();
         try
         {
             await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete,
                 16 * 1024, FileOptions.Asynchronous);
-            return await JsonSerializer.DeserializeAsync(stream, type, token).ConfigureAwait(false);
+            var value = await JsonSerializer.DeserializeAsync(stream, type, token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            return value;
         }
         catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException or JsonException)
         {
+            token.ThrowIfCancellationRequested();
             return null;
         }
     }
