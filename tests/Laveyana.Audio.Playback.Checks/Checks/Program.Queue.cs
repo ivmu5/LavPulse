@@ -95,6 +95,25 @@ internal static partial class Program
         progressFailure.Finish();
         Require(ready && progressFailure.Update([file], true, 1, 0) is null,
             "A failing progress observer abandoned the active preparation.");
+        // The scheduler owns the supplied array across asynchronous work.
+        var mutable = new[] { file, TrackFile.FromPath("second-owned.mp3") };
+        var expectedSecond = mutable[1];
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completedFiles = new System.Collections.Concurrent.ConcurrentDictionary<TrackFile,bool>();
+        var owned = new QueueTrackAnalysis(completedFiles.ContainsKey, async next =>
+        {
+            if (next == file) { firstEntered.TrySetResult(); await releaseFirst.Task.WaitAsync(stop.Token); }
+            completedFiles[next] = true;
+        }, () => {}, stop.Token);
+        var ownedWork = owned.Update(mutable,true,2,0)!;
+        await firstEntered.Task.WaitAsync(stop.Token);
+        mutable[1] = TrackFile.FromPath("unexpected.mp3");
+        releaseFirst.TrySetResult();
+        await ownedWork.WaitAsync(stop.Token);
+        owned.Finish();
+        Require(completedFiles.ContainsKey(expectedSecond) && !completedFiles.ContainsKey(mutable[1]),
+            "Mutating the caller array changed the active scheduler snapshot.");
         bool pcmReady=false;
         int scanAttempts=0;
         var separate=new QueueTrackAnalysis(_=>pcmReady,_=>{pcmReady=true;return Task.CompletedTask;},

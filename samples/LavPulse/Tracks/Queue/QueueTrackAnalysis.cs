@@ -23,15 +23,17 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
 
     public Task? Update(TrackFile[] upcoming, bool allowed, int pcmLookahead, int analysisLookahead)
     {
+        ArgumentNullException.ThrowIfNull(upcoming);
         lock (_gate)
         {
             pcmLookahead = Math.Max(0, pcmLookahead);
             analysisLookahead = Math.Max(0, analysisLookahead);
             bool changed = !_upcoming.SequenceEqual(upcoming) ||
                 _pcmLookahead != pcmLookahead || _analysisLookahead != analysisLookahead;
-            _upcoming = upcoming;
-            _pcmLookahead = Math.Max(0, pcmLookahead);
-            _analysisLookahead = Math.Max(0, analysisLookahead);
+            // Own the queue snapshot; callers may reuse their array after Update.
+            if (!_upcoming.SequenceEqual(upcoming)) _upcoming = (TrackFile[])upcoming.Clone();
+            _pcmLookahead = pcmLookahead;
+            _analysisLookahead = analysisLookahead;
             if (changed)
             {
                 _failed.RemoveWhere(key => !upcoming.Contains(key.File));

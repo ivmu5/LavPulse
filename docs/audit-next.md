@@ -63,3 +63,16 @@ Targeted regressions cover constructor cleanup, cursor bounds and malformed PCM 
 34. Reduce tempo compatibility to one logarithm using octave symmetry; preserve the three previous hypotheses to floating-point precision. Add symmetric half/double-tempo checks.
 
 Focused source audit, not an exhaustive repository-wide pass for each number. No cache version, settings, merge or release. New checks require CI; no measured speedup or real-track accuracy claim.
+
+## Seventh batch (passes 35–40)
+
+Resume the original thematic roadmap. Passes 31–34 included rhythm/profile work rather than exclusively concurrency; keep their numbers and real scope. Remaining roadmap: 41–50 memory/GC/allocations/SIMD; 51–60 cache/files/library; 61–70 UI/FPS; 71–80 native platforms; 81–90 robustness/stress; 91–100 architecture, refactoring and documentation.
+
+35. Validate decoder concurrency limits and reject unmatched releases without corrupting the slot counters. Keep the reserved preparation lane.
+36. Track semaphore ownership across cancellation after acquisition, releasing the acquired permit and reference exactly once.
+37. Own asynchronous scheduler queue snapshots instead of borrowing mutable caller arrays.
+38. Make producer-owned parallel analysis cleanup idempotent; reject submissions after disposal and skip empty transfers. Concurrent Submit/Dispose is still unsupported.
+39. Acquire the playback-run guard before allocating the mixer, validate output/cancellation, and clear run ownership even if initialization fails.
+40. Publish the visual delay and spectrum settings under the same startup lock to eliminate lost setting updates during output creation.
+
+Regression checks cover slot cancellation/accounting, mutable scheduler arrays, empty and disposed analysis workers, cancelled/failed playback and visual delay across restart. Static source review only; CI and native-device checks pending. No cache version or settings changes. No merge or release.

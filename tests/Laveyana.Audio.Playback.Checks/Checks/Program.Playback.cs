@@ -372,6 +372,7 @@ internal static partial class Program
     /// <summary>An output error must not leave a published mixer after the worker exits.</summary>
     private static async Task CheckPlaybackSessionFailureCleanup(CachedTrack track)
     {
+        await CheckQueueSessionLifecycle(track);
         var session = new PlaybackSession(new InMemoryOutput(_ =>
             throw new IOException("Synthetic output failure")), new DeckVolumes(), track, 0, null, 0);
         try
@@ -384,6 +385,31 @@ internal static partial class Program
             Require(session.Spectrum is null, "A failed playback run retained a stale mixer.");
         }
     }
+    private static async Task CheckQueueSessionLifecycle(CachedTrack track)
+    {
+        using var session = new QueuePlaybackSession();
+        session.SetFirst(track);
+        try { await session.RunAsync(null!,0,default); throw new InvalidOperationException("Null output accepted."); }
+        catch (ArgumentNullException) { }
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        try { await session.RunAsync(new InMemoryOutput(_ => throw new Exception("Cancelled output started.")),0,cancelled.Token); throw new InvalidOperationException("Cancelled run succeeded."); }
+        catch (OperationCanceledException) { }
+        try { await session.RunAsync(new InMemoryOutput(_ => throw new IOException("queue output fault")),0,default); throw new InvalidOperationException("Queue output fault hidden."); }
+        catch (IOException ex) when (ex.Message == "queue output fault") { }
+        Require(session.Spectrum is null,"Failed queue output retained a published mixer.");
+        session.SetVisualDelay(100);
+        await session.RunAsync(new InMemoryOutput(source =>
+        {
+            var block = new float[BlockSize * PlaybackFormat.Channels];
+            Require(source.Render(block) == BlockSize && session.PresentedSnapshot.Current?.Position == 0,
+                "Restart did not apply the stored visual delay.");
+            session.SetVisualDelay(0);
+            Require(session.PresentedSnapshot.Current?.Position == BlockSize,"Active run did not apply the new delay.");
+        }),0,default);
+        Require(session.Spectrum is null,"Completed queue output retained a published mixer.");
+    }
+
     private static async Task CheckConcurrentQueueControl(CachedTrack track)
     {
         using var queue = new QueueSource();

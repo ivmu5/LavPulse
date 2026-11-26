@@ -90,6 +90,19 @@ internal static class ParallelAnalysisChecks
             catch (IOException ex) when (ex.Message == "decoder fault") { }
         }).WaitAsync(timeout.Token);
         await CheckTrackGatesAsync(timeout.Token);
+        await CheckSlotLifecycleAsync(timeout.Token);
+        int submitted = 0;
+        using (var emptyPipeline = new ParallelKeyAnalysis((_, _, _) => Interlocked.Increment(ref submitted), () => null, timeout.Token))
+        {
+            emptyPipeline.Submit([]);
+            emptyPipeline.CompleteInput();
+            emptyPipeline.Join();
+            emptyPipeline.Dispose();
+            emptyPipeline.Dispose();
+            Require(submitted == 0, "Empty PCM was transferred to the worker.");
+            try { emptyPipeline.Submit([0,0]); throw new InvalidOperationException("Disposed worker accepted PCM."); }
+            catch (ObjectDisposedException) { }
+        }
         Console.WriteLine("OK: two-lane analysis equivalence, bounded buffer, consumer and producer failures, cancellation and track identity.");
     }
 
@@ -115,6 +128,29 @@ internal static class ParallelAnalysisChecks
         }
         using (var next = await gates.AcquireAsync(second, token)) { }
         Require(gates.ActiveKeys == 0, "Track-gate entries leaked after cancellation or release.");
+    }
+
+    private static async Task CheckSlotLifecycleAsync(CancellationToken token)
+    {
+        var slots = new TrackAnalysisSlots(1);
+        try { slots.SetParallelism(0); throw new InvalidOperationException("Zero decoder limit accepted."); }
+        catch (ArgumentOutOfRangeException) { }
+        try { slots.Release(true); throw new Exception("Unmatched scan release accepted."); }
+        catch (InvalidOperationException) { }
+        await slots.AcquireAsync(true, token);
+        try { slots.Release(false); throw new Exception("Unmatched preparation release accepted."); }
+        catch (InvalidOperationException) { }
+        await slots.AcquireAsync(false, token); // reserved playback slot
+        using var cancelled = CancellationTokenSource.CreateLinkedTokenSource(token);
+        var blocked = slots.AcquireAsync(true, cancelled.Token).AsTask();
+        Require(!blocked.IsCompleted, "Decoder limit was exceeded.");
+        cancelled.Cancel();
+        try { await blocked; throw new InvalidOperationException("Cancelled slot wait succeeded."); }
+        catch (OperationCanceledException) { }
+        slots.Release(false);
+        slots.Release(true);
+        await slots.AcquireAsync(true, token);
+        slots.Release(true);
     }
 
     private sealed class ToneSource(bool fail = false, int sampleRate = 48000) : IPcmSource

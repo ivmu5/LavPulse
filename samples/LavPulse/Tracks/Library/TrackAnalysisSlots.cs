@@ -4,14 +4,22 @@ namespace Laveyana.LavPulse.Tracks;
 internal sealed class TrackAnalysisSlots(int parallelism)
 {
     private readonly object _gate = new();
-    private int _parallelism = parallelism;
+    private int _parallelism = ValidateParallelism(parallelism);
     private int _scans;
     private int _decoders;
     private bool _helper;
     private TaskCompletionSource? _changed;
 
+    private static int ValidateParallelism(int value)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(value, 1);
+        ArgumentOutOfRangeException.ThrowIfEqual(value, int.MaxValue);
+        return value;
+    }
+
     public void SetParallelism(int parallelism)
     {
+        ValidateParallelism(parallelism);
         lock (_gate)
         {
             bool increased = parallelism > _parallelism;
@@ -67,6 +75,8 @@ internal sealed class TrackAnalysisSlots(int parallelism)
     {
         lock (_gate)
         {
+            if (scan ? _scans == 0 : _decoders == _scans)
+                throw new InvalidOperationException("No matching decoder slot was acquired.");
             if (scan) _scans--;
             _decoders--;
             WakeWaiters();
