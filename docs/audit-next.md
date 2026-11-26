@@ -151,3 +151,24 @@ Added deterministic native counter reset, impossible advance and wrap checks in 
 90. Add 16 repeated output runs, concurrent-start rejection, short-spectrum-buffer rejection and mixer cleanup checks with per-run cancellation deadlines.
 
 This batch adds test source, not a passed test claim. No local dotnet SDK is present; earlier CI runs remain pending. Hardware soak tests and full native regression are still required. No merge, release, dependency or cache-schema change.
+
+## Final batch (passes 91–100)
+
+91. Protect queue-session lifetime with one atomic idle/running/disposed state. Disposal during active output is rejected; after disposal a new output cannot start.
+92. Add a cancellation-aware saved-waveform rhythm entry point and pass the store's token into fallback analysis. Preserve the existing one-argument API.
+93. Align metadata and preparation with the content-import copy contract: a caller-replaced copy delegate must not be bypassed by the original stream factory.
+94. Review the project dependency boundaries: core remains MAUI-free; reject invalid stream factory/name/path arguments earlier. No package updates or architecture expansion.
+95. Validate each profile timeline and ordering in a single traversal; reuse energy validation in lookup. Negative total frames are rejected.
+96. Split TrackPreparation's decoding/recording implementation into a partial file and TrackMetadata into its own model file. Preserve public names and source behavior except intentional fixes.
+97. Document native output block sizes, single render ownership, output position semantics, spectrum buffer and version contracts.
+98. Add source regressions for replaced copy delegates, cancelled fallback rhythm, profile overlaps and disposal/restart. Review prior focused changes, test registration and project compile includes. The final candidate has not been built in this environment.
+99. Update the primary English and Russian README with user-facing overview, default settings, safe cache behavior, architecture and test/acceptance guidance. Retain the existing noncommercial source license and manual release workflow.
+100. Close the planned source-review ledger and leave the PR in draft for verification. 100 numbered focused checks are not 100 exhaustive full-repository reviews, and they are not 100 executed test runs. No merge, release, dependency or cache-schema change. Previous GitHub Actions run 45797281880 was pending with no jobs returned; local dotnet is unavailable and direct GitHub network resolution is blocked. Exact final commit CI, device soak testing, audio quality comparisons and performance measurements are outstanding.
+
+### Merge acceptance checklist (not yet verified)
+
+- [ ] Playback.Checks succeeds on the final candidate SHA, including the new regressions and stress scenarios.
+- [ ] Windows, Android, iOS simulator and Mac Catalyst builds succeed; simulator smoke test passes.
+- [ ] Device checks: import, restore queue, crossfade, pause/resume, interruption, background/foreground, storage relocation and prolonged rendering.
+- [ ] Real-track rhythm/tonal regression and measured CPU, allocations, memory and FPS compared with the baseline.
+- [ ] Review any remaining CI errors and approve merge explicitly; publish a release only through the existing manual workflow.

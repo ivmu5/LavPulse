@@ -38,8 +38,11 @@ public sealed record TrackFile(string Name, Func<Stream, CancellationToken, Task
     /// <summary>Creates a selection whose backing stream can be opened lazily.</summary>
     public static TrackFile FromStream(string name, Func<Task<Stream>> open)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(open);
         async Task CopyAsync(Stream destination, CancellationToken token)
         {
+            token.ThrowIfCancellationRequested();
             await using Stream source = await open().ConfigureAwait(false);
             await source.CopyToAsync(destination, token).ConfigureAwait(false);
         }
@@ -55,6 +58,7 @@ public sealed record TrackFile(string Name, Func<Stream, CancellationToken, Task
     /// <summary>Creates a selection for a local path usable by playback and desktop drag.</summary>
     public static TrackFile FromPath(string path)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
         var file = FromStream(Path.GetFileName(path), () => Task.FromResult<Stream>(File.OpenRead(path)));
         return file with { LocalPath = path };
     }

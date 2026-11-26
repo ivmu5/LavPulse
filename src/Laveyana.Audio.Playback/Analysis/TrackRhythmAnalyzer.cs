@@ -98,16 +98,27 @@ public static partial class TrackRhythmAnalyzer
     /// Supports synthetic/test waveforms and manually provided analysis. Regular MP3 scanning
     /// uses the much finer, independent 100 Hz PCM energy envelope instead.
     /// </summary>
-    public static TrackBeatGrid Analyze(TrackWaveform waveform)
+    public static TrackBeatGrid Analyze(TrackWaveform waveform) => Analyze(waveform, default);
+
+    /// <summary>Analyzes a saved or synthetic waveform with cooperative cancellation.</summary>
+    public static TrackBeatGrid Analyze(TrackWaveform waveform, CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(waveform);
-        var energy = waveform.Points.Select(p => new RhythmEnergy(p.Low, p.Mid, p.High)).ToArray();
-        return AnalyzeEnergy(energy, waveform.FramesPerPoint, waveform.TotalFrames);
+        token.ThrowIfCancellationRequested();
+        var energy = new RhythmEnergy[waveform.Points.Count];
+        for (int i = 0; i < energy.Length; i++)
+        {
+            if ((i & 4095) == 0) token.ThrowIfCancellationRequested();
+            var point = waveform.Points[i];
+            energy[i] = new(point.Low, point.Mid, point.High);
+        }
+        return AnalyzeEnergy(energy, waveform.FramesPerPoint, waveform.TotalFrames, token);
     }
 
     internal static TrackBeatGrid AnalyzeEnergy(IReadOnlyList<RhythmEnergy> energy, int framesPerHop,
         long totalFrames, CancellationToken cancellationToken = default, TrackRhythmTrace? trace = null)
     {
+        ArgumentNullException.ThrowIfNull(energy);
         cancellationToken.ThrowIfCancellationRequested();
         if (trace is not null)
         {

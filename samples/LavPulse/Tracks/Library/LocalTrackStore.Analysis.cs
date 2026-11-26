@@ -120,7 +120,7 @@ internal sealed partial class LocalTrackStore
         token.ThrowIfCancellationRequested();
         if (pcm is not null) pcm = RequireOwnedPcm(pcm);
         if (pcm is null && !replaceAnalysis && HasAnalysis(file)) return;
-        var rhythm = waveform.Rhythm ?? TrackRhythmAnalyzer.Analyze(waveform);
+        var rhythm = waveform.Rhythm ?? TrackRhythmAnalyzer.Analyze(waveform, token);
         var profile = TrackMusicProfileAnalyzer.Derive(waveform with { Rhythm = rhythm }, waveform.MusicProfile, token);
         await _analysisWrites.WaitAsync(token).ConfigureAwait(false);
         try

@@ -10,7 +10,8 @@ public sealed class QueuePlaybackSession : IDisposable
     private readonly object _spectrumSettings = new();
     private bool _spectrumEnabled = true;
     private MixedPlayback? _mix;
-    private int _running;
+    private const int Idle = 0, Running = 1, Disposed = 2;
+    private int _lifecycle;
     private int _visualDelayMilliseconds;
 
     public QueuePlaybackSession() => _equalizer = new(_queue);
@@ -94,7 +95,9 @@ public sealed class QueuePlaybackSession : IDisposable
         ArgumentOutOfRangeException.ThrowIfNegative(startMilliseconds);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(startMilliseconds, 3000);
         token.ThrowIfCancellationRequested();
-        if (Interlocked.CompareExchange(ref _running, 1, 0) != 0)
+        int previous = Interlocked.CompareExchange(ref _lifecycle, Running, Idle);
+        ObjectDisposedException.ThrowIf(previous == Disposed, this);
+        if (previous != Idle)
             throw new InvalidOperationException("The audio output is already running.");
 
         try
@@ -126,10 +129,18 @@ public sealed class QueuePlaybackSession : IDisposable
         finally
         {
             lock (_spectrumSettings) Volatile.Write(ref _mix, null);
-            Volatile.Write(ref _running, 0);
+            Volatile.Write(ref _lifecycle, Idle);
         }
     }
 
-    /// <summary>Closes the cache readers. Stop the output before calling this method.</summary>
-    public void Dispose() => _queue.Dispose();
+    /// <summary>Closes the cache readers. Await the active output before calling this method.</summary>
+    /// <exception cref="InvalidOperationException">An output run is still active.</exception>
+    public void Dispose()
+    {
+        int previous = Interlocked.CompareExchange(ref _lifecycle, Disposed, Idle);
+        if (previous == Disposed) return;
+        if (previous == Running)
+            throw new InvalidOperationException("Stop and await the audio output before disposing the session.");
+        _queue.Dispose();
+    }
 }

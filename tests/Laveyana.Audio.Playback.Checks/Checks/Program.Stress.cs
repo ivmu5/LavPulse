@@ -47,6 +47,10 @@ internal static partial class Program
         invalid = new TrackMusicProfile { LocalKeys = [null!], Energy = [null!] };
         Require(!invalid.TryGetLocalKey(0,out _) && invalid.EnergyAt(0) is null,
             "Null profile records reached the player.");
+        var ordered = new TrackMusicProfile { Energy = [new(0,10,.5f,.5f,1),new(10,20,.5f,.5f,1)] };
+        Require(ordered.IsValid(20) && !ordered.IsValid(-1) &&
+            !(ordered with { Energy = [new(0,10,.5f,.5f,1),new(9,20,.5f,.5f,1)] }).IsValid(20),
+            "Single-pass validation accepted overlapping or negative timelines.");
         using var cancelled = new CancellationTokenSource();
         try { TrackWaveform.Analyze(new CancelAtEof(cancelled),cancelled.Token); throw new Exception("Cancelled EOF accepted."); }
         catch (OperationCanceledException) { }
@@ -106,6 +110,8 @@ internal static partial class Program
             try
             {
                 await entered.Task.WaitAsync(timeout.Token);
+                try { session.Dispose(); throw new Exception("Active session disposal accepted."); }
+                catch (InvalidOperationException) { }
                 try { await session.RunAsync(new InMemoryOutput(_=>{}),0,timeout.Token);
                     throw new Exception("Concurrent output run accepted."); }
                 catch(InvalidOperationException) { }
@@ -121,6 +127,11 @@ internal static partial class Program
             }
             Require(session.Spectrum is null,"Restart retained a stale mixer.");
         }
+        session.Dispose();
+        session.Dispose();
+        try { await session.RunAsync(new InMemoryOutput(_=>{}),0,default);
+            throw new Exception("Disposed session restarted."); }
+        catch (ObjectDisposedException) { }
     }
 
     private sealed class WaitingOutput(TaskCompletionSource entered,TaskCompletionSource release) : IAudioOutput

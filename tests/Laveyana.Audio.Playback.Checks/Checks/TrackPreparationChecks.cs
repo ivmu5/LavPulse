@@ -7,6 +7,7 @@ internal static class TrackPreparationChecks
         CheckNativeRate();
         CheckDecoderContracts();
         await CheckWaveFormatsAsync(directory);
+        await CheckCustomCopyContractAsync(directory);
         CheckRhythmAnalysis();
         CheckHighResolutionRhythmAnalysis();
         CheckPercussiveFiltering();
@@ -84,6 +85,35 @@ internal static class TrackPreparationChecks
                 "Cancellation left a partial cache file or an open decoder.");
         }
         Console.WriteLine("OK: platform MP3 decoding, cancellation and managed retry after a partial write.");
+    }
+
+    private static async Task CheckCustomCopyContractAsync(string directory)
+    {
+        int copies=0;
+        var file = TrackFile.FromStream("custom.wav", () =>
+            throw new InvalidOperationException("Replaced stream factory was used.")) with
+        {
+            CopyToAsync = async (target, token) =>
+            {
+                copies++;
+                using var wave = CreateWave();
+                await wave.CopyToAsync(target,token);
+            }
+        };
+        var preparation=new TrackPreparation(directory);
+        var metadata=await preparation.ReadMetadataAsync(file,default);
+        var cached=await preparation.ImportAsync(file,default);
+        try
+        {
+            Require(copies==2 && metadata.Title=="custom" && cached.Waveform.TotalFrames==24000,
+                "Preparation and metadata ignored the custom copy contract.");
+        }
+        finally { cached.Delete(); }
+        using var cancelled=new CancellationTokenSource();
+        cancelled.Cancel();
+        try { TrackRhythmAnalyzer.Analyze(new TrackWaveform([],0,1),cancelled.Token);
+            throw new Exception("Cancelled fallback rhythm analysis succeeded."); }
+        catch (OperationCanceledException) { }
     }
 
     private static void CheckRhythmAnalysis()
