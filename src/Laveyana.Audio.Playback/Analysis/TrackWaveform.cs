@@ -51,6 +51,8 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
                 break;
             }
 
+            if ((uint)frames > (uint)(pcm.Length / channels))
+                throw new InvalidDataException("Аудиоисточник вернул некорректное количество кадров.");
             totalFrames += frames;
             int offset = 0;
             while (offset < frames)
@@ -104,7 +106,7 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
 
         if (totalFrames == 0)
         {
-            throw new InvalidDataException("В MP3 нет аудиоданных.");
+            throw new InvalidDataException("В файле нет аудиоданных.");
         }
 
         var waveform = new TrackWaveform(points.AsReadOnly(), totalFrames, framesPerPoint);

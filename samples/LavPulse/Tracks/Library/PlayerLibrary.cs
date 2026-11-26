@@ -15,7 +15,6 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
     private readonly HashSet<TrackFile> _files = [];
     // Populated by decoder continuations and read/evicted by the UI thread.
     private readonly ConcurrentDictionary<CachedTrack, TrackFile> _decodedFiles = new(ReferenceEqualityComparer.Instance);
-    private readonly Dictionary<TrackFile, long> _pcmAccess = new();
     private readonly Dictionary<TrackFile, long> _tagAccess = new();
     private readonly Dictionary<TrackFile, long> _thumbnailAccess = new();
     private long _access;
@@ -64,7 +63,6 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
         lock (_cacheGate)
         {
             selection.ThrowIfCancellationRequested();
-            _pcmAccess[file] = ++_access;
             if (!_prepared.TryGetValue(file, out var pending) ||
                 (!pending.Work.IsCompletedSuccessfully &&
                  (pending.Token.IsCancellationRequested || pending.Work.IsFaulted || pending.Work.IsCanceled)))
@@ -88,7 +86,6 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
         lock (_cacheGate)
         {
             if (!_prepared.TryGetValue(file, out var pending) || !pending.Work.IsCompletedSuccessfully) return null;
-            if (forPlayback) _pcmAccess[file] = ++_access;
             return pending.Work.Result;
         }
     }
@@ -98,7 +95,6 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
         lock (_cacheGate)
         {
             if (!_decodedFiles.TryGetValue(track, out var file)) return null;
-            _pcmAccess[file] = ++_access;
             return file;
         }
     }
