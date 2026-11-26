@@ -4,6 +4,25 @@ internal static class MusicProfileChecks
 {
     public static void Run()
     {
+        using (var cancelled = new CancellationTokenSource())
+        {
+            cancelled.Cancel();
+            try { _ = new RhythmBandEvidence([],100,cancelled.Token); throw new InvalidOperationException("Cancelled empty band analysis succeeded."); }
+            catch (OperationCanceledException) { }
+            var empty = new RhythmBandEvidence([],100,default);
+            Require(empty.Measure(0,0).Values.Length == 0,"Empty band evidence invented a sample.");
+            try { _ = empty.ChoosePhase(0,50,120,0,100,true,cancelled.Token); throw new InvalidOperationException("Cancelled phase shortcut succeeded."); }
+            catch (OperationCanceledException) { }
+        }
+        var signal = Enumerable.Range(0,1000).Select(i => new RhythmEnergy(i%50==0?1f:0f, i%25==0?.5f:0f,0)).ToArray();
+        var evidence = new RhythmBandEvidence(signal,100,default);
+        var full = evidence.Measure(0,signal.Length);
+        foreach (var pair in new (double A,double B)[] { (120,120),(120,121),(120,125),(40,240) })
+        {
+            var selective = evidence.MeasurePair(0,signal.Length,pair.A,pair.B);
+            Require(Math.Abs(selective.First-full.AtBpm(pair.A))<1e-12 && Math.Abs(selective.Second-full.AtBpm(pair.B))<1e-12,
+                "Shared lag probes changed the periodicity score.");
+        }
         var loud = new TrackLoudnessAnalyzer();
         var quiet = new TrackLoudnessAnalyzer();
         var silence = new TrackLoudnessAnalyzer();
@@ -26,6 +45,24 @@ internal static class MusicProfileChecks
             "Loudness peak, short-term windows or silence failed.");
         Require(a.RecommendedGainDb() is float gain&&gain<=6&&gain+a.SamplePeakDbfs.GetValueOrDefault()<=-3+.001,
             "Suggested gain exceeds sample-peak headroom.");
+        // Different chunk boundaries must not change any loudness measurement.
+        var chunked=new TrackLoudnessAnalyzer();
+        for(int n=0;n<60;n++)
+        {
+            for(int i=0;i<4800;i++)
+            {
+                float v=(float)(.25*Math.Sin(Math.Tau*1000*(n*4800L+i)/48000));
+                block[2*i]=block[2*i+1]=v;
+            }
+            for(int i=0;i<block.Length;i+=246)
+                chunked.Add(block.AsSpan(i,Math.Min(246,block.Length-i)));
+        }
+        var split=chunked.Finish();
+        Require(a.IntegratedLufs==split.IntegratedLufs&&a.SamplePeakDbfs==split.SamplePeakDbfs&&
+            a.LoudnessRange==split.LoudnessRange&&a.ShortTerm.SequenceEqual(split.ShortTerm),
+            "LUFS depended on PCM chunk boundaries.");
+        try { chunked.Add([.1f]); throw new InvalidOperationException("Partial loudness stereo frame accepted."); }
+        catch(ArgumentException) { }
         var points=Enumerable.Range(0,400).Select(i=>new WaveformPoint(.6f,i%12==0?.6f:.2f,.2f,.1f)).ToArray();
         // 125 BPM grid, 4 pulses/bar, exact 40ms peak bins.
         const int hop=1920, beatHop=12, count=32;
@@ -38,6 +75,25 @@ internal static class MusicProfileChecks
         Require(profile.IsValid(waveform.TotalFrames)&&profile.Meter.Length==1&&
             profile.Meter[0].PulsesPerBar==4&&profile.Meter[0].Downbeats.SequenceEqual(beats.Where((_,i)=>i%4==0)),
             "Distinct repeated accents did not produce the expected meter hypothesis.");
+        var invalidMeter = waveform with { Rhythm = rhythm with { Sections = [rhythm.Sections[0] with { Bpm = double.NaN }] } };
+        Require(TrackMusicProfileAnalyzer.Derive(invalidMeter).Meter.Length == 0,
+            "A nonfinite tempo produced a meter hypothesis.");
+        // Repeated and smaller sections must not read stale accent scratch.
+        var longBeats = Enumerable.Range(0,72).Select(i => (long)i*beatHop*hop).ToArray();
+        var longPoints = Enumerable.Repeat(new WaveformPoint(.6f,.2f,.2f,.1f),880).ToArray();
+        for (int i=0;i<longBeats.Length;i++)
+            longPoints[i*beatHop] = new(.7f,i%4==0?.7f:.18f,.2f,.1f);
+        var longWave = new TrackWaveform(longPoints,880L*hop,hop)
+        {
+            Rhythm = rhythm with { BeatFrames=longBeats, TransientFrames=longBeats, Sections=[
+                new(0,28L*beatHop*hop,125,.8f,28,28),
+                new(28L*beatHop*hop,52L*beatHop*hop,125,.8f,24,24),
+                new(52L*beatHop*hop,880L*hop,125,.8f,20,20)] }
+        };
+        var longProfile = TrackMusicProfileAnalyzer.Derive(longWave);
+        Require(longProfile.IsValid(longWave.TotalFrames) && longProfile.Meter.Length==3 &&
+            longProfile.Meter.SelectMany(m=>m.Downbeats).SequenceEqual(longBeats.Where((_,i)=>i%4==0)),
+            "Reused accent scratch changed section downbeats.");
         var flat=waveform with{Points=points.Select(_=>new WaveformPoint(.6f,.3f,.2f,.1f)).ToArray()};
         Require(TrackMusicProfileAnalyzer.Derive(flat).Meter.Length==0,"Uniform accents invented a bar.");
         var gapBeats=beats.Where((_,i)=>i!=10).ToArray();
@@ -56,11 +112,37 @@ internal static class MusicProfileChecks
         var withKey=waveform with{MusicalKey=key,MusicProfile=profile with{LocalKeys=[new(0,10000,key)]}};
         var match=MixCompatibilityAnalyzer.Compare(withKey,0,withKey,0);
         Require(match.Score is float score&&score>.99f&&match.Evidence>.99f,"Identical tracks were not compatible.");
+        var halfTempo = new TrackWaveform([], waveform.TotalFrames, hop)
+        {
+            Rhythm = new TrackBeatGrid(62.5,0,.8f,[]) { BeatFrames = [0,46080,92160,138240] }
+        };
+        Require(MixCompatibilityAnalyzer.Compare(withKey,0,halfTempo,0).Tempo is float halfScore && halfScore > .999f &&
+            MixCompatibilityAnalyzer.Compare(halfTempo,0,withKey,0).Tempo is float doubleScore && doubleScore > .999f,
+            "Octave-equivalent tempo compatibility changed.");
         var uncertain=withKey with{MusicProfile=profile with{LocalKeys=[new(0,10000,null)]}};
         Require(MixCompatibilityAnalyzer.Compare(withKey,0,uncertain,0).Harmony is null,
             "An uncertain local key was incorrectly replaced by a global harmony match.");
         Require(MixCompatibilityAnalyzer.Compare(withKey,-1,withKey,0).Score is null,
             "An out-of-range transition was scored.");
+        var invalidEnergy=withKey with{MusicProfile=profile with
+        {Energy=[new(0,waveform.TotalFrames,float.NaN,0,0)]}};
+        Require(MixCompatibilityAnalyzer.Compare(withKey,0,invalidEnergy,0).Energy is null,
+            "A nonfinite energy value contaminated compatibility.");
+        var restored=TrackMusicProfileAnalyzer.Derive(waveform,profile with{EnergyVersion=1});
+        Require(restored.EnergyVersion==TrackMusicProfile.CurrentEnergyVersion&&ReferenceEquals(restored.Meter,profile.Meter),
+            "Updating energy forced a redundant meter analysis.");
+        var malformed=TrackMusicProfileAnalyzer.Derive(waveform,profile with{Energy=null!});
+        Require(malformed.IsValid(waveform.TotalFrames),"Invalid current-version profile was reused.");
+        // Two 40ms points, but only one frame represented by the final loud bin.
+        var partial=new TrackWaveform([new(.1f,0,.1f,0),new(1,1,0,0)],1921,1920);
+        var partialProfile=TrackMusicProfileAnalyzer.Derive(partial);
+        Require(partialProfile.Energy.Length==1&&partialProfile.Energy[0].BassShare<.01f,
+            "Partial waveform interval was lost.");
+        var malformedPcm=TrackWaveform.Analyze(new MalformedPcm(),default);
+        Require(malformedPcm.Points.All(p=>float.IsFinite(p.Peak)&&p.Peak<=1&&
+            float.IsFinite(p.Low)&&float.IsFinite(p.Mid)&&float.IsFinite(p.High))&&
+            malformedPcm.MusicProfile!.IsValid(malformedPcm.TotalFrames),
+            "Extreme custom PCM poisoned analysis.");
         var metrics=RhythmReportReplay.Metrics([0,48000,96000,200000],[0,48000,96000],4800);
         Require(metrics.F1==1&&metrics.MaeMs==0,"Unannotated tail biased regression metrics.");
         Console.WriteLine("OK: loudness, conservative meter, derived cache, compatibility and excerpt metrics.");
@@ -100,6 +182,20 @@ internal static class MusicProfileChecks
         try { reader.ReadAtRate(oversized,double.NaN); throw new InvalidOperationException("Invalid rate accepted."); }
         catch (ArgumentOutOfRangeException) { }
         Console.WriteLine("OK: optional deck loudness gain, smooth bypass and bounded large reads.");
+    }
+
+    private sealed class MalformedPcm : Laveyana.Audio.IPcmSource
+    {
+        private bool _read;
+        public int SampleRate=>48000;
+        public int Read(Span<float> destination)
+        {
+            if(_read)return 0;
+            _read=true;
+            for(int i=0;i<destination.Length;i++)
+                destination[i]=(i%4) switch{0=>float.NaN,1=>float.MaxValue,2=>float.NegativeInfinity,_=>-float.MaxValue};
+            return destination.Length/2;
+        }
     }
 
     private static void Require(bool value,string message)

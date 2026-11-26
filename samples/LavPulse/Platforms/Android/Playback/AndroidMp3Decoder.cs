@@ -18,6 +18,7 @@ internal sealed class AndroidMp3Decoder(MediaExtractor extractor, MediaCodec cod
     private int _available;
     private bool _inputEnded;
     private bool _outputEnded;
+    private bool _disposed;
 
     public int Channels => channels;
     public int SampleRate => sampleRate;
@@ -93,10 +94,15 @@ internal sealed class AndroidMp3Decoder(MediaExtractor extractor, MediaCodec cod
 
     public int ReadSamples(float[] destination)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        token.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(destination);
+        int capacity = destination.Length - destination.Length % channels;
+        if (capacity == 0) return 0;
         try
         {
             if (_offset == _available && !ReadOutput()) return 0;
-            int count = Math.Min(destination.Length, _available - _offset);
+            int count = Math.Min(capacity, _available - _offset);
             Pcm16.Decode(_pcm.AsSpan(_offset, count), destination);
             _offset += count;
             return count;
@@ -193,8 +199,10 @@ internal sealed class AndroidMp3Decoder(MediaExtractor extractor, MediaCodec cod
 
     public void Dispose()
     {
-        _info.Dispose();
-        Release(codec, extractor);
+        if (_disposed) return;
+        _disposed = true;
+        try { _info.Dispose(); }
+        finally { Release(codec, extractor); }
     }
 
     private static void Release(MediaCodec? codec, MediaExtractor? extractor)

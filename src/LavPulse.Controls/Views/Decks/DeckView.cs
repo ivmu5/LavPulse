@@ -53,6 +53,7 @@ public sealed partial class DeckView : Border
     private bool _animatePlayhead;
     private bool _snapPlayhead;
     private long _shownSecond = -1;
+    private string _durationText = "";
     private bool _canSeek;
     private Deck _deck;
 
@@ -181,6 +182,7 @@ public sealed partial class DeckView : Border
 
     internal void SetPlayheadAnimation(bool enabled)
     {
+        if (_animatePlayhead == enabled) return;
         _animatePlayhead = enabled;
         _snapPlayhead = true;
         if (!enabled && _displayPosition != _position)
@@ -247,6 +249,7 @@ public sealed partial class DeckView : Border
             _lastBeatPressTime = double.NegativeInfinity;
             _detailDrawable.ManualBeatFrames = _overviewDrawable.ManualBeatFrames = [];
             _shownSecond = -1;
+            _durationText = FormatTime(deck.Track.Waveform.TotalFrames);
             _detailDrawable.Waveform = _overviewDrawable.Waveform = deck.Track.Waveform;
             InvalidateWaveGeometry();
             _name.Text = deck.Track.Title;
@@ -395,7 +398,7 @@ public sealed partial class DeckView : Border
         if (second != _shownSecond)
         {
             _shownSecond = second;
-            _time.Text = $"{FormatTime(_displayPosition)} / {FormatTime(_track.Waveform.TotalFrames)}";
+            _time.Text = $"{FormatTime(_displayPosition)} / {_durationText}";
         }
         _previewLabel.IsVisible = preview.HasValue;
         if (preview is long frame)

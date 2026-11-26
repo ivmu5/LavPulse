@@ -162,6 +162,16 @@ internal static partial class Program
         var invalid = new PcmMixer([new PcmInput(new ShortSource(float.NaN)), new PcmInput(new ContinuousPcm())]);
         invalid.Render(output);
         Require(output.AsSpan().IndexOfAnyExcept(.25f) < 0, "A nonfinite input poisoned another deck.");
+        var mutedInput = new PcmInput(new ShortSource(1f),0);
+        var muted = new PcmMixer([mutedInput]);
+        muted.Render(output);
+        Require(output.All(v=>v==0),"Muted single input was audible.");
+        mutedInput.Gain = 1;
+        muted.Render(output);
+        Require(output.All(v=>v==0),"Muting prevented the source from advancing.");
+        var mutedMix = new PcmMixer([new PcmInput(new ShortSource(float.NaN),0),new PcmInput(new ContinuousPcm())]);
+        mutedMix.Render(output);
+        Require(output.All(v=>v==.25f),"Muted deck contaminated the other deck.");
         var vectorOutput = new float[1026];
         var vectorMixer = new PcmMixer([new PcmInput(new ContinuousPcm(), .5f),
             new PcmInput(new ContinuousPcm(), .25f)]);

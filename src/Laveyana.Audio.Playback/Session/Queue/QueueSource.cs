@@ -201,6 +201,9 @@ internal sealed class QueueSource : IPcmSource, IDisposable
     /// waiting, and reader retirement never closes a file on the render path.</summary>
     public int Read(Span<float> destination)
     {
+        if (destination.Length % PlaybackFormat.Channels != 0)
+            throw new ArgumentException("Queue reads require complete stereo frames.", nameof(destination));
+        if (destination.IsEmpty) return 0;
         if (Interlocked.CompareExchange(ref _renderOwner, 1, 0) != 0)
             throw new InvalidOperationException("Concurrent queue render.");
         try

@@ -6,6 +6,15 @@ English (primary) | [Русский](README.ru.md)
 
 [Download releases](https://github.com/ivmu5/LavPulse/releases) · [Report an issue](https://github.com/ivmu5/LavPulse/issues) · [License](LICENSE)
 
+## At a glance
+
+- Listen continuously with two automatically crossfading decks, a repeat-one mode and an editable local queue.
+- Import files and nested folders once; use the local library offline, rescan tracks and manage disk space independently of the queue.
+- Inspect the waveform, estimated BPM/key, beat and transient markers while listening; choose the overview or progress bar and scrub with a cancelable preview.
+- Customize the master EQ, loudness normalization, spectrum, display cadence and themes; export diagnostic reports when a rhythm estimate is wrong.
+
+The current player has two decks. Recommendation, beat-matched time stretching and automatic harmonic track selection are not implemented. See the platform-specific installation notes below.
+
 ## Contents
 
 - [Getting started](#getting-started)
@@ -74,7 +83,7 @@ Rescan a selected folder or branch to refresh its analysis. Active rows pulse an
 
 PCM preparation has priority; it analyzes tracks when required even when separate background analysis is disabled. Ordinary queue analysis and a first deck may use two workers on one track if CPU resources permit; library batches use one worker per track. The two-worker pipeline decodes once, passing bounded PCM blocks to the tonal/loudness worker. Analysis and artwork are reused.
 
-**Disk use:** compact analysis contains waveforms and musical estimates, not a second audio file. Prepared tracks additionally use a seekable 48 kHz stereo PCM16 cache (about 11.52 MB/minute). Once a played deck is no longer in use or in the preload horizon, its decoded file is eligible for deletion. The last current deck stays ready for replay/seek. Cached tracks outside the horizon are pruned; original audio and compact analysis remain. Returning to an evicted track requires PCM decoding again. The horizon is a track-count limit, not a fixed byte budget.
+**Disk use:** compact analysis contains waveforms and musical estimates, not a second audio file. Prepared tracks additionally use a seekable 48 kHz stereo PCM16 cache (about 11.52 MB/minute). Once a played deck is no longer in use or in the preload horizon, its decoded file is eligible for deletion. The last current deck stays ready for replay/seek. Cached tracks outside the horizon are pruned; original audio and compact analysis remain. Returning to an evicted track requires PCM decoding again. The horizon is a track-count limit, not a fixed byte budget. An unreadable or missing queue manifest does not authorize startup PCM pruning. Reimporting an original repairs a truncated same-ID copy when its length differs; it is not a full integrity scan. Existing valid analysis and PCM formats remain compatible.
 
 Choose application storage, a Windows drive/folder, or supported Android app-specific shared storage/SD-card locations in Settings → Storage. Migration moves the library through the existing storage workflow; available locations and permissions depend on the platform.
 
@@ -104,6 +113,8 @@ The current storage layout remains analysis-v13; individual derived profile fiel
 - Interface and FPS: Auto follows the display clock; 30/60/90/120 FPS, with 144/165/240/360 also available on Windows. These are refresh limits, not promised measured FPS. Save commits appearance changes; Cancel restores the previous settings.
 - Adjustable transport fade times, crossfade length and visual latency compensation (the latter affects presentation, not the audio).
 - Background playback and OS media controls where supported; lock-screen integration and Android status-bar preference. Rendering is suspended when the player is not visible, while audio/eligible background work continues.
+
+Default visual settings: automatic display cadence, dark theme, gradient spectrum with peaks, 20% side width, minimum brightness 5%, full brightness at 70%, and no extra visual delay. Detailed waveforms use transient mode; the overview defaults to a progress bar. Start/pause fades default to 300 ms. Optional normalization is disabled by default. Opening another panel or hiding the window suspends the player visuals; reopening restores the current state without replaying an old transition.
 
 ## Diagnostics
 
@@ -155,6 +166,8 @@ Analysis is separated into [models](src/Laveyana.Audio.Playback/Analysis/TrackBe
 
 See [audio pipeline](docs/audio-pipeline.ru.md), [two-worker analysis](docs/parallel-track-analysis.ru.md), [music profile](docs/music-analysis-profile.ru.md), and [iterative audit](docs/iterative-audit.md) for implementation details and caveats.
 
+The app layer uses the shared MAUI UI foundation; the core projects remain free of MAUI and native UI dependencies. Track preparation separates host-facing import/metadata operations from decoding and recording in `TrackPreparation.Decoding.cs`. A replacement `TrackFile.CopyToAsync` delegate is respected by both paths.
+
 ## Public API
 
 The DSP and playback libraries have **no MAUI dependency**. External hosts supply an [`IAudioOutput`](src/Laveyana.Audio.Playback/Session/IAudioOutput.cs) implementation; the Android and Windows implementations in the sample host are internal.
@@ -194,6 +207,8 @@ For one-shot, independently controlled decks, [`PlaybackSession`](src/Laveyana.A
 </details>
 
 
+Direct calls to `TrackWaveform.Analyze` require 48 kHz interleaved stereo PCM; the import pipeline resamples encoded audio to that rate. Noncanonical custom PCM sources are rejected rather than producing incorrect rhythm coordinates.
+
 ## Checks and limitations
 
 ```bash
@@ -204,6 +219,8 @@ dotnet run --project tests/Laveyana.Audio.Playback.Checks -c Release -- --rhythm
 The first command runs the deterministic console suite (not xUnit/NUnit); the second replays saved numerical rhythm evidence and compares annotated excerpts. Test fixtures cover decoders, PCM clipping, mixing, repeat/seek, EQ, spectrum, cancellation, cache retention, queue limits, analysis profiles, rhythmic gaps, loudness and key detection. Real-device playback, gestures, OS integration, audio timing and accuracy on real music require separate checks. Report replays are not a substitute for decoding the original audio, and manual taps may be sparse or subdivisions.
 
 Current limits: two decks, one stereo master output, no streaming providers, no recommendation engine, no beat-matched time stretching/pitch locking, no automatic harmonic selection, no guaranteed low-latency disk access. The API supports pitch-changing rate resampling, but playback speed has been removed from the current player UI. Some features and accepted formats depend on system codecs. Cached analysis can be wrong; use diagnostics and rescan as needed.
+
+The [100-pass audit ledger](docs/audit-next.md) records focused cumulative source reviews, their changes and verification limits. Added regression source includes a fixed-seed 512-step transport scenario, 16 repeated output runs, malformed inputs, cancellation, ownership and cache recovery checks. Run the console suite and all platform builds on the exact candidate commit before relying on these changes; the ledger is not proof of a passing build or measured performance. For device acceptance, check multi-hour playback and FPS, background/resume, audio interruptions, cache recovery and representative annotated tracks. Do not equate FPS settings with measured frame rates.
 
 ## Dependencies and license
 

@@ -52,18 +52,19 @@ public static partial class TrackRhythmAnalyzer
     {
         int count = energy.Count;
         var novelty = new float[count];
-        var bassChange = new float[count];
-        var midChange = new float[count];
         var prefix = new double[count + 1];
+        ValidateEnergy(energy[0]);
         for (int i = 1; i < count; i++)
         {
             if ((i & 16383) == 0) token.ThrowIfCancellationRequested();
             RhythmEnergy now = energy[i], before = energy[i - 1];
-            bassChange[i] = Math.Max(0, now.Low - before.Low);
-            midChange[i] = Math.Max(0, now.Mid - before.Mid);
+            ValidateEnergy(now);
+            float bassChange = Math.Max(0, now.Low - before.Low);
+            float midChange = Math.Max(0, now.Mid - before.Mid);
             // High-only clicks, hats and harmonics are weak beat evidence.
-            novelty[i] = bassChange[i] * 1.9f + midChange[i] * .85f +
+            novelty[i] = bassChange * 1.9f + midChange * .85f +
                 Math.Max(0, now.High - before.High) * .25f;
+            if (!float.IsFinite(novelty[i])) throw new InvalidDataException("Rhythm energy overflow.");
             prefix[i + 1] = prefix[i] + novelty[i];
         }
 
@@ -83,8 +84,10 @@ public static partial class TrackRhythmAnalyzer
                 rise < energyAtPeak * .04f ||
                 rise <= novelty[i - 1] || rise < novelty[i + 1]) continue;
 
-            float bassShare = Math.Clamp(bassChange[i] * 1.9f / rise, 0, 1);
-            float midShare = Math.Clamp(midChange[i] * .85f / rise, 0, 1);
+            var current = energy[i];
+            var prior = energy[i-1];
+            float bassShare = Math.Clamp(Math.Max(0, current.Low-prior.Low) * 1.9f / rise, 0, 1);
+            float midShare = Math.Clamp(Math.Max(0, current.Mid-prior.Mid) * .85f / rise, 0, 1);
             float prominence = rise / (rise + Math.Max(.000001f, average * 2));
             float strength = prominence * (.16f + 1.7f * bassShare + .75f * midShare);
             float accent = prominence * (1.3f * bassShare + .9f * midShare);
@@ -96,6 +99,13 @@ public static partial class TrackRhythmAnalyzer
             else result.Add(new Onset(i, strength, accent));
         }
         return result;
+    }
+
+    private static void ValidateEnergy(RhythmEnergy value)
+    {
+        if (!float.IsFinite(value.Low) || !float.IsFinite(value.Mid) || !float.IsFinite(value.High) ||
+            value.Low < 0 || value.Mid < 0 || value.High < 0)
+            throw new InvalidDataException("Invalid rhythm energy.");
     }
 
     /// <summary>Store only prominent low/mid attacks for the small visual markers.</summary>
@@ -113,22 +123,27 @@ public static partial class TrackRhythmAnalyzer
             else accents.Add(onset);
         }
         int stride = Math.Max(1, (int)Math.Ceiling(accents.Count / (double)MaximumStoredTransients));
-        return accents.Where((_, index) => index % stride == 0)
-            .Select(hit => Math.Min(totalFrames - 1, (long)hit.Index * hopFrames)).ToArray();
+        if (accents.Count == 0) return [];
+        var result = new long[(accents.Count - 1) / stride + 1];
+        for (int i = 0; i < result.Length; i++)
+            result[i] = Math.Min(totalFrames - 1, (long)accents[i * stride].Index * hopFrames);
+        return result;
     }
 
     private static TrackOnsetDiagnostic[] SampleCandidates(IReadOnlyList<Onset> onsets,
         int framesPerHop, long totalFrames)
     {
         int step = Math.Max(1, (int)Math.Ceiling(onsets.Count / (double)MaximumStoredTransients));
-        var result = new List<TrackOnsetDiagnostic>();
-        for (int i = 0; i < onsets.Count; i += step)
+        int count = onsets.Count == 0 ? 0 : (onsets.Count - 1) / step + 1;
+        if (count == 0) return [];
+        var result = new TrackOnsetDiagnostic[count];
+        for (int i = 0; i < count; i++)
         {
-            var hit = onsets[i];
-            result.Add(new(Math.Min(totalFrames - 1, (long)hit.Index * framesPerHop),
-                hit.Strength, hit.Accent));
+            var hit = onsets[i * step];
+            result[i] = new(Math.Min(totalFrames - 1, (long)hit.Index * framesPerHop),
+                hit.Strength, hit.Accent);
         }
-        return result.ToArray();
+        return result;
     }
 
     private static TrackBeatGrid Empty(long[]? transients = null) => new(0, 0, 0, transients ?? []);

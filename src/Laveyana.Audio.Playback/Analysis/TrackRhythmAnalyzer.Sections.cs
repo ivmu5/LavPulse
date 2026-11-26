@@ -83,10 +83,9 @@ public static partial class TrackRhythmAnalyzer
         double imaginary = useStrong ? strongImaginary : allImaginary;
         double phase = (Math.Atan2(imaginary, real) + Math.Tau) % Math.Tau;
         double phaseInHops = phase / Math.Tau * period;
-        long startFrame = firstWindow == 0 ? 0 :
-            Math.Max(0L, ((long)firstWindow * stride - stride / 2) * hopFrames);
+        long startFrame = WindowBoundary(firstWindow,stride,hopFrames,totalFrames);
         long endFrame = endWindow == tempos.Length ? totalFrames :
-            Math.Min(totalFrames, ((long)(endWindow - 1) * stride + stride / 2) * hopFrames);
+            WindowBoundary(endWindow,stride,hopFrames,totalFrames);
         if (startFrame >= endFrame)
         {
             trace?.Attempts.Add(new(firstWindow, endWindow, recoverLocalPhase, meanConfidence, bpm,

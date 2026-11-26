@@ -13,6 +13,7 @@ internal static class LocalTrackStoreChecks
         var duplicate = await store.CopyAsync(Source("copy.mp3", 1), default);
         Require(first.LocalPath == duplicate.LocalPath, "Identical imports duplicated local media.");
         await CheckStreamedCopyAsync(store);
+        await CheckStorageRecoveryAsync(directory);
         await CheckWaveStorageAsync(directory);
         await CheckStorageMigrationAsync(directory);
         long mediaBytes = new FileInfo(first.LocalPath!).Length;
@@ -82,6 +83,7 @@ internal static class LocalTrackStoreChecks
         var rescanned = new TrackWaveform(points, ready.Waveform.TotalFrames, ready.Waveform.FramesPerPoint)
         { MusicalKey = new TrackMusicalKey(9, MusicalMode.Minor, .7f, .85f, .18f, 12, 15) };
         var changes = new List<string>();
+        reopened.TrackStorageChanged += _ => throw new IOException("observer failure");
         reopened.TrackStorageChanged += changes.Add;
         await reopened.SaveAnalysisAsync(tracks[1], rescanned, ready.AudioInfo, null, default, replaceAnalysis: true);
         cached = await reopened.ReadAnalysisAsync(tracks[1], default);
@@ -93,6 +95,14 @@ internal static class LocalTrackStoreChecks
         // After PCM eviction the saved waveform remains usable when rebuilding the playback cache.
         await File.WriteAllBytesAsync(ready.Path, [1, 2]);
         Require(reopened.FindPcm(cached!) is null, "An incomplete cache was treated as playable.");
+        Require(reopened.FindPcm(cached! with { TotalFrames = long.MaxValue }) is null &&
+            reopened.FindPcm(cached! with { TotalFrames = 0 }) is null,
+            "An invalid PCM frame count was accepted.");
+        string outside = Path.Combine(root,"lavpulse-outside.pcm");
+        await File.WriteAllBytesAsync(outside,[1,2,3]);
+        try { reopened.EvictPcm(tracks[1],outside); throw new InvalidOperationException("External PCM deletion accepted."); }
+        catch (ArgumentException) { }
+        Require(File.Exists(outside),"Cache eviction deleted a file outside the cache.");
         Require(await reopened.ReadTrackStorageSizeAsync(tracks[1], default) == mediaBytes + AnalysisBytes(tracks[1]) + 2,
             "Track storage used estimated PCM size instead of its actual length.");
         reopened.EvictPcm(tracks[1], ready);
@@ -114,6 +124,42 @@ internal static class LocalTrackStoreChecks
 
         long AnalysisBytes(TrackFile file) => new FileInfo(Path.Combine(root, "analysis-v13",
             Path.GetFileNameWithoutExtension(file.LocalPath) + ".json")).Length;
+    }
+
+    private static async Task CheckStorageRecoveryAsync(string directory)
+    {
+        string root = Path.Combine(directory,"storage-recovery");
+        var store = new LocalTrackStore(root);
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        try { await store.CopyAsync(Source("cancelled.mp3",9),cancelled.Token); throw new InvalidOperationException("Cancelled import succeeded."); }
+        catch (OperationCanceledException) { }
+        Require(!Directory.Exists(root),"Cancelled import created storage.");
+        var file = await store.CopyAsync(Source("recovery.mp3",9),default);
+        byte[] expected = await File.ReadAllBytesAsync(file.LocalPath!);
+        Require(file.SizeBytes == expected.Length,"Imported size was not published.");
+        await File.WriteAllBytesAsync(file.LocalPath!,[0]);
+        var repaired = await store.CopyAsync(Source("recovery.mp3",9),default);
+        Require(repaired.LocalPath == file.LocalPath && (await File.ReadAllBytesAsync(file.LocalPath!)).SequenceEqual(expected),
+            "Reimport did not repair a truncated media copy.");
+        try { await store.ReadAnalysisAsync(file,cancelled.Token); throw new InvalidOperationException("Missing analysis ignored cancellation."); }
+        catch (OperationCanceledException) { }
+        Directory.CreateDirectory(store.PcmDirectory);
+        string pcm = Path.Combine(store.PcmDirectory,"lavpulse-recovery.pcm");
+        await File.WriteAllBytesAsync(pcm,[0,0,0,0]);
+        await File.WriteAllTextAsync(Path.Combine(root,"queue.json"),"{broken");
+        await store.ReadQueueAsync(default);
+        Require(File.Exists(pcm),"Unreadable queue caused destructive PCM pruning.");
+        await store.SaveQueueAsync(new([],null,[]));
+        await store.ReadQueueAsync(default);
+        Require(!File.Exists(pcm),"Valid empty queue did not release obsolete PCM.");
+        var folders = new[] { new StoredFolder("original","Original") };
+        Require(store.Remember(file,folders),"Could not remember recovery track.");
+        folders[0] = new("changed","Changed");
+        var snapshot = store.LibrarySnapshot();
+        snapshot[0].Folders[0] = new("other","Other");
+        Require(store.LibrarySnapshot()[0].Folders[0].Id == "original",
+            "External array mutation corrupted the library membership.");
     }
 
     private static async Task CheckStorageMigrationAsync(string directory)

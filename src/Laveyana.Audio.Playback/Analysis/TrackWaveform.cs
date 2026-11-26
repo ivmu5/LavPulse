@@ -19,7 +19,8 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
     [System.Text.Json.Serialization.JsonIgnore]
     public TrackAnalysisTiming? Timing { get; init; }
 
-    /// <summary>Reads PCM in blocks and reduces it to a bounded set of display points.</summary>
+    /// <summary>Reads normalized interleaved stereo PCM at 48 kHz and reduces it to a bounded set of display points.
+    /// Nonfinite samples become zero and samples outside [-1,1] are clamped.</summary>
     public static TrackWaveform Analyze(IPcmSource source, CancellationToken token) =>
         Analyze(source, token, null);
 
@@ -28,6 +29,11 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
     {
         ArgumentNullException.ThrowIfNull(source);
         token.ThrowIfCancellationRequested();
+        // All cached frame coordinates and rhythm/profile calculations use the
+        // playback rate. Reject an incompatible custom source instead of
+        // producing silently mis-scaled BPM and timestamps.
+        if (source.SampleRate != PlaybackFormat.SampleRate)
+            throw new ArgumentException("Analysis requires 48 kHz stereo PCM.", nameof(source));
         using var pipeline = parallelKey ? new ParallelKeyAnalysis(source.SampleRate, token) : null;
         try
         {
@@ -72,6 +78,7 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         {
             token.ThrowIfCancellationRequested();
             int frames = source.Read(pcm);
+            token.ThrowIfCancellationRequested();
             if (frames == 0)
             {
                 break;
@@ -83,11 +90,10 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
             // Custom PCM sources can bypass decoder validation. Prevent one
             // nonfinite sample from poisoning both recursive band filters.
             var block = pcm.AsSpan(0, frames * channels);
-            for (int i=0;i<block.Length;i++)
-                if (!float.IsFinite(block[i])) block[i]=0;
+            PcmNormalization.Copy(block,block);
             loudness?.Add(block);
-            if (pipeline is null) key!.Add(pcm.AsSpan(0, frames * channels), token);
-            else pipeline.Submit(pcm.AsSpan(0, frames * channels));
+            if (pipeline is null) key!.Add(block, token);
+            else pipeline.Submit(block);
             int offset = 0;
             while (offset < frames)
             {

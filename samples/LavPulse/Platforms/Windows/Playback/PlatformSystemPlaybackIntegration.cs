@@ -61,7 +61,12 @@ internal sealed class PlatformSystemPlaybackIntegration : ISystemPlaybackIntegra
                 updater.MusicProperties.Title = state.Track.Title;
                 updater.MusicProperties.Artist = state.Track.Artist ?? "";
                 updater.Update();
-                _ = PublishArtworkAsync(state.Track, ++_artVersion);
+                // ClearAll/Update detached the previous artwork even if the new
+                // track has no image. Invalidate pending publishers before reuse.
+                int revision = ++_artVersion;
+                _artStream?.Dispose();
+                _artStream = null;
+                _ = PublishArtworkAsync(state.Track, revision);
             }
 
             if (_lastPlaying != state.Playing)

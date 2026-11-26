@@ -16,10 +16,9 @@ public static partial class TrackRhythmAnalyzer
         var additions = new List<TrackBeatEstimate>();
         int window = 0;
         long gapStart = 0;
-        long WindowStart(int w) => w == 0 ? 0 :
-            Math.Max(0, ((long)w * stride - stride / 2) * hopFrames);
-        long WindowEnd(int w) => w == tempos.Length - 1 ? totalFrames :
-            Math.Min(totalFrames, ((long)w * stride + stride / 2) * hopFrames);
+        long WindowStart(int w) => WindowBoundary(w,stride,hopFrames,totalFrames);
+        long WindowEnd(int w) => w == tempos.Length-1 ? totalFrames :
+            WindowBoundary(w+1,stride,hopFrames,totalFrames);
         bool Supported(int w)
         {
             int c = (int)Math.Round((tempos[w] - MinimumBpm) / BpmResolution);
@@ -68,12 +67,8 @@ public static partial class TrackRhythmAnalyzer
             if (g < sections.Count) gapStart = sections[g].EndFrame;
         }
         if (recovered.Count == 0) return;
-        int region = 0;
-        predicted.RemoveAll(e =>
-        {
-            while (region < recovered.Count && recovered[region].EndFrame <= e.Frame) region++;
-            return region < recovered.Count && e.Frame >= recovered[region].StartFrame;
-        });
+        RemoveReplacedPredictions(predicted,
+            recovered.Select(s=>(Start:s.StartFrame,End:s.EndFrame)).ToList(), includeStart:true);
         predicted.AddRange(additions);
         predicted.Sort((a, b) => a.Frame.CompareTo(b.Frame));
         sections.AddRange(recovered);
@@ -103,7 +98,10 @@ public static partial class TrackRhythmAnalyzer
             while (cursor < predicted.Count && predicted[cursor].Frame < section.StartFrame) cursor++;
             int from = cursor;
             while (cursor < predicted.Count && predicted[cursor].Frame < section.EndFrame) cursor++;
-            var original = predicted.GetRange(from, cursor - from).Where(e => e.Confirmed).ToArray();
+            var originalList = new List<TrackBeatEstimate>(cursor-from);
+            for(int j=from;j<cursor;j++)
+                if(predicted[j].Confirmed) originalList.Add(predicted[j]);
+            var original=originalList.ToArray();
             if (original.Length < 4) return; // inconsistent source; retain existing grid
             double period = 60d * PlaybackFormat.SampleRate / section.Bpm;
             double radius = Math.Min(.10 * period / hopFrames, .065 * hopsPerSecond);
@@ -116,10 +114,8 @@ public static partial class TrackRhythmAnalyzer
                 i + 1 < sections.Count && Compatible(section, sections[i + 1]);
             if (section.Bpm <= 120 && hasNeighbor)
             {
-                var correlation = bands.Measure((int)(section.StartFrame / hopFrames),
-                    (int)Math.Ceiling(section.EndFrame / (double)hopFrames), token);
-                double normal = correlation.AtBpm(section.Bpm);
-                double doubled = correlation.AtBpm(section.Bpm * 2);
+                var (normal,doubled) = bands.MeasurePair((int)(section.StartFrame / hopFrames),
+                    (int)Math.Ceiling(section.EndFrame / (double)hopFrames), section.Bpm, section.Bpm*2, token);
                 if (normal >= .075 && doubled >= .10 && doubled >= .65 * normal)
                 {
                     foreach (double shift in new[] { -.5, .5 })
@@ -257,8 +253,8 @@ public static partial class TrackRhythmAnalyzer
                     (int)correction, true, false, true));
             }
             if (tail.Count < 3 || predicted.Count + added.Count + tail.Count > MaximumBeatFrames) continue;
-            double q = bands.Measure((int)(anchor / hopFrames),
-                (int)Math.Ceiling(tail[^1].Frame / (double)hopFrames), token).AtBpm(section.Bpm);
+            double q = bands.MeasurePair((int)(anchor / hopFrames),
+                (int)Math.Ceiling(tail[^1].Frame / (double)hopFrames), section.Bpm, 0, token).First;
             if (q < .15) continue;
             long end = Math.Min(limit, tail[^1].Frame + (long)(period / 2) + 1);
             replaced.Add((section.EndFrame, end));
@@ -335,7 +331,7 @@ public static partial class TrackRhythmAnalyzer
             double interval = distance / steps;
             int from = (int)Math.Clamp(first / hopFrames, 0, int.MaxValue);
             int to = (int)Math.Clamp(last / hopFrames + 1, 0, int.MaxValue);
-            double correlation = bands.Measure(from, to, token).AtBpm(bpm);
+            double correlation = bands.MeasurePair(from, to, bpm, 0, token).First;
             var bridge = new List<TrackBeatEstimate>(steps - 1);
             int supported = 0, consecutiveMisses = 0, maxMisses = 0, troughs = 0;
             for (int step = 1; step < steps; step++)

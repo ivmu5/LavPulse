@@ -163,8 +163,9 @@ internal sealed class SpectrumDrawable : IDrawable
         for (int i = 0; i < _bars.Length; i++)
         {
             float prior = _bars[i];
-            float target = levels[i];
-            float level = prior + (target - prior) * (target >= prior ? attack : release);
+            float target = float.IsFinite(levels[i]) ? Math.Clamp(levels[i], 0, 1) : 0;
+            float level = prior == target ? prior :
+                prior + (target - prior) * (target >= prior ? attack : release);
             if (MathF.Abs(level - target) < .003f)
             {
                 level = target;

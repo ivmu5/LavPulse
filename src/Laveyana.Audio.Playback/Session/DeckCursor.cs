@@ -2,11 +2,17 @@ namespace Laveyana.Audio.Playback;
 
 internal sealed class DeckCursor(long length, long start)
 {
-    private SeekPoint _pending = new(start);
+    private SeekPoint _pending = new(ClampStart(length,start));
     private SeekPoint? _applied;
     private long _frame;
 
     public long Length { get; } = length;
+
+    private static long ClampStart(long length,long start)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
+        return Math.Clamp(start,0,length);
+    }
     public SeekPoint Pending => Volatile.Read(ref _pending);
 
     public long Position

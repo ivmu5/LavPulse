@@ -9,6 +9,7 @@ public sealed class DeckVolumes
     /// <summary>Sets a normalized gain for the next render block.</summary>
     public void Set(Deck deck, float gain)
     {
+        if (deck is not (Deck.A or Deck.B)) throw new ArgumentOutOfRangeException(nameof(deck));
         if (!float.IsFinite(gain) || gain is < 0 or > 1)
         {
             throw new ArgumentOutOfRangeException(nameof(gain));
@@ -25,5 +26,8 @@ public sealed class DeckVolumes
     }
 
     /// <summary>Reads the latest gain without taking a lock on the audio thread.</summary>
-    internal float Get(Deck deck) => deck == Deck.A ? _gainA : _gainB;
+    internal float Get(Deck deck) => deck switch
+    {
+        Deck.A => _gainA, Deck.B => _gainB, _ => throw new ArgumentOutOfRangeException(nameof(deck))
+    };
 }

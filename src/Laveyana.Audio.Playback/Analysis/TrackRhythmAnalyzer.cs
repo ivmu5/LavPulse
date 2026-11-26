@@ -28,9 +28,10 @@ public static partial class TrackRhythmAnalyzer
     }
 
     public static bool IsValid(TrackBeatGrid rhythm, long totalFrames) =>
+        rhythm is not null && totalFrames > 0 &&
         rhythm.Bpm >= 0 && rhythm.Bpm <= MaximumBpm && double.IsFinite(rhythm.Bpm) &&
         rhythm.Confidence >= 0 && rhythm.Confidence <= 1 && float.IsFinite(rhythm.Confidence) &&
-        rhythm.FirstBeatFrame >= 0 && rhythm.FirstBeatFrame <= totalFrames &&
+        rhythm.FirstBeatFrame >= 0 && rhythm.FirstBeatFrame < totalFrames &&
         rhythm.TransientFrames is { Length: <= MaximumStoredTransients } onsets &&
         rhythm.BeatFrames is { Length: <= MaximumBeatFrames } beats &&
         (beats.Length == 0 || (beats.Length >= 4 && beats[0] == rhythm.FirstBeatFrame)) &&
@@ -44,13 +45,13 @@ public static partial class TrackRhythmAnalyzer
             estimates.Where(estimate => estimate.Confirmed).Select(estimate => estimate.Frame).SequenceEqual(beats)) &&
         rhythm.Sections is { Length: <= 4096 } sections &&
         rhythm.Windows is { Length: <= 8192 } windows &&
-        sections.All(section => section.StartFrame >= 0 && section.StartFrame < section.EndFrame &&
+        sections.All(section => section is not null && section.StartFrame >= 0 && section.StartFrame < section.EndFrame &&
             section.EndFrame <= totalFrames && section.Bpm >= MinimumBpm &&
             section.Bpm <= MaximumBpm && double.IsFinite(section.Bpm) &&
             float.IsFinite(section.Confidence) && section.Confidence >= 0 && section.Confidence <= 1 &&
             section.OnsetCount >= 0 && section.MatchedBeats >= 0 &&
             section.SubdivisionFactor is >= 1 and <= 4) &&
-        windows.All(window => window.StartFrame >= 0 && window.StartFrame <= window.EndFrame &&
+        windows.All(window => window is not null && window.StartFrame >= 0 && window.StartFrame <= window.EndFrame &&
             window.EndFrame <= totalFrames && window.Bpm >= 0 && window.Bpm <= MaximumBpm &&
             double.IsFinite(window.Bpm) && float.IsFinite(window.Confidence) &&
             window.Confidence >= 0 && window.Confidence <= 1 && window.OnsetCount >= 0 &&
@@ -58,7 +59,7 @@ public static partial class TrackRhythmAnalyzer
         SectionsContainBeats(sections, beats) &&
         rhythm.CandidateOnsets >= 0 &&
         rhythm.OnsetDiagnostics is { Length: <= MaximumStoredTransients } diagnostics &&
-        diagnostics.All(hit => hit.Frame >= 0 && hit.Frame <= totalFrames &&
+        diagnostics.All(hit => hit.Frame >= 0 && hit.Frame < totalFrames &&
             float.IsFinite(hit.Strength) && float.IsFinite(hit.Accent) &&
             hit.Strength >= 0 && hit.Accent >= 0);
 
@@ -79,12 +80,15 @@ public static partial class TrackRhythmAnalyzer
         return cursor == beats.Length;
     }
 
+    internal static long WindowBoundary(int window, int stride, int hopFrames, long totalFrames) =>
+        Math.Clamp(((long)window*stride-stride/2)*hopFrames,0,totalFrames);
+
     private static bool IsAscending(long[] values, long limit)
     {
         long previous = -1;
         foreach (long value in values)
         {
-            if (value <= previous || value > limit) return false;
+            if (value <= previous || value >= limit) return false;
             previous = value;
         }
         return true;
@@ -94,16 +98,28 @@ public static partial class TrackRhythmAnalyzer
     /// Supports synthetic/test waveforms and manually provided analysis. Regular MP3 scanning
     /// uses the much finer, independent 100 Hz PCM energy envelope instead.
     /// </summary>
-    public static TrackBeatGrid Analyze(TrackWaveform waveform)
+    public static TrackBeatGrid Analyze(TrackWaveform waveform) => Analyze(waveform, default);
+
+    /// <summary>Analyzes a saved or synthetic waveform with cooperative cancellation.</summary>
+    public static TrackBeatGrid Analyze(TrackWaveform waveform, CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(waveform);
-        var energy = waveform.Points.Select(p => new RhythmEnergy(p.Low, p.Mid, p.High)).ToArray();
-        return AnalyzeEnergy(energy, waveform.FramesPerPoint, waveform.TotalFrames);
+        token.ThrowIfCancellationRequested();
+        var energy = new RhythmEnergy[waveform.Points.Count];
+        for (int i = 0; i < energy.Length; i++)
+        {
+            if ((i & 4095) == 0) token.ThrowIfCancellationRequested();
+            var point = waveform.Points[i];
+            energy[i] = new(point.Low, point.Mid, point.High);
+        }
+        return AnalyzeEnergy(energy, waveform.FramesPerPoint, waveform.TotalFrames, token);
     }
 
     internal static TrackBeatGrid AnalyzeEnergy(IReadOnlyList<RhythmEnergy> energy, int framesPerHop,
         long totalFrames, CancellationToken cancellationToken = default, TrackRhythmTrace? trace = null)
     {
+        ArgumentNullException.ThrowIfNull(energy);
+        cancellationToken.ThrowIfCancellationRequested();
         if (trace is not null)
         {
             trace.HopFrames = framesPerHop;
@@ -125,17 +141,18 @@ public static partial class TrackRhythmAnalyzer
         if (framesPerHop <= 0) throw new ArgumentOutOfRangeException(nameof(framesPerHop));
         if (totalFrames <= 0 || energy.Count < 16)
             return Empty() with { AnalysisStatus = "Недостаточно аудиоданных для анализа" };
+        if ((totalFrames-1)/framesPerHop+1 != energy.Count)
+            throw new InvalidDataException("Rhythm envelope length does not match its PCM frame count.");
         double hopsPerSecond = PlaybackFormat.SampleRate / (double)framesPerHop;
         var onsets = DetectOnsets(energy, hopsPerSecond, cancellationToken);
         // Without reliable rhythm, show only exceptionally strong isolated accents.
         // Relax the visual threshold only after the grid is independently validated.
-        long[] transients = StoreTransients(onsets, framesPerHop, totalFrames, .85f);
         TrackOnsetDiagnostic[] onsetDebug = SampleCandidates(onsets, framesPerHop, totalFrames);
         if (trace is not null)
             trace.Onsets = onsets.Select(hit => new TrackOnsetDiagnostic(
                 Math.Min(totalFrames - 1, (long)hit.Index * framesPerHop), hit.Strength, hit.Accent)).ToArray();
         if (onsets.Count < 8)
-            return Empty(transients) with
+            return Empty(StoreTransients(onsets, framesPerHop, totalFrames, .85f)) with
             {
                 CandidateOnsets = onsets.Count,
                 OnsetDiagnostics = onsetDebug,
@@ -153,9 +170,17 @@ public static partial class TrackRhythmAnalyzer
 
         // Periodic phase-coherence evidence every two seconds, measured in 9-second windows.
         // Windowing prevents a tempo change in the middle of a song from cancelling the score.
-        var indices = onsets.Select(o => o.Index).ToArray();
-        var strengths = onsets.Select(o => o.Strength).ToArray();
-        var accents = onsets.Select(BeatWeight).ToArray();
+        var indices = new int[onsets.Count];
+        var strengths = new float[onsets.Count];
+        var accents = new double[onsets.Count];
+        for (int i = 0; i < onsets.Count; i++)
+        {
+            if ((i & 4095) == 0) cancellationToken.ThrowIfCancellationRequested();
+            var onset = onsets[i];
+            indices[i] = onset.Index;
+            strengths[i] = onset.Strength;
+            accents[i] = BeatWeight(onset);
+        }
         var firstHits = new int[slices];
         var lastHits = new int[slices];
         var weights = new double[slices];
@@ -233,44 +258,13 @@ public static partial class TrackRhythmAnalyzer
             trace.ConfidenceScores = tempo.Confidence;
         }
 
-        // Tempo Viterbi: favor continuity, but allow accelerando, ritardando and actual changes.
-        // A weak or silent section inherits the neighboring estimate rather than generating noise.
-        var backtrack = new short[slices, TempoCandidates];
-        var previousScore = new double[TempoCandidates];
-        var nextScore = new double[TempoCandidates];
-        for (int candidate = 0; candidate < TempoCandidates; candidate++)
-            previousScore[candidate] = tempo.Ranking[0, candidate];
-        for (int window = 1; window < slices; window++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            int globalBest = Array.IndexOf(previousScore, previousScore.Max());
-            for (int candidate = 0; candidate < TempoCandidates; candidate++)
-            {
-                // Permit genuine abrupt tempo changes; a fixed transition cost still
-                // requires multiple windows of evidence to leave a stable tempo.
-                int best = globalBest;
-                double bestValue = previousScore[globalBest] - .45;
-                for (int earlier = Math.Max(0, candidate - 24);
-                     earlier <= Math.Min(TempoCandidates - 1, candidate + 24); earlier++)
-                {
-                    double penalty = .022 * Math.Abs(candidate - earlier) * BpmResolution;
-                    double value = previousScore[earlier] - penalty;
-                    if (value <= bestValue) continue;
-                    best = earlier;
-                    bestValue = value;
-                }
-                nextScore[candidate] = bestValue + tempo.Ranking[window, candidate];
-                backtrack[window, candidate] = (short)best;
-            }
-            (previousScore, nextScore) = (nextScore, previousScore);
-        }
-
-        int bestLast = Array.IndexOf(previousScore, previousScore.Max());
+        var path = RhythmTempoPath.Select(tempo.Ranking,BpmResolution,cancellationToken);
         var selected = new double[slices];
         var quality = new float[slices];
         var eligibleWindows = new bool[slices];
         for (int window = slices - 1; window >= 0; window--)
         {
+            int bestLast=path[window];
             selected[window] = MinimumBpm + bestLast * BpmResolution;
             quality[window] = tempo.Confidence[window, bestLast];
             // Low-energy/syncopated music may have weaker attacks, but require
@@ -286,7 +280,6 @@ public static partial class TrackRhythmAnalyzer
                 phaseEvidence[window, bestLast] >= .60f && scores[window, bestLast] >= .48f;
             eligibleWindows[window] = hitsPerSlice[window] >= 8 &&
                 (quality[window] >= .28f && rhythmicEvidence || corroborated);
-            if (window > 0) bestLast = backtrack[window, bestLast];
         }
         // Retain the result of EVERY analysis window, including rejected ones. This
         // explains failures in exported reports instead of only reporting "BPM = 0".
@@ -335,26 +328,27 @@ public static partial class TrackRhythmAnalyzer
             framesPerHop, cancellationToken, trace);
         ExtendSupportedTails(sections, beats, predicted, onsets, bands, hopsPerSecond,
             framesPerHop, totalFrames, cancellationToken);
+        Span<int> subdivisionCounts = stackalloc int[5];
         for (int i = 0; i < sections.Count; i++)
         {
             var section = sections[i];
             double windowFrames = (double)stride * framesPerHop;
             int first = Math.Clamp((int)Math.Ceiling(section.StartFrame / windowFrames), 0, slices - 1);
             int end = Math.Clamp((int)Math.Floor((section.EndFrame - 1) / windowFrames), first, slices - 1);
-            int[] counts = new int[5];
+            subdivisionCounts.Clear();
             for (int w = first; w <= end; w++)
             {
                 if (!windows[w].Accepted || Math.Abs(windows[w].Bpm - section.Bpm) > section.Bpm * .04) continue;
-                counts[windows[w].SubdivisionFactor]++;
+                subdivisionCounts[windows[w].SubdivisionFactor]++;
             }
             int best = 1;
             for (int factor = 2; factor <= 4; factor++)
-                if (counts[factor] > counts[best] && counts[factor] >= 2) best = factor;
+                if (subdivisionCounts[factor] > subdivisionCounts[best] && subdivisionCounts[factor] >= 2) best = factor;
             sections[i] = section with { SubdivisionFactor = best };
         }
 
         if (beats.Count == 0)
-            return Empty(transients) with
+            return Empty(StoreTransients(onsets, framesPerHop, totalFrames, .85f)) with
             {
                 Windows = windows,
                 PredictedBeatFrames = predicted.Select(estimate => estimate.Frame).ToArray(),

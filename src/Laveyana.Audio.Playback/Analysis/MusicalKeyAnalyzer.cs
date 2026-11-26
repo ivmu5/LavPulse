@@ -22,7 +22,7 @@ internal sealed class MusicalKeyAnalyzer
     private readonly int _firstBin, _endBin;
     private readonly double _coefficient;
     private readonly Complex[] _fft = new Complex[Size];
-    private readonly double[] _power = new double[Size / 2];
+    private readonly double[] _power;
     private readonly double[] _chroma = new double[12];
     private readonly double[] _aggregate = new double[12];
     private readonly double[] _local = new double[12];
@@ -39,11 +39,15 @@ internal sealed class MusicalKeyAnalyzer
         _binHz = sampleRate / (double)(Decimation * Size);
         _firstBin = Math.Max(2, (int)Math.Ceiling(55 / _binHz));
         _endBin = Math.Min(Size / 2 - 1, (int)Math.Floor(2200 / _binHz));
+        // Only bins first-1 through end are read by peak interpolation.
+        _power = new double[_endBin + 1];
         _coefficient = 1 - Math.Exp(-Math.Tau * Math.Min(2200, sampleRate / 12d) / sampleRate);
     }
 
     public void Add(ReadOnlySpan<float> stereo, CancellationToken token)
     {
+        token.ThrowIfCancellationRequested();
+        if ((stereo.Length & 1) != 0) throw new ArgumentException("Incomplete stereo frame.", nameof(stereo));
         for (int i = 0; i + 1 < stereo.Length; i += 2)
         {
             float left = stereo[i], right = stereo[i + 1];
@@ -119,7 +123,9 @@ internal sealed class MusicalKeyAnalyzer
     private void FlushLocal()
     {
         long end = (long)_total * Size * Decimation;
-        if (_localKeys.Count < 8192 && end > _localStart)
+        // Reserve the final slot for explicit unknown coverage when the
+        // bounded local timeline is exhausted; TrackWaveform appends it.
+        if (_localKeys.Count < 8191 && end > _localStart)
             _localKeys.Add(new(_localStart, end, Estimate(_local, _localTonal, _localTotal)));
         _localStart = end;
         _localTotal = _localTonal = 0;

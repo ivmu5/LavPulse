@@ -14,24 +14,33 @@ internal sealed class RhythmBandEvidence
 
     public RhythmBandEvidence(IReadOnlyList<RhythmEnergy> energy, double hopsPerSecond, CancellationToken token)
     {
+        token.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(energy);
+        if (!double.IsFinite(hopsPerSecond) || hopsPerSecond <= 0 || hopsPerSecond > int.MaxValue / 16d)
+            throw new ArgumentOutOfRangeException(nameof(hopsPerSecond));
         _hopsPerSecond = hopsPerSecond;
         _bin = Math.Max(1, (int)Math.Round(hopsPerSecond / 50));
-        int count = (energy.Count - 1) / _bin + 1;
+        int count = energy.Count == 0 ? 0 : (energy.Count - 1) / _bin + 1;
         _flux = [new float[count], new float[count], new float[count]];
         _bassPrefix = new double[energy.Count + 1];
         _energyPrefix = new double[energy.Count + 1];
+        float previousLow=0, previousMid=0, previousHigh=0;
         for (int i = 0; i < energy.Count; i++)
         {
             if ((i & 16383) == 0) token.ThrowIfCancellationRequested();
             var now = energy[i];
             _bassPrefix[i + 1] = _bassPrefix[i] + Math.Max(0, now.Low);
             _energyPrefix[i + 1] = _energyPrefix[i] + Math.Max(0, now.Low) + Math.Max(0, now.Mid) + Math.Max(0, now.High);
-            if (i == 0) continue;
-            var before = energy[i - 1];
-            int index = i / _bin;
-            _flux[0][index] += Rise(now.Low, before.Low);
-            _flux[1][index] += Rise(now.Mid, before.Mid);
-            _flux[2][index] += Rise(now.High, before.High);
+            float low=MathF.Sqrt(Math.Max(0,now.Low)), mid=MathF.Sqrt(Math.Max(0,now.Mid)),
+                high=MathF.Sqrt(Math.Max(0,now.High));
+            if (i>0)
+            {
+                int index=i/_bin;
+                _flux[0][index]+=Math.Max(0,low-previousLow);
+                _flux[1][index]+=Math.Max(0,mid-previousMid);
+                _flux[2][index]+=Math.Max(0,high-previousHigh);
+            }
+            previousLow=low; previousMid=mid; previousHigh=high;
         }
         _fluxPrefix = new double[3][];
         for (int band = 0; band < 3; band++)
@@ -39,6 +48,7 @@ internal sealed class RhythmBandEvidence
             _fluxPrefix[band] = new double[count + 1];
             for (int i = 0; i < count; i++)
             {
+                if ((i & 4095) == 0) token.ThrowIfCancellationRequested();
                 _flux[band][i] = MathF.Sqrt(_flux[band][i]);
                 _fluxPrefix[band][i + 1] = _fluxPrefix[band][i] + _flux[band][i];
             }
@@ -79,11 +89,9 @@ internal sealed class RhythmBandEvidence
         return current < .28 * _openingReference;
     }
 
-    private static float Rise(float current, float previous) =>
-        Math.Max(0, MathF.Sqrt(Math.Max(0, current)) - MathF.Sqrt(Math.Max(0, previous)));
-
     public Periodicity Measure(int firstHop, int endHop, CancellationToken token = default)
     {
+        token.ThrowIfCancellationRequested();
         int start = Math.Clamp(firstHop / _bin, 0, _flux[0].Length);
         int end = Math.Clamp((int)Math.Ceiling(endHop / (double)_bin), start, _flux[0].Length);
         double rate = _hopsPerSecond / _bin;
@@ -117,6 +125,68 @@ internal sealed class RhythmBandEvidence
         for (int lag = 1; lag <= maxLag; lag++)
             maximum[lag] = .55 * maximum[lag] + .15 * sum[lag];
         return new(maximum, rate);
+    }
+
+    // Recovery needs one or two tempos, not the entire lag spectrum.
+    // Use the same centering, normalization and interpolation as Measure.
+    internal (double First, double Second) MeasurePair(int firstHop, int endHop,
+        double firstBpm, double secondBpm, CancellationToken token = default)
+    {
+        token.ThrowIfCancellationRequested();
+        int start = Math.Clamp(firstHop / _bin, 0, _flux[0].Length);
+        int end = Math.Clamp((int)Math.Ceiling(endHop / (double)_bin), start, _flux[0].Length);
+        double rate = _hopsPerSecond / _bin;
+        int maxLag = Math.Min(end-start-1, (int)Math.Ceiling(rate*60/40)+1);
+        double first = rate*60/firstBpm, second = rate*60/secondBpm;
+        bool Valid(double lag) => double.IsFinite(lag) && lag >= 1 && lag < maxLag;
+        bool validFirst = Valid(first), validSecond = Valid(second);
+        if (!validFirst && !validSecond) return default;
+        Span<int> lags = stackalloc int[4];
+        lags[0] = validFirst ? (int)first : 0;
+        lags[1] = validFirst ? lags[0]+1 : 0;
+        lags[2] = validSecond ? (int)second : 0;
+        lags[3] = validSecond ? lags[2]+1 : 0;
+        // Map repeated integer lags to the first occurrence. Nearby or identical
+        // tempos can share both correlation probes without changing interpolation.
+        Span<int> canonical = stackalloc int[4];
+        for (int j = 0; j < lags.Length; j++)
+        {
+            canonical[j] = j;
+            for (int k = 0; k < j; k++)
+                if (lags[k] == lags[j]) { canonical[j] = k; break; }
+        }
+        Span<double> maximum = stackalloc double[4], sum = stackalloc double[4];
+        maximum.Clear(); sum.Clear();
+        foreach (float[] band in _flux)
+        {
+            token.ThrowIfCancellationRequested();
+            double mean = 0;
+            for (int i=start;i<end;i++) mean+=band[i];
+            mean/=end-start;
+            double norm=0;
+            for (int i=start;i<end;i++)
+            {
+                double value=band[i]-mean;
+                norm+=value*value;
+            }
+            if (norm<=1e-12) continue;
+            for (int j=0;j<lags.Length;j++)
+            {
+                int lag=lags[j];
+                if (lag==0 || canonical[j] != j) continue;
+                token.ThrowIfCancellationRequested();
+                double dot=0;
+                for (int i=start;i<end-lag;i++)
+                    dot+=(band[i]-mean)*(band[i+lag]-mean);
+                double value=Math.Clamp(dot/norm,0,1);
+                sum[j]+=value;
+                maximum[j]=Math.Max(maximum[j],value);
+            }
+        }
+        for(int j=0;j<4;j++)
+            maximum[j] = canonical[j] == j ? .55*maximum[j]+.15*sum[j] : maximum[canonical[j]];
+        return (validFirst ? maximum[0]+(maximum[1]-maximum[0])*(first-lags[0]) : 0,
+            validSecond ? maximum[2]+(maximum[3]-maximum[2])*(second-lags[2]) : 0);
     }
 
     internal readonly record struct PhaseChoice(double OriginalPhase, double Phase,
@@ -159,10 +229,10 @@ internal sealed class RhythmBandEvidence
     public PhaseChoice ChoosePhase(double phase, double period, double bpm, double start,
         double end, bool strongAnchor, CancellationToken token = default)
     {
-        if (end - start < 4 * period || bpm > 120 || strongAnchor)
+        token.ThrowIfCancellationRequested();
+        if (!double.IsFinite(period) || period <= 0 || end - start < 4 * period || bpm > 120 || strongAnchor)
             return new(phase, phase, 0, 0, false, false);
-        var evidence = Measure((int)Math.Floor(start), (int)Math.Ceiling(end), token);
-        double normal = evidence.AtBpm(bpm), doubled = evidence.AtBpm(bpm * 2);
+        var (normal,doubled) = MeasurePair((int)Math.Floor(start), (int)Math.Ceiling(end), bpm, bpm*2, token);
         if (normal < .075 || doubled < .10 || doubled < .65 * normal)
             return new(phase, phase, 0, 0, false, false);
         double original = PhaseScore(phase, period, start, end);
@@ -172,6 +242,7 @@ internal sealed class RhythmBandEvidence
             for (int offset = -2; offset <= 2; offset++)
             {
                 double candidate = phase + (parity * .5 + offset * .0625) * period;
+                token.ThrowIfCancellationRequested();
                 double score = PhaseScore(candidate, period, start, end);
                 if (score > best) { best = score; selected = candidate; }
             }
@@ -225,6 +296,7 @@ internal sealed class RhythmBandEvidence
         public double AtBpm(double bpm)
         {
             double lag = Rate * 60 / bpm;
+            if (!double.IsFinite(lag) || lag < 1 || lag >= Values.Length - 1) return 0;
             int lower = (int)lag;
             if (lower < 1 || lower + 1 >= Values.Length) return 0;
             return Values[lower] + (Values[lower + 1] - Values[lower]) * (lag - lower);

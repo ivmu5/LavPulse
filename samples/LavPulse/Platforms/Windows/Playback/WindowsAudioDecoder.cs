@@ -11,14 +11,17 @@ internal sealed class WindowsAudioDecoder : IMp3SampleDecoder
 {
     private readonly MediaFoundationReader _reader;
     private readonly bool _floating;
+    private readonly CancellationToken _token;
+    private bool _disposed;
     private byte[] _bytes = [];
     public int Channels { get; }
     public int SampleRate { get; }
     public string Codec { get; }
 
-    private WindowsAudioDecoder(MediaFoundationReader reader, string extension)
+    private WindowsAudioDecoder(MediaFoundationReader reader, string extension, CancellationToken token)
     {
         _reader = reader;
+        _token = token;
         var format = reader.WaveFormat;
         Channels = format.Channels;
         SampleRate = format.SampleRate;
@@ -41,7 +44,7 @@ internal sealed class WindowsAudioDecoder : IMp3SampleDecoder
             reader = new StreamMediaFoundationReader(source,
                 new MediaFoundationReader.MediaFoundationReaderSettings
                 { RequestFloatOutput = true, SingleReaderObject = true });
-            var decoder = new WindowsAudioDecoder(reader, extension);
+            var decoder = new WindowsAudioDecoder(reader, extension, token);
             reader = null;
             return decoder;
         }
@@ -55,11 +58,16 @@ internal sealed class WindowsAudioDecoder : IMp3SampleDecoder
 
     public int ReadSamples(float[] destination)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _token.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(destination);
         int size = _floating ? 4 : 2;
         int count = destination.Length - destination.Length % Channels;
-        int bytes = count * size;
+        if (count == 0) return 0;
+        int bytes = checked(count * size);
         if (_bytes.Length < bytes) _bytes = new byte[bytes];
         int read = _reader.Read(_bytes, 0, bytes);
+        _token.ThrowIfCancellationRequested();
         if (read < 0 || read > bytes || read % (size * Channels) != 0)
             throw new InvalidDataException("Media Foundation вернула неполный кадр.");
         var input = _bytes.AsSpan(0, read);
@@ -73,5 +81,10 @@ internal sealed class WindowsAudioDecoder : IMp3SampleDecoder
         return read / size;
     }
 
-    public void Dispose() => _reader.Dispose();
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _reader.Dispose();
+    }
 }

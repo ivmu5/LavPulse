@@ -110,6 +110,8 @@ public sealed class PcmMixer
 
     private static void Accumulate(Span<float> master, ReadOnlySpan<float> input, float gain)
     {
+        // The source has already advanced; a muted deck contributes nothing.
+        if (gain == 0) return;
         int i = 0;
         if (Vector.IsHardwareAccelerated)
         {
@@ -127,6 +129,11 @@ public sealed class PcmMixer
 
     private static void ScaleAndClamp(Span<float> samples, float gain)
     {
+        if (gain == 0)
+        {
+            samples.Clear();
+            return;
+        }
         int i = 0;
         if (Vector.IsHardwareAccelerated)
         {

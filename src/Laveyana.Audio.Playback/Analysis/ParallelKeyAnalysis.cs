@@ -12,6 +12,7 @@ internal sealed class ParallelKeyAnalysis : IDisposable
     private readonly BlockingCollection<Block> _pending = new(Capacity);
     private readonly CancellationTokenSource _stop;
     private readonly Task<TrackMusicalKey?> _worker;
+    private int _disposed;
     private readonly MusicalKeyAnalyzer? _analyzer;
     private readonly TrackLoudnessAnalyzer? _loudness;
     internal TrackLoudness? Loudness => _loudness?.Finish();
@@ -60,7 +61,9 @@ internal sealed class ParallelKeyAnalysis : IDisposable
 
     public void Submit(ReadOnlySpan<float> samples)
     {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         Token.ThrowIfCancellationRequested();
+        if (samples.IsEmpty) return;
         var rented = ArrayPool<float>.Shared.Rent(samples.Length);
         bool transferred = false;
         try
@@ -75,7 +78,11 @@ internal sealed class ParallelKeyAnalysis : IDisposable
         }
     }
 
-    public void CompleteInput() => _pending.CompleteAdding();
+    public void CompleteInput()
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        _pending.CompleteAdding();
+    }
     public TrackMusicalKey? Join() => _worker.GetAwaiter().GetResult();
 
     private TrackMusicalKey? Consume(Action<float[], int, CancellationToken> consume,
@@ -102,6 +109,9 @@ internal sealed class ParallelKeyAnalysis : IDisposable
 
     public void Dispose()
     {
+        // The producer owns disposal and must stop submitting first.
+        // A repeated cleanup must not return pooled blocks a second time.
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         try
         {
             if (!_worker.IsCompleted) _stop.Cancel();

@@ -12,6 +12,9 @@ internal sealed class RhythmPhasePrefix(int count)
     public void Build(ReadOnlySpan<int> indices, ReadOnlySpan<float> strengths,
         ReadOnlySpan<double> accents, double anglePerHop, CancellationToken token)
     {
+        token.ThrowIfCancellationRequested();
+        if(indices.Length!=_real.Length-1 || strengths.Length!=indices.Length || accents.Length!=indices.Length)
+            throw new ArgumentException("Phase prefix requires equally sized inputs matching its capacity.");
         for (int i = 0; i < indices.Length; i++)
         {
             if ((i & 4095) == 0) token.ThrowIfCancellationRequested();

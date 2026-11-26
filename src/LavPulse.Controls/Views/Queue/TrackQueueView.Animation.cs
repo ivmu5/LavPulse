@@ -120,6 +120,9 @@ internal sealed partial class TrackQueueView
         double originY = row is null ? 0 : Math.Clamp(_queueScroll.Y + (double)row.Index * RowStride - _queueScroll.ScrollY, 0, Math.Max(0, _right.Height - 44));
         double rowHeight = Math.Max(44, row?.Height ?? 0);
         ShowIncoming(track);
+        // ShowIncoming establishes the stable final layout. Without a display
+        // clock, never overwrite it with an entrance pose that cannot advance.
+        if (!IsLoaded || !_rowAnimationsEnabled) return;
         _incoming.TranslationY = originY;
         _incoming.ScaleX = .96;
         _incoming.ScaleY = Math.Clamp(rowHeight / Math.Max(1, _right.Height), .15, 1);
@@ -158,8 +161,22 @@ internal sealed partial class TrackQueueView
     /// <summary>Replaces the outgoing cover, then brings the next list in from the right edge.</summary>
     public async Task FinishMixAsync(CachedTrack track, Action refreshQueue)
     {
-        if (IsEditing || !_incoming.IsVisible)
+        if (IsEditing || !_incoming.IsVisible || !IsLoaded || !_rowAnimationsEnabled)
         {
+            if (_incoming.IsVisible && !IsEditing)
+            {
+                _animation++;
+                CancelTransition();
+                _handoff = false;
+                _incoming.IsVisible = false;
+                _incoming.TranslationX = _incoming.TranslationY = 0;
+                _incoming.ScaleX = _incoming.ScaleY = 1;
+                _current.Scale = _current.Opacity = 1;
+                _queue.TranslationX = 0;
+                _queue.Opacity = 1;
+                _queue.InputTransparent = false;
+                SyncRowClock();
+            }
             _current.Show(track);
             refreshQueue();
             return;

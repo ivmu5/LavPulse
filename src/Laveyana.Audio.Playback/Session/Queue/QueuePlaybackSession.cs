@@ -10,7 +10,8 @@ public sealed class QueuePlaybackSession : IDisposable
     private readonly object _spectrumSettings = new();
     private bool _spectrumEnabled = true;
     private MixedPlayback? _mix;
-    private int _running;
+    private const int Idle = 0, Running = 1, Disposed = 2;
+    private int _lifecycle;
     private int _visualDelayMilliseconds;
 
     public QueuePlaybackSession() => _equalizer = new(_queue);
@@ -68,8 +69,11 @@ public sealed class QueuePlaybackSession : IDisposable
     {
         ArgumentOutOfRangeException.ThrowIfNegative(milliseconds);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(milliseconds, 1500);
-        Volatile.Write(ref _visualDelayMilliseconds, milliseconds);
-        Volatile.Read(ref _mix)?.SetVisualDelay(milliseconds);
+        lock (_spectrumSettings)
+        {
+            _visualDelayMilliseconds = milliseconds;
+            Volatile.Read(ref _mix)?.SetVisualDelay(milliseconds);
+        }
     }
 
     /// <summary>Sets playback speed by resampling the source PCM, which also changes pitch.</summary>
@@ -87,44 +91,56 @@ public sealed class QueuePlaybackSession : IDisposable
 
     public async Task RunAsync(IAudioOutput output, int startMilliseconds, CancellationToken token)
     {
-        var mix = new MixedPlayback(_equalizer, startMilliseconds, _queue.Snapshot, () => _queue.Snapshot);
-        mix.SetVisualDelay(Volatile.Read(ref _visualDelayMilliseconds));
-        if (Interlocked.Exchange(ref _running, 1) != 0)
-        {
+        ArgumentNullException.ThrowIfNull(output);
+        ArgumentOutOfRangeException.ThrowIfNegative(startMilliseconds);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(startMilliseconds, 3000);
+        token.ThrowIfCancellationRequested();
+        int previous = Interlocked.CompareExchange(ref _lifecycle, Running, Idle);
+        ObjectDisposedException.ThrowIf(previous == Disposed, this);
+        if (previous != Idle)
             throw new InvalidOperationException("The audio output is already running.");
-        }
 
-        _equalizer.Reset();
-        using var stopSpectrum = CancellationTokenSource.CreateLinkedTokenSource(token);
-        lock (_spectrumSettings)
-        {
-            mix.SetSpectrumEnabled(_spectrumEnabled);
-            Volatile.Write(ref _mix, mix);
-        }
-        var analysis = mix.RunSpectrumAsync(stopSpectrum.Token);
         try
         {
-            await Task.Run(() => output.PlayAsync(mix, token), token).ConfigureAwait(false);
-        }
-        finally
-        {
-            stopSpectrum.Cancel();
+            var mix = new MixedPlayback(_equalizer, startMilliseconds, _queue.Snapshot, () => _queue.Snapshot);
+            _equalizer.Reset();
+            using var stopSpectrum = CancellationTokenSource.CreateLinkedTokenSource(token);
+            lock (_spectrumSettings)
+            {
+                mix.SetSpectrumEnabled(_spectrumEnabled);
+                mix.SetVisualDelay(_visualDelayMilliseconds);
+                Volatile.Write(ref _mix, mix);
+            }
+            var analysis = mix.RunSpectrumAsync(stopSpectrum.Token);
             try
             {
-                await analysis.ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (stopSpectrum.IsCancellationRequested)
-            {
-                // Closing the output also ends analysis.
+                await Task.Run(() => output.PlayAsync(mix, token), token).ConfigureAwait(false);
             }
             finally
             {
-                Volatile.Write(ref _mix, null);
-                Volatile.Write(ref _running, 0);
+                stopSpectrum.Cancel();
+                try { await analysis.ConfigureAwait(false); }
+                catch (OperationCanceledException) when (stopSpectrum.IsCancellationRequested)
+                {
+                    // Closing the output also ends analysis.
+                }
             }
+        }
+        finally
+        {
+            lock (_spectrumSettings) Volatile.Write(ref _mix, null);
+            Volatile.Write(ref _lifecycle, Idle);
         }
     }
 
-    /// <summary>Closes the cache readers. Stop the output before calling this method.</summary>
-    public void Dispose() => _queue.Dispose();
+    /// <summary>Closes the cache readers. Await the active output before calling this method.</summary>
+    /// <exception cref="InvalidOperationException">An output run is still active.</exception>
+    public void Dispose()
+    {
+        int previous = Interlocked.CompareExchange(ref _lifecycle, Disposed, Idle);
+        if (previous == Disposed) return;
+        if (previous == Running)
+            throw new InvalidOperationException("Stop and await the audio output before disposing the session.");
+        _queue.Dispose();
+    }
 }

@@ -5,7 +5,9 @@ internal static class TrackPreparationChecks
     public static async Task RunAsync(string directory)
     {
         CheckNativeRate();
+        CheckDecoderContracts();
         await CheckWaveFormatsAsync(directory);
+        await CheckCustomCopyContractAsync(directory);
         CheckRhythmAnalysis();
         CheckHighResolutionRhythmAnalysis();
         CheckPercussiveFiltering();
@@ -20,6 +22,8 @@ internal static class TrackPreparationChecks
         CheckWeakOpeningEvidence();
         CheckPhasePrefix();
         CheckLocalTempoAndGridBounds();
+        CheckTempoPathEquivalence();
+        CheckMalformedRhythmEnergy();
         CheckPcmSaturation();
         MusicalKeyChecks.Run();
         await ParallelAnalysisChecks.RunAsync();
@@ -81,6 +85,35 @@ internal static class TrackPreparationChecks
                 "Cancellation left a partial cache file or an open decoder.");
         }
         Console.WriteLine("OK: platform MP3 decoding, cancellation and managed retry after a partial write.");
+    }
+
+    private static async Task CheckCustomCopyContractAsync(string directory)
+    {
+        int copies=0;
+        var file = TrackFile.FromStream("custom.wav", () =>
+            throw new InvalidOperationException("Replaced stream factory was used.")) with
+        {
+            CopyToAsync = async (target, token) =>
+            {
+                copies++;
+                using var wave = CreateWave();
+                await wave.CopyToAsync(target,token);
+            }
+        };
+        var preparation=new TrackPreparation(directory);
+        var metadata=await preparation.ReadMetadataAsync(file,default);
+        var cached=await preparation.ImportAsync(file,default);
+        try
+        {
+            Require(copies==2 && metadata.Title=="custom" && cached.Waveform.TotalFrames==24000,
+                "Preparation and metadata ignored the custom copy contract.");
+        }
+        finally { cached.Delete(); }
+        using var cancelled=new CancellationTokenSource();
+        cancelled.Cancel();
+        try { TrackRhythmAnalyzer.Analyze(new TrackWaveform([],0,1),cancelled.Token);
+            throw new Exception("Cancelled fallback rhythm analysis succeeded."); }
+        catch (OperationCanceledException) { }
     }
 
     private static void CheckRhythmAnalysis()
@@ -392,6 +425,65 @@ internal static class TrackPreparationChecks
             "Native-rate mono samples were not copied into both channels.");
     }
 
+    private static void CheckDecoderContracts()
+    {
+        float[] samples=Enumerable.Range(0,64).Select(i=>(i%8) switch
+        {
+            0=>float.NaN,1=>float.PositiveInfinity,2=>float.NegativeInfinity,
+            3=>2f,4=>-2f,_=>i/64f
+        }).ToArray();
+        using(var source=new Mp3PcmSource(new BlockDecoder(2,[samples])))
+        {
+            var output=new float[samples.Length+1];
+            output[^1]=10;
+            Require(source.Read(output)==samples.Length/2&&
+                output[..samples.Length].SequenceEqual(samples.Select(v=>float.IsFinite(v)?Math.Clamp(v,-1,1):0))&&
+                output[^1]==10,"Native normalization or unused buffer tail changed.");
+        }
+        var throwing=new MetadataFailureDecoder();
+        try { using var invalid=new Mp3PcmSource(throwing);throw new InvalidOperationException("Invalid decoder constructed."); }
+        catch(IOException) { }
+        Require(throwing.Disposals==1,"Decoder constructor failure leaked native resources.");
+        Require(new DeckCursor(10,-1).Position==0&&new DeckCursor(10,12).Position==10,
+            "Initial cursor position bypassed seek bounds.");
+        try { _=new DeckCursor(-1,0);throw new InvalidOperationException("Negative cursor length accepted."); }
+        catch(ArgumentOutOfRangeException) { }
+        var decoder=new BlockDecoder(1,[[.25f,.5f]],44100);
+        var resampled=new Mp3PcmSource(decoder);
+        Require(resampled.Read([])==0&&resampled.Read(new float[1])==0&&decoder.Reads==0,
+            "Empty resampler read consumed decoder frames.");
+        Require(resampled.Read(new float[8])==3,"Resampler lost a final fractional frame.");
+        resampled.Dispose();
+        resampled.Dispose();
+        Require(decoder.Disposals==1,"Decoder disposed more than once.");
+        try { resampled.Read(new float[2]);throw new InvalidOperationException("Disposed decoder accepted read."); }
+        catch(ObjectDisposedException) { }
+        float[] tooSmall=[7];
+        try { Pcm16.Decode([1,2],tooSmall);throw new InvalidOperationException("Short PCM destination accepted."); }
+        catch(ArgumentException) { }
+        Require(tooSmall[0]==7,"PCM decoding wrote before validating destination.");
+        // RIFF PCM8 mono with one odd-sized data byte and mandatory padding.
+        byte[] wav=new byte[46];
+        using(var memory=new MemoryStream(wav))
+        using(var writer=new BinaryWriter(memory))
+        {
+            writer.Write("RIFF"u8);writer.Write(38);writer.Write("WAVEfmt "u8);
+            writer.Write(16);writer.Write((short)1);writer.Write((short)1);
+            writer.Write(48000);writer.Write(48000);writer.Write((short)1);writer.Write((short)8);
+            writer.Write("data"u8);writer.Write(1);writer.Write((byte)160);writer.Write((byte)0);
+        }
+        using(var valid=new WaveSampleDecoder(new MemoryStream(wav)))
+        {
+            float[] value=new float[1];
+            Require(valid.ReadSamples(value)==1&&value[0]==.25f,"Padded PCM8 data was rejected.");
+        }
+        Array.Resize(ref wav,45);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(wav.AsSpan(4),37);
+        try { using var invalid=new WaveSampleDecoder(new MemoryStream(wav));throw new InvalidOperationException("Unpadded odd WAV chunk accepted."); }
+        catch(InvalidDataException) { }
+        Console.WriteLine("OK: decoder empty reads, disposal, PCM validation and RIFF padding.");
+    }
+
     internal static Stream CreateMp3()
     {
         var frame = new byte[417];
@@ -409,11 +501,21 @@ internal static class TrackPreparationChecks
         if (!condition) throw new InvalidOperationException(message);
     }
 
-    private sealed class BlockDecoder(int channels, float[][] blocks) : IMp3SampleDecoder
+    private sealed class MetadataFailureDecoder : IMp3SampleDecoder
+    {
+        public int Channels=>throw new IOException("metadata failure");
+        public int SampleRate=>48000;
+        public int Disposals{get;private set;}
+        public int ReadSamples(float[] destination)=>0;
+        public void Dispose()=>Disposals++;
+    }
+
+    private sealed class BlockDecoder(int channels, float[][] blocks,int sampleRate=PlaybackFormat.SampleRate) : IMp3SampleDecoder
     {
         public int Channels => channels;
-        public int SampleRate => PlaybackFormat.SampleRate;
+        public int SampleRate => sampleRate;
         public int Reads { get; private set; }
+        public int Disposals { get; private set; }
 
         public int ReadSamples(float[] destination)
         {
@@ -423,7 +525,7 @@ internal static class TrackPreparationChecks
             return blocks[block].Length;
         }
 
-        public void Dispose() { }
+        public void Dispose() => Disposals++;
     }
 
     private sealed class TestDecoder(int reads, bool stopAtEnd = false, Action? onEnd = null) : IMp3SampleDecoder
@@ -548,6 +650,9 @@ internal static class TrackPreparationChecks
         }
         var trace = new TrackRhythmTrace();
         var grid = TrackRhythmAnalyzer.AnalyzeEnergy(energy, hop, (long)energy.Length * hop, trace: trace);
+        int sampleStep = Math.Max(1,(int)Math.Ceiling(trace.Onsets.Length / 8192d));
+        Require(grid.OnsetDiagnostics.SequenceEqual(trace.Onsets.Where((_,i)=>i%sampleStep==0)),
+            "Direct diagnostic sampling changed onset order or count.");
         Require(TrackRhythmAnalyzer.IsValid(grid, (long)energy.Length * hop) &&
             grid.HasBeatGrid && !grid.BeatFrames.Any(f => f >= 42L * PlaybackFormat.SampleRate &&
                 f < 47L * PlaybackFormat.SampleRate),
@@ -604,6 +709,20 @@ internal static class TrackPreparationChecks
             cancelled.Cancel();
             try { bands.Measure(0,4000,cancelled.Token); throw new InvalidOperationException("Periodicity ignored cancellation."); }
             catch (OperationCanceledException) { }
+        }
+        // Fixed-seed equivalence tests for the selective autocorrelation path.
+        // These are test cases, not independent source-review iterations.
+        var random = new Random(1973);
+        for(int trial=0;trial<100;trial++)
+        {
+            int first=random.Next(-10,3900);
+            int end=first+random.Next(1,500);
+            double a=40+random.NextDouble()*200,b=40+random.NextDouble()*440;
+            var all=bands.Measure(first,end);
+            var pair=bands.MeasurePair(first,end,a,b);
+            Require(Math.Abs(pair.First-all.AtBpm(a))<1e-12 &&
+                Math.Abs(pair.Second-all.AtBpm(b))<1e-12,
+                "Selective lag calculation changed periodicity.");
         }
         var quiet = energy.Select(e => new RhythmEnergy(e.Low * .004f, e.Mid * .004f, e.High * .004f)).ToArray();
         var quietBands = new RhythmBandEvidence(quiet, rate, CancellationToken.None);
@@ -715,6 +834,89 @@ internal static class TrackPreparationChecks
             "A beat outside its confirmed section was accepted.");
         Require(!TrackRhythmAnalyzer.IsValid(grid with { Sections = [section, section] }, 600000),
             "Overlapping sections were accepted.");
+        Require(!TrackRhythmAnalyzer.IsValid(grid with { Sections = [null!] }, 600000) &&
+            !TrackRhythmAnalyzer.IsValid(grid with { Windows = [null!] }, 600000),
+            "Null cache records were not rejected.");
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        try
+        {
+            TrackRhythmAnalyzer.AnalyzeEnergy([],480,0,cancelled.Token);
+            throw new InvalidOperationException("Empty analysis ignored cancellation.");
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private static void CheckTempoPathEquivalence()
+    {
+        var random=new Random(376);
+        for(int trial=0;trial<50;trial++)
+        {
+            int windows=random.Next(1,20), candidates=random.Next(1,90);
+            var ranking=new float[windows,candidates];
+            for(int w=0;w<windows;w++)
+                for(int c=0;c<candidates;c++)
+                    ranking[w,c]=random.Next(-5,20)*.05f;
+            // Independent direct reference with the original transition cost.
+            var back=new int[windows,candidates];
+            var previous=new double[candidates];
+            for(int c=0;c<candidates;c++)previous[c]=ranking[0,c];
+            for(int w=1;w<windows;w++)
+            {
+                var next=new double[candidates];
+                int global=Array.IndexOf(previous,previous.Max());
+                for(int c=0;c<candidates;c++)
+                {
+                    int best=global;
+                    double value=previous[global]-.45;
+                    for(int earlier=Math.Max(0,c-24);earlier<=Math.Min(candidates-1,c+24);earlier++)
+                    {
+                        double score=previous[earlier]-.022*Math.Abs(c-earlier)*.5;
+                        if(score<=value)continue;
+                        value=score;best=earlier;
+                    }
+                    back[w,c]=best;
+                    next[c]=value+ranking[w,c];
+                }
+                previous=next;
+            }
+            var expected=new int[windows];
+            int selected=Array.IndexOf(previous,previous.Max());
+            for(int w=windows-1;w>=0;w--)
+            {expected[w]=selected;if(w>0)selected=back[w,selected];}
+            Require(expected.SequenceEqual(RhythmTempoPath.Select(ranking,.5,default)),
+                "Refactored tempo path changed a transition or tie.");
+        }
+        Require(TrackRhythmAnalyzer.WindowBoundary(1,5,480,10000)==1440 &&
+            TrackRhythmAnalyzer.WindowBoundary(2,5,480,10000)==3840,
+            "Odd-stride half-open boundaries are inconsistent.");
+    }
+
+    private static void CheckMalformedRhythmEnergy()
+    {
+        var energy=Enumerable.Repeat(new RhythmEnergy(.1f,.1f,.1f),32).ToArray();
+        try
+        {
+            TrackRhythmAnalyzer.AnalyzeEnergy(energy,480,480*31L);
+            throw new InvalidOperationException("Malformed envelope length accepted.");
+        }
+        catch(InvalidDataException) { }
+        energy[0]=new(float.NaN,.1f,.1f);
+        try
+        {
+            TrackRhythmAnalyzer.AnalyzeEnergy(energy,480,480*32L);
+            throw new InvalidOperationException("Nonfinite energy accepted.");
+        }
+        catch(InvalidDataException) { }
+        var grid=new TrackBeatGrid(120,0,.9f,[480]);
+        Require(!TrackRhythmAnalyzer.IsValid(grid,480),"End-exclusive transient was accepted.");
+        var prefix=new RhythmPhasePrefix(1);
+        try
+        {
+            prefix.Build([],[],[],.1,default);
+            throw new InvalidOperationException("Mismatched phase-prefix capacity accepted.");
+        }
+        catch(ArgumentException) { }
     }
 
     private static void CheckPcmSaturation()

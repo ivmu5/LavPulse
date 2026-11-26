@@ -10,10 +10,13 @@ public interface IAudioOutput
 /// <summary>Exposes the mixer to one audio writer.</summary>
 public interface IAudioRenderSource
 {
-    /// <summary>Fills a stereo PCM block and returns the number of frames preceding the end of the mix.</summary>
+    /// <summary>Fills interleaved stereo PCM, at most PlaybackFormat.BlockFrames frames.
+    /// Returns the number of real frames; zero ends this output run.</summary>
+    /// <remarks>One render owner only. Supply a complete stereo frame for every requested frame.</remarks>
     int Render(Span<float> buffer);
 
-    /// <summary>Publishes the number of frames consumed by the device, when the backend exposes a playback head.</summary>
+    /// <summary>Publishes cumulative frames consumed since this output run started.
+    /// Use long.MaxValue only when the device counter is unavailable.</summary>
     void ReportOutputPosition(long playedFrames);
 }
 
@@ -21,5 +24,7 @@ public interface IAudioRenderSource
 public interface ISpectrumSource
 {
     /// <summary>Copies the latest eligible levels and advances the caller's version when new data is available.</summary>
+    /// <remarks>Provide at least PlaybackFormat.SpectrumBars entries. Initialize the version
+    /// to zero for each new source; a false return leaves the destination and version unchanged.</remarks>
     bool TryReadSpectrum(Span<float> destination, ref long version);
 }

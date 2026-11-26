@@ -54,17 +54,14 @@ internal sealed class PlatformAudioOutput : IAudioOutput
         Task ended, CancellationToken token)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(10));
-        uint last = 0;
-        long playedBytes = 0;
+        NativeOutputCounter counter = default;
         while (!ended.IsCompleted && await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
         {
             if (ended.IsCompleted) break;
             try
             {
                 uint position = unchecked((uint)device.GetPosition());
-                playedBytes += unchecked(position - last);
-                last = position;
-                source.ReportOutputPosition(playedBytes / PlaybackFormat.Pcm16FrameBytes);
+                source.ReportOutputPosition(counter.Observe(position) / PlaybackFormat.Pcm16FrameBytes);
             }
             catch (Exception ex) when (ex is MmException or NotSupportedException)
             {
@@ -90,7 +87,10 @@ internal sealed class PlatformAudioOutput : IAudioOutput
             {
                 int requested = Math.Min(_pcm.Length, output.Length - written);
                 requested -= requested % PlaybackFormat.Channels;
-                int rendered = source.Render(_pcm.AsSpan(0, requested)) * PlaybackFormat.Channels;
+                int frames = source.Render(_pcm.AsSpan(0, requested));
+                if ((uint)frames > (uint)(requested / PlaybackFormat.Channels))
+                    throw new InvalidDataException("Invalid audio render frame count.");
+                int rendered = frames * PlaybackFormat.Channels;
                 Pcm16.Encode(_pcm.AsSpan(0, rendered), output.Slice(written, rendered));
 
                 written += rendered;

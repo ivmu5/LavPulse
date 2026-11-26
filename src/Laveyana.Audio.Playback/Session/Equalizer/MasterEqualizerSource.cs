@@ -51,6 +51,8 @@ internal sealed class MasterEqualizerSource(IPcmSource source) : IPcmSource
     public int Read(Span<float> destination)
     {
         int frames = source.Read(destination);
+        if((uint)frames>(uint)(destination.Length/PlaybackFormat.Channels))
+            throw new InvalidDataException("Invalid PCM frame count before equalizer.");
         if (frames == 0) return 0;
 
         var active = _firstIsActive ? _first : _second;
@@ -65,8 +67,10 @@ internal sealed class MasterEqualizerSource(IPcmSource source) : IPcmSource
         for (; frame < frames && _remaining > 0; frame++, _remaining--)
         {
             int sample = frame * PlaybackFormat.Channels;
-            float left = destination[sample];
-            float right = destination[sample + 1];
+            float left = float.IsFinite(destination[sample]) ? destination[sample] : 0;
+            float right = float.IsFinite(destination[sample+1]) ? destination[sample+1] : 0;
+            destination[sample]=left;
+            destination[sample+1]=right;
             float blend = (float)(_rampFrames - _remaining + 1) / _rampFrames;
             active.Process(ref left, ref right);
             target.Process(ref destination[sample], ref destination[sample + 1]);
@@ -132,8 +136,8 @@ internal sealed class MasterEqualizerSource(IPcmSource source) : IPcmSource
 
         public void Process(ref float left, ref float right)
         {
-            double a = left * Settings.Gain;
-            double b = right * Settings.Gain;
+            double a = float.IsFinite(left) ? left * Settings.Gain : 0;
+            double b = float.IsFinite(right) ? right * Settings.Gain : 0;
             var filters = Settings.Filters;
             for (int band = 0; band < filters.Length; band++)
             {

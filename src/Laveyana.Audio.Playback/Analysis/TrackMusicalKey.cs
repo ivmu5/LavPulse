@@ -21,7 +21,9 @@ public sealed record TrackMusicalKey(int Tonic, MusicalMode Mode, float Confiden
 
     [JsonIgnore]
     public string Name => IsValid ? Names[Tonic] + (Mode == MusicalMode.Minor ? "m" : "") : "—";
+    internal int CamelotNumber => IsValid ? (Mode == MusicalMode.Minor ? MinorNumbers[Tonic] : MajorNumbers[Tonic]) : 0;
+
     [JsonIgnore]
-    public string Camelot => IsValid ? (Mode == MusicalMode.Minor ? MinorNumbers[Tonic] : MajorNumbers[Tonic])
-        .ToString(System.Globalization.CultureInfo.InvariantCulture) + (Mode == MusicalMode.Minor ? "A" : "B") : "—";
+    public string Camelot => IsValid ? CamelotNumber.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+        (Mode == MusicalMode.Minor ? "A" : "B") : "—";
 }

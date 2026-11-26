@@ -5,6 +5,7 @@ namespace Laveyana.Audio.Playback;
 internal sealed class TrackLoudnessAnalyzer
 {
     private const int Hop = 4800;
+    private static readonly double AbsoluteGate = Math.Pow(10, (-70 + .691) / 10);
     private Biquad _ls = Biquad.Shelf(), _rs = Biquad.Shelf();
     private Biquad _lh = Biquad.HighPass(), _rh = Biquad.HighPass();
     private readonly double[] _history = new double[30];
@@ -13,10 +14,12 @@ internal sealed class TrackLoudnessAnalyzer
     private readonly List<LoudnessPoint> _short = new();
     private int _count, _hops;
     private double _sum, _peak, _sum4, _sum30;
+    private double _absoluteBlockSum,_absoluteShortSum;
     private long _frames;
 
     public void Add(ReadOnlySpan<float> pcm)
     {
+        if ((pcm.Length & 1) != 0) throw new ArgumentException("Incomplete stereo frame.", nameof(pcm));
         for (int i = 0; i + 1 < pcm.Length; i += 2)
         {
             double l = float.IsFinite(pcm[i]) ? Math.Clamp(pcm[i], -1, 1) : 0;
@@ -33,11 +36,23 @@ internal sealed class TrackLoudnessAnalyzer
             _sum4 += power - (_hops >= 4 ? _history[(_hops - 4) % 30] : 0);
             _history[index] = power;
             _hops++;
-            if (_hops >= 4) _blocks.Add(Math.Max(0, _sum4 / 4));
+            if (_hops >= 4)
+            {
+                double blockPower=Math.Max(0,_sum4/4);
+                if(blockPower>=AbsoluteGate)
+                {
+                    _blocks.Add(blockPower);
+                    _absoluteBlockSum+=blockPower;
+                }
+            }
             if (_hops >= 30 && _hops % 10 == 0 && _short.Count < 86400)
             {
                 double shortPower = Math.Max(0, _sum30 / 30);
-                _shortPowers.Add(shortPower);
+                if(shortPower>=AbsoluteGate)
+                {
+                    _shortPowers.Add(shortPower);
+                    _absoluteShortSum+=shortPower;
+                }
                 _short.Add(new(_frames, (float)Math.Max(-120, ToLufs(shortPower))));
             }
             _count = 0;
@@ -47,12 +62,12 @@ internal sealed class TrackLoudnessAnalyzer
 
     public TrackLoudness Finish()
     {
-        double integratedThreshold = Threshold(_blocks, 10);
+        double integratedThreshold = Threshold(_absoluteBlockSum,_blocks.Count,10);
         double integratedSum = 0;
         int integratedCount = 0;
         foreach (double power in _blocks)
             if (power >= integratedThreshold) { integratedSum += power; integratedCount++; }
-        double shortThreshold = Threshold(_shortPowers, 20);
+        double shortThreshold = Threshold(_absoluteShortSum,_shortPowers.Count,20);
         var shortGated = _shortPowers.Where(power => power >= shortThreshold).ToArray();
         Array.Sort(shortGated);
         float? range = shortGated.Length < 2 ? null :
@@ -62,16 +77,9 @@ internal sealed class TrackLoudnessAnalyzer
     }
 
     private static double ToLufs(double power) => -.691 + 10 * Math.Log10(power);
-    private static double Threshold(List<double> powers, int relative)
-    {
-        double absolute = Math.Pow(10, (-70 + .691) / 10);
-        double sum = 0;
-        int count = 0;
-        foreach (double power in powers)
-            if (power >= absolute) { sum += power; count++; }
-        return count == 0 ? double.PositiveInfinity :
-            Math.Max(absolute, sum / count * Math.Pow(10, -relative / 10d));
-    }
+    private static double Threshold(double sum,int count,int relative) =>
+        count==0 ? double.PositiveInfinity :
+            Math.Max(AbsoluteGate,sum/count*Math.Pow(10,-relative/10d));
 
     private static double Percentile(double[] sorted, double p)
     {

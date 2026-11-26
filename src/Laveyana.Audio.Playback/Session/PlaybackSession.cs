@@ -92,5 +92,8 @@ public sealed class PlaybackSession
         : new DeckCursor(track.Waveform.TotalFrames, Math.Clamp(cue, 0, track.Waveform.TotalFrames));
 
     /// <summary>Maps a deck to its own worker cursor.</summary>
-    private DeckCursor? GetCursor(Deck deck) => deck == Deck.A ? _cursorA : _cursorB;
+    private DeckCursor? GetCursor(Deck deck) => deck switch
+    {
+        Deck.A => _cursorA, Deck.B => _cursorB, _ => throw new ArgumentOutOfRangeException(nameof(deck))
+    };
 }

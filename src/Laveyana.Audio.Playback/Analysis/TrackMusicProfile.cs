@@ -13,7 +13,7 @@ public sealed record TrackMeterSection(long StartFrame, long EndFrame, int Pulse
 /// Derived results can be rebuilt from saved waveform/rhythm without opening the audio.</summary>
 public sealed record TrackMusicProfile
 {
-    public const int CurrentMeterVersion = 1, CurrentEnergyVersion = 1, CurrentStructureVersion = 1,
+    public const int CurrentMeterVersion = 1, CurrentEnergyVersion = 2, CurrentStructureVersion = 1,
         CurrentLocalKeyVersion = 1;
     public int MeterVersion { get; init; }
     public int EnergyVersion { get; init; }
@@ -35,16 +35,20 @@ public sealed record TrackMusicProfile
 
     public bool TryGetLocalKey(long frame, out TrackMusicalKey? key)
     {
-        int lo = 0, hi = LocalKeys.Length;
+        key = null;
+        if (frame < 0 || LocalKeys is not { } keys) return false;
+        int lo = 0, hi = keys.Length;
         while (lo < hi)
         {
             int mid = lo + (hi-lo)/2;
-            if (LocalKeys[mid].EndFrame <= frame) lo = mid + 1;
+            if (keys[mid] is not { } candidate) return false;
+            if (candidate.EndFrame <= frame) lo = mid + 1;
             else hi = mid;
         }
-        if (lo < LocalKeys.Length && LocalKeys[lo].StartFrame <= frame)
+        if (lo < keys.Length && keys[lo] is { } section &&
+            section.StartFrame >= 0 && section.StartFrame <= frame && frame < section.EndFrame)
         {
-            key = LocalKeys[lo].Key;
+            key = section.Key is { IsValid: true } valid ? valid : null;
             return true;
         }
         key = null;
@@ -53,28 +57,52 @@ public sealed record TrackMusicProfile
 
     public bool IsValid(long total)
     {
-        bool Range(long start, long end) => start >= 0 && end > start && end <= total;
-        bool Unit(float v) => float.IsFinite(v) && v >= 0 && v <= 1;
-        return MeterVersion is >= 0 and <= CurrentMeterVersion &&
-            EnergyVersion is >= 0 and <= CurrentEnergyVersion &&
-            StructureVersion is >= 0 and <= CurrentStructureVersion &&
-            LocalKeyVersion is >= 0 and <= CurrentLocalKeyVersion &&
-            LoudnessVersion is >= 0 and <= TrackLoudness.Version &&
-            Meter is { Length: <= 4096 } && Energy is { Length: <= 8192 } &&
-            Structure is { Length: <= 8192 } && LocalKeys is { Length: <= 8192 } &&
-            Meter.All(m => m is not null && Range(m.StartFrame,m.EndFrame) && m.PulsesPerBar is 3 or 4 &&
-                Unit(m.Confidence) && m.Downbeats is { Length: <= 32768 } &&
-                StrictFrames(m.Downbeats, m.StartFrame, m.EndFrame)) &&
-            Energy.All(e => e is not null && Range(e.StartFrame,e.EndFrame) && Unit(e.Energy) &&
-                Unit(e.BassShare) && float.IsFinite(e.AttacksPerSecond) && e.AttacksPerSecond >= 0) &&
-            Structure.All(s => s is not null && Range(s.StartFrame,s.EndFrame) && Unit(s.Energy) && Enum.IsDefined(s.Kind)) &&
-            LocalKeys.All(k => k is not null && Range(k.StartFrame,k.EndFrame) && (k.Key is null || k.Key.IsValid)) &&
-            Ordered(Meter.Select(m => (m.StartFrame,m.EndFrame))) &&
-            Ordered(Energy.Select(e => (e.StartFrame,e.EndFrame))) &&
-            Ordered(Structure.Select(s => (s.StartFrame,s.EndFrame))) &&
-            Ordered(LocalKeys.Select(k => (k.StartFrame,k.EndFrame))) &&
-            (Loudness is null || Loudness.IsValid(total));
+        if (total < 0 ||
+            MeterVersion is < 0 or > CurrentMeterVersion ||
+            EnergyVersion is < 0 or > CurrentEnergyVersion ||
+            StructureVersion is < 0 or > CurrentStructureVersion ||
+            LocalKeyVersion is < 0 or > CurrentLocalKeyVersion ||
+            LoudnessVersion is < 0 or > TrackLoudness.Version ||
+            Meter is not { Length: <= 4096 } || Energy is not { Length: <= 8192 } ||
+            Structure is not { Length: <= 8192 } || LocalKeys is not { Length: <= 8192 })
+            return false;
+
+        // Validate the interval and its fields together; no projected iterator
+        // or second traversal of every cached timeline is needed.
+        long previous = 0;
+        foreach (var m in Meter)
+            if (m is null || !AdvanceRange(ref previous,m.StartFrame,m.EndFrame,total) ||
+                m.PulsesPerBar is not (3 or 4) || !Unit(m.Confidence) ||
+                m.Downbeats is not { Length: <= 32768 } || !StrictFrames(m.Downbeats,m.StartFrame,m.EndFrame))
+                return false;
+        previous = 0;
+        foreach (var e in Energy)
+            if (e is null || !AdvanceRange(ref previous,e.StartFrame,e.EndFrame,total) || !ValidEnergy(e))
+                return false;
+        previous = 0;
+        foreach (var s in Structure)
+            if (s is null || !AdvanceRange(ref previous,s.StartFrame,s.EndFrame,total) ||
+                !Unit(s.Energy) || !Enum.IsDefined(s.Kind))
+                return false;
+        previous = 0;
+        foreach (var k in LocalKeys)
+            if (k is null || !AdvanceRange(ref previous,k.StartFrame,k.EndFrame,total) ||
+                k.Key is { IsValid: false })
+                return false;
+        return Loudness is null || Loudness.IsValid(total);
     }
+
+    private static bool AdvanceRange(ref long previous,long start,long end,long total)
+    {
+        if (start < previous || end <= start || end > total) return false;
+        previous = end;
+        return true;
+    }
+
+    private static bool Unit(float value) => float.IsFinite(value) && value is >= 0 and <= 1;
+    private static bool ValidEnergy(TrackEnergyPoint point) =>
+        Unit(point.Energy) && Unit(point.BassShare) &&
+        float.IsFinite(point.AttacksPerSecond) && point.AttacksPerSecond >= 0;
 
     private static bool StrictFrames(long[] frames, long start, long end)
     {
@@ -89,24 +117,17 @@ public sealed record TrackMusicProfile
 
     public TrackEnergyPoint? EnergyAt(long frame)
     {
-        int lo = 0, hi = Energy.Length;
+        if (frame < 0 || Energy is not { } energy) return null;
+        int lo = 0, hi = energy.Length;
         while (lo < hi)
         {
             int mid = lo + (hi-lo)/2;
-            if (Energy[mid].EndFrame <= frame) lo = mid+1;
+            if (energy[mid] is not { } candidate) return null;
+            if (candidate.EndFrame <= frame) lo = mid+1;
             else hi = mid;
         }
-        return lo < Energy.Length && Energy[lo].StartFrame <= frame ? Energy[lo] : null;
-    }
-
-    private static bool Ordered(IEnumerable<(long Start,long End)> spans)
-    {
-        long previous = 0;
-        foreach (var span in spans)
-        {
-            if (span.Start < previous) return false;
-            previous = span.End;
-        }
-        return true;
+        return lo < energy.Length && energy[lo] is { } point &&
+            point.StartFrame >= 0 && point.StartFrame <= frame && frame < point.EndFrame &&
+            ValidEnergy(point) ? point : null;
     }
 }

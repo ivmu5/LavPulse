@@ -15,6 +15,7 @@ internal sealed class TrackOperationGates
 
     public async ValueTask<IDisposable> AcquireAsync(TrackFile file, CancellationToken token)
     {
+        ArgumentNullException.ThrowIfNull(file);
         token.ThrowIfCancellationRequested();
         string? path = file.LocalPath is { } local ? Path.GetFullPath(local) : null;
         Entry entry;
@@ -28,14 +29,17 @@ internal sealed class TrackOperationGates
             entry.Users++;
         }
 
+        bool acquired = false;
         try
         {
             await entry.Semaphore.WaitAsync(token).ConfigureAwait(false);
+            acquired = true;
+            token.ThrowIfCancellationRequested();
             return new Lease(this, file, path, entry);
         }
         catch
         {
-            Release(file, path, entry, acquired: false);
+            Release(file, path, entry, acquired);
             throw;
         }
     }

@@ -38,14 +38,26 @@ internal sealed partial class LocalTrackStore
 
     public string? FindPcm(StoredAnalysis analysis)
     {
-        if (PcmPath(analysis.PcmFile) is not { } path) return null;
+        if (analysis.TotalFrames <= 0 ||
+            analysis.TotalFrames > long.MaxValue / PlaybackFormat.Pcm16FrameBytes ||
+            PcmPath(analysis.PcmFile) is not { } path) return null;
         var pcm = new FileInfo(path);
         return pcm.Exists && pcm.Length == analysis.TotalFrames * PlaybackFormat.Pcm16FrameBytes ? path : null;
     }
 
     private string? PcmPath(string? name) => name is not null && name == Path.GetFileName(name) &&
+        name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 && !name.Contains('\\') && !name.Contains('/') &&
         name.StartsWith("lavpulse-", StringComparison.Ordinal) && name.EndsWith(".pcm", StringComparison.Ordinal)
         ? Path.Combine(PcmDirectory, name) : null;
+
+    private string RequireOwnedPcm(string pcm)
+    {
+        string full = Path.GetFullPath(pcm);
+        string? owned = PcmPath(Path.GetFileName(full));
+        if (owned is null || !LibraryStorageMigration.SamePath(full, owned))
+            throw new ArgumentException("PCM path is outside the managed cache.", nameof(pcm));
+        return owned;
+    }
 
     /// <summary>Measures the saved MP3, analysis manifest and any associated PCM on disk.</summary>
     public async ValueTask<long?> ReadTrackStorageSizeAsync(TrackFile file, CancellationToken token)
@@ -53,7 +65,6 @@ internal sealed partial class LocalTrackStore
         token.ThrowIfCancellationRequested();
         if (file.LocalPath is not { } media || FileSize(media) is not { } total) return null;
         string analysisPath = AnalysisPath(file);
-        if (!File.Exists(analysisPath)) return total;
         try
         {
             // Read only the cache reference. The waveform array is skipped by the deserializer.
@@ -71,16 +82,16 @@ internal sealed partial class LocalTrackStore
 
     private static long? FileSize(string path)
     {
-        var info = new FileInfo(path);
-        return info.Exists ? info.Length : null;
+        try { return new FileInfo(path).Length; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
     }
 
     public void EvictPcm(TrackFile file, CachedTrack track) => EvictPcm(file, track.Path);
 
     internal void EvictPcm(TrackFile file, string pcm)
     {
-        CachedTrack.DeleteCacheFile(pcm);
-        TrackStorageChanged?.Invoke(file.LocalPath!);
+        CachedTrack.DeleteCacheFile(RequireOwnedPcm(pcm));
+        NotifyStorageChanged(file.LocalPath!);
     }
 
     // Called after a prepared entry takes responsibility for the persisted PCM.
@@ -107,8 +118,9 @@ internal sealed partial class LocalTrackStore
         string? pcm, CancellationToken token, bool replaceAnalysis = false)
     {
         token.ThrowIfCancellationRequested();
+        if (pcm is not null) pcm = RequireOwnedPcm(pcm);
         if (pcm is null && !replaceAnalysis && HasAnalysis(file)) return;
-        var rhythm = waveform.Rhythm ?? TrackRhythmAnalyzer.Analyze(waveform);
+        var rhythm = waveform.Rhythm ?? TrackRhythmAnalyzer.Analyze(waveform, token);
         var profile = TrackMusicProfileAnalyzer.Derive(waveform with { Rhythm = rhythm }, waveform.MusicProfile, token);
         await _analysisWrites.WaitAsync(token).ConfigureAwait(false);
         try
@@ -133,7 +145,19 @@ internal sealed partial class LocalTrackStore
             _analyzed[file.LocalPath!] = 0;
         }
         finally { _analysisWrites.Release(); }
-        TrackStorageChanged?.Invoke(file.LocalPath!);
+        NotifyStorageChanged(file.LocalPath!);
+    }
+
+    // Notification is advisory and occurs after committing the file.
+    // A subscriber failure must not make the importer delete committed PCM.
+    private void NotifyStorageChanged(string path)
+    {
+        if (TrackStorageChanged is not { } handlers) return;
+        foreach (Action<string> handler in handlers.GetInvocationList())
+        {
+            try { handler(path); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }
+        }
     }
 
     private void PrunePcm(IReadOnlySet<string> retained, CancellationToken token)

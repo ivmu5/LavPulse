@@ -20,6 +20,20 @@ internal static class MusicalKeyChecks
             single.Add(block, default);
         }
         Require(silence.Finish() is null && single.Finish() is null, "Non-tonal evidence produced a key.");
+        for(int tonic=0;tonic<12;tonic++)
+            foreach(var mode in new[]{MusicalMode.Major,MusicalMode.Minor})
+            {
+                var key=new TrackMusicalKey(tonic,mode,.8f,.9f,.2f,8,10);
+                Require(key.CamelotNumber is >=1 and <=12 &&
+                    key.Camelot.StartsWith(key.CamelotNumber.ToString(System.Globalization.CultureInfo.InvariantCulture),StringComparison.Ordinal),
+                    "Numeric and displayed Camelot identities disagree.");
+            }
+        using var cancelled=new CancellationTokenSource();
+        cancelled.Cancel();
+        try { silence.Add([],cancelled.Token); throw new InvalidOperationException("Empty tonal block ignored cancellation."); }
+        catch(OperationCanceledException) { }
+        try { single.Add([.2f],default); throw new InvalidOperationException("Partial stereo frame accepted."); }
+        catch(ArgumentException) { }
         Console.WriteLine("OK: tonal PCM, relative major/minor, anti-phase stereo and unknown-key gates.");
     }
 

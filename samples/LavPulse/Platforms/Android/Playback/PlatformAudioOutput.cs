@@ -68,7 +68,7 @@ internal sealed class PlatformAudioOutput : IAudioOutput
         source.ReportOutputPosition(0);
         var block = new float[PlaybackFormat.BlockFrames * PlaybackFormat.Channels];
         var pcm = new short[block.Length];
-        uint head = 0;
+        NativeOutputCounter head = default;
         long written = 0;
         long played = 0;
         bool started = false;
@@ -78,6 +78,8 @@ internal sealed class PlatformAudioOutput : IAudioOutput
         {
             token.ThrowIfCancellationRequested();
             int frames = source.Render(block);
+            if ((uint)frames > PlaybackFormat.BlockFrames)
+                throw new InvalidDataException("Invalid audio render frame count.");
             if (frames == 0)
             {
                 break;
@@ -88,7 +90,8 @@ internal sealed class PlatformAudioOutput : IAudioOutput
             int offset = 0;
             if (!started)
             {
-                int accepted = track.Write(pcm, 0, Math.Min(samples, primeSamples), WriteMode.NonBlocking);
+                int requested = Math.Min(samples, primeSamples);
+                int accepted = requested == 0 ? 0 : track.Write(pcm, 0, requested, WriteMode.NonBlocking);
                 if (accepted < 0)
                 {
                     throw new IOException($"Ошибка аудиовыхода Android (код {accepted}).");
@@ -100,6 +103,7 @@ internal sealed class PlatformAudioOutput : IAudioOutput
                 {
                     token.ThrowIfCancellationRequested();
                     track.Play();
+                    token.ThrowIfCancellationRequested();
                     started = true;
                 }
             }
@@ -120,7 +124,7 @@ internal sealed class PlatformAudioOutput : IAudioOutput
             written += frames;
             if (started)
             {
-                played += ReadProgress(track, ref head);
+                played = head.Observe(unchecked((uint)track.PlaybackHeadPosition), written);
                 source.ReportOutputPosition(played);
             }
         }
@@ -129,6 +133,7 @@ internal sealed class PlatformAudioOutput : IAudioOutput
         if (!started && written > 0)
         {
             track.Play();
+            token.ThrowIfCancellationRequested();
         }
 
         var drain = Stopwatch.StartNew();
@@ -136,7 +141,9 @@ internal sealed class PlatformAudioOutput : IAudioOutput
         {
             token.WaitHandle.WaitOne(10);
             token.ThrowIfCancellationRequested();
-            played += ReadProgress(track, ref head);
+            long previous = played;
+            played = head.Observe(unchecked((uint)track.PlaybackHeadPosition), written);
+            if (played > previous) drain.Restart();
             source.ReportOutputPosition(played);
             if (drain.Elapsed > TimeSpan.FromSeconds(5) && played < written)
             {
@@ -145,12 +152,4 @@ internal sealed class PlatformAudioOutput : IAudioOutput
         }
     }
 
-    /// <summary>Unwraps the native 32-bit playback counter by measuring its unsigned delta.</summary>
-    private static uint ReadProgress(AudioTrack track, ref uint head)
-    {
-        uint position = unchecked((uint)track.PlaybackHeadPosition);
-        uint delta = unchecked(position - head);
-        head = position;
-        return delta;
-    }
-}
+ }

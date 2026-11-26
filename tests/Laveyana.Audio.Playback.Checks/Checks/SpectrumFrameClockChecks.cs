@@ -18,6 +18,16 @@ internal static class SpectrumFrameClockChecks
         Require(!clock.TryAdvance(2.001, 60, out _), "A stall produced catch-up drawings.");
         Require(clock.TryAdvance(2.017, 60, out elapsed) && Math.Abs(elapsed - .017f) < .0001f,
             "Smoothing must use the actual time since the last draw.");
+        SpectrumFrameClock guarded = default;
+        Require(!guarded.TryAdvance(double.NaN,60,out _) &&
+            !guarded.TryAdvance(double.PositiveInfinity,60,out _) &&
+            !guarded.TryAdvance(-1,60,out _) &&
+            !guarded.TryAdvance(1,-1,out _), "Invalid display inputs poisoned the clock.");
+        Require(guarded.TryAdvance(1,30,out _) &&
+            guarded.TryAdvance(1.001,0,out _) &&
+            guarded.TryAdvance(1.002,0,out _) &&
+            guarded.TryAdvance(1.003,30,out _),
+            "Automatic cadence retained an obsolete FPS deadline.");
         CheckMotionCadence();
         CheckLongRunningCadence();
         CheckWaveformDynamics();
