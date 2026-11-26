@@ -16,10 +16,9 @@ public static partial class TrackRhythmAnalyzer
         var additions = new List<TrackBeatEstimate>();
         int window = 0;
         long gapStart = 0;
-        long WindowStart(int w) => w == 0 ? 0 :
-            Math.Max(0, ((long)w * stride - stride / 2) * hopFrames);
-        long WindowEnd(int w) => w == tempos.Length - 1 ? totalFrames :
-            Math.Min(totalFrames, ((long)w * stride + stride / 2) * hopFrames);
+        long WindowStart(int w) => WindowBoundary(w,stride,hopFrames,totalFrames);
+        long WindowEnd(int w) => w == tempos.Length-1 ? totalFrames :
+            WindowBoundary(w+1,stride,hopFrames,totalFrames);
         bool Supported(int w)
         {
             int c = (int)Math.Round((tempos[w] - MinimumBpm) / BpmResolution);
@@ -68,12 +67,8 @@ public static partial class TrackRhythmAnalyzer
             if (g < sections.Count) gapStart = sections[g].EndFrame;
         }
         if (recovered.Count == 0) return;
-        int region = 0;
-        predicted.RemoveAll(e =>
-        {
-            while (region < recovered.Count && recovered[region].EndFrame <= e.Frame) region++;
-            return region < recovered.Count && e.Frame >= recovered[region].StartFrame;
-        });
+        RemoveReplacedPredictions(predicted,
+            recovered.Select(s=>(Start:s.StartFrame,End:s.EndFrame)).ToList(), includeStart:true);
         predicted.AddRange(additions);
         predicted.Sort((a, b) => a.Frame.CompareTo(b.Frame));
         sections.AddRange(recovered);
@@ -103,7 +98,10 @@ public static partial class TrackRhythmAnalyzer
             while (cursor < predicted.Count && predicted[cursor].Frame < section.StartFrame) cursor++;
             int from = cursor;
             while (cursor < predicted.Count && predicted[cursor].Frame < section.EndFrame) cursor++;
-            var original = predicted.GetRange(from, cursor - from).Where(e => e.Confirmed).ToArray();
+            var originalList = new List<TrackBeatEstimate>(cursor-from);
+            for(int j=from;j<cursor;j++)
+                if(predicted[j].Confirmed) originalList.Add(predicted[j]);
+            var original=originalList.ToArray();
             if (original.Length < 4) return; // inconsistent source; retain existing grid
             double period = 60d * PlaybackFormat.SampleRate / section.Bpm;
             double radius = Math.Min(.10 * period / hopFrames, .065 * hopsPerSecond);

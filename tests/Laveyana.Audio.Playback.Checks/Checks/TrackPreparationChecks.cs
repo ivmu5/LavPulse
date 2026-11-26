@@ -20,6 +20,8 @@ internal static class TrackPreparationChecks
         CheckWeakOpeningEvidence();
         CheckPhasePrefix();
         CheckLocalTempoAndGridBounds();
+        CheckTempoPathEquivalence();
+        CheckMalformedRhythmEnergy();
         CheckPcmSaturation();
         MusicalKeyChecks.Run();
         await ParallelAnalysisChecks.RunAsync();
@@ -740,6 +742,78 @@ internal static class TrackPreparationChecks
             throw new InvalidOperationException("Empty analysis ignored cancellation.");
         }
         catch (OperationCanceledException) { }
+    }
+
+    private static void CheckTempoPathEquivalence()
+    {
+        var random=new Random(376);
+        for(int trial=0;trial<50;trial++)
+        {
+            int windows=random.Next(1,20), candidates=random.Next(1,90);
+            var ranking=new float[windows,candidates];
+            for(int w=0;w<windows;w++)
+                for(int c=0;c<candidates;c++)
+                    ranking[w,c]=random.Next(-5,20)*.05f;
+            // Independent direct reference with the original transition cost.
+            var back=new int[windows,candidates];
+            var previous=new double[candidates];
+            for(int c=0;c<candidates;c++)previous[c]=ranking[0,c];
+            for(int w=1;w<windows;w++)
+            {
+                var next=new double[candidates];
+                int global=Array.IndexOf(previous,previous.Max());
+                for(int c=0;c<candidates;c++)
+                {
+                    int best=global;
+                    double value=previous[global]-.45;
+                    for(int earlier=Math.Max(0,c-24);earlier<=Math.Min(candidates-1,c+24);earlier++)
+                    {
+                        double score=previous[earlier]-.022*Math.Abs(c-earlier)*.5;
+                        if(score<=value)continue;
+                        value=score;best=earlier;
+                    }
+                    back[w,c]=best;
+                    next[c]=value+ranking[w,c];
+                }
+                previous=next;
+            }
+            var expected=new int[windows];
+            int selected=Array.IndexOf(previous,previous.Max());
+            for(int w=windows-1;w>=0;w--)
+            {expected[w]=selected;if(w>0)selected=back[w,selected];}
+            Require(expected.SequenceEqual(RhythmTempoPath.Select(ranking,.5,default)),
+                "Refactored tempo path changed a transition or tie.");
+        }
+        Require(TrackRhythmAnalyzer.WindowBoundary(1,5,480,10000)==1440 &&
+            TrackRhythmAnalyzer.WindowBoundary(2,5,480,10000)==3840,
+            "Odd-stride half-open boundaries are inconsistent.");
+    }
+
+    private static void CheckMalformedRhythmEnergy()
+    {
+        var energy=Enumerable.Repeat(new RhythmEnergy(.1f,.1f,.1f),32).ToArray();
+        try
+        {
+            TrackRhythmAnalyzer.AnalyzeEnergy(energy,480,480*31L);
+            throw new InvalidOperationException("Malformed envelope length accepted.");
+        }
+        catch(InvalidDataException) { }
+        energy[0]=new(float.NaN,.1f,.1f);
+        try
+        {
+            TrackRhythmAnalyzer.AnalyzeEnergy(energy,480,480*32L);
+            throw new InvalidOperationException("Nonfinite energy accepted.");
+        }
+        catch(InvalidDataException) { }
+        var grid=new TrackBeatGrid(120,0,.9f,[480]);
+        Require(!TrackRhythmAnalyzer.IsValid(grid,480),"End-exclusive transient was accepted.");
+        var prefix=new RhythmPhasePrefix(1);
+        try
+        {
+            prefix.Build([],[],[],.1,default);
+            throw new InvalidOperationException("Mismatched phase-prefix capacity accepted.");
+        }
+        catch(ArgumentException) { }
     }
 
     private static void CheckPcmSaturation()

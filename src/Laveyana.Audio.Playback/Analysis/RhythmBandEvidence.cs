@@ -20,18 +20,23 @@ internal sealed class RhythmBandEvidence
         _flux = [new float[count], new float[count], new float[count]];
         _bassPrefix = new double[energy.Count + 1];
         _energyPrefix = new double[energy.Count + 1];
+        float previousLow=0, previousMid=0, previousHigh=0;
         for (int i = 0; i < energy.Count; i++)
         {
             if ((i & 16383) == 0) token.ThrowIfCancellationRequested();
             var now = energy[i];
             _bassPrefix[i + 1] = _bassPrefix[i] + Math.Max(0, now.Low);
             _energyPrefix[i + 1] = _energyPrefix[i] + Math.Max(0, now.Low) + Math.Max(0, now.Mid) + Math.Max(0, now.High);
-            if (i == 0) continue;
-            var before = energy[i - 1];
-            int index = i / _bin;
-            _flux[0][index] += Rise(now.Low, before.Low);
-            _flux[1][index] += Rise(now.Mid, before.Mid);
-            _flux[2][index] += Rise(now.High, before.High);
+            float low=MathF.Sqrt(Math.Max(0,now.Low)), mid=MathF.Sqrt(Math.Max(0,now.Mid)),
+                high=MathF.Sqrt(Math.Max(0,now.High));
+            if (i>0)
+            {
+                int index=i/_bin;
+                _flux[0][index]+=Math.Max(0,low-previousLow);
+                _flux[1][index]+=Math.Max(0,mid-previousMid);
+                _flux[2][index]+=Math.Max(0,high-previousHigh);
+            }
+            previousLow=low; previousMid=mid; previousHigh=high;
         }
         _fluxPrefix = new double[3][];
         for (int band = 0; band < 3; band++)
@@ -78,9 +83,6 @@ internal sealed class RhythmBandEvidence
             .7 * Mean(_fluxPrefix[1], center - radius, center + radius + 1);
         return current < .28 * _openingReference;
     }
-
-    private static float Rise(float current, float previous) =>
-        Math.Max(0, MathF.Sqrt(Math.Max(0, current)) - MathF.Sqrt(Math.Max(0, previous)));
 
     public Periodicity Measure(int firstHop, int endHop, CancellationToken token = default)
     {
