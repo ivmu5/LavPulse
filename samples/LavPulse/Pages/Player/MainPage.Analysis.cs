@@ -70,6 +70,11 @@ public sealed partial class MainPage
     private async Task ObserveQueueAnalysisAsync(Task work)
     {
         try { await work; }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"LavPulse queue analysis worker: {ex}");
+        }
         finally
         {
             _queueAnalysis.Finish();

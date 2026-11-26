@@ -187,6 +187,11 @@ internal static partial class Program
             "Failed storage measurement changed a successful analysis outcome.");
 
         var slots = new TrackAnalysisSlots(2);
+        Require(!slots.TryAcquireHelper(1) && slots.TryAcquireHelper(4) && !slots.TryAcquireHelper(4),
+            "The optional analysis lane exceeded its resource limit.");
+        slots.ReleaseHelper();
+        Require(slots.TryAcquireHelper(4), "The analysis lane was not released.");
+        slots.ReleaseHelper();
         await slots.AcquireAsync(scan: true, default);
         await slots.AcquireAsync(scan: true, default);
         var waitingScan = slots.AcquireAsync(scan: true, default).AsTask();

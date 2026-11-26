@@ -22,6 +22,7 @@
     <Compile Include="../../samples/LavPulse/Tracks/Library/LocalTrackStore.Analysis.cs" Link="LocalTrackStore.Analysis.cs" />
     <Compile Include="../../samples/LavPulse/Tracks/Library/StoredTrackData.cs" Link="StoredTrackData.cs" />
     <Compile Include="../../samples/LavPulse/Tracks/Library/TrackAnalysisSlots.cs" Link="TrackAnalysisSlots.cs" />
+    <Compile Include="../../samples/LavPulse/Tracks/Library/TrackOperationGates.cs" Link="TrackOperationGates.cs" />
     <Compile Include="../../samples/LavPulse/Tracks/Queue/QueueTrackAnalysis.cs" Link="QueueTrackAnalysis.cs" />
     <Compile Include="../../src/LavPulse.Controls/Views/Library/TrackScanBatch.cs" Link="TrackScanBatch.cs" />
     <Compile Include="../../src/LavPulse.Controls/Views/Library/TrackScanHistory.cs" Link="TrackScanHistory.cs" />

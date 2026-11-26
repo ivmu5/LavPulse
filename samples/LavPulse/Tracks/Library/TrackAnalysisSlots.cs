@@ -7,6 +7,7 @@ internal sealed class TrackAnalysisSlots(int parallelism)
     private int _parallelism = parallelism;
     private int _scans;
     private int _decoders;
+    private bool _helper;
     private TaskCompletionSource? _changed;
 
     public void SetParallelism(int parallelism)
@@ -36,6 +37,29 @@ internal sealed class TrackAnalysisSlots(int parallelism)
                 changed = (_changed ??= new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
             }
             await changed.WaitAsync(token).ConfigureAwait(false);
+        }
+    }
+
+    // Optional second analysis lane; never wait for it or hold up a deck.
+    // Keep it out of the reserved decoder slot accounting. At most one
+    // helper can run per library, and crowded devices fall back to serial.
+    public bool TryAcquireHelper(int processors)
+    {
+        lock (_gate)
+        {
+            if (_helper || processors < 2 || _decoders >= Math.Max(2, processors - 1))
+                return false;
+            _helper = true;
+            return true;
+        }
+    }
+
+    public void ReleaseHelper()
+    {
+        lock (_gate)
+        {
+            if (!_helper) throw new InvalidOperationException("No analysis helper was acquired.");
+            _helper = false;
         }
     }
 
