@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Laveyana.Audio.Playback;
 using Laveyana.LavPulse.Controls;
 using System.Collections.Concurrent;
@@ -25,6 +26,7 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
     private readonly Dictionary<TrackFile, Task<TrackMetadata>> _metadata = new();
     private readonly Dictionary<TrackFile, Task<TrackMetadata>> _queueMetadata = new();
     private readonly SemaphoreSlim _thumbnailSlots = new(2);
+    private readonly ConditionalWeakTable<TrackFile, SemaphoreSlim> _trackGates = new();
     private readonly TrackAnalysisSlots _analysisSlots = new(
         PlayerSettings.ResolveAnalysisParallelism(PlayerSettings.DefaultAnalysisParallelism));
     private readonly SemaphoreSlim _metadataSlots = new(3);
@@ -62,6 +64,7 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
     {
         lock (_cacheGate)
         {
+            lifetime.ThrowIfCancellationRequested();
             selection.ThrowIfCancellationRequested();
             if (!_prepared.TryGetValue(file, out var pending) ||
                 (!pending.Work.IsCompletedSuccessfully &&
@@ -105,7 +108,8 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
     public void SetAnalysisParallelism(int parallelism) =>
         _analysisSlots.SetParallelism(PlayerSettings.ResolveAnalysisParallelism(parallelism));
 
-    public Task AnalyzeAsync(TrackFile file) => ScanAsync(file, replaceAnalysis: false, lifetime);
+    public Task AnalyzeAsync(TrackFile file) =>
+        TrackLibraryWork(ScanAsync(file, replaceAnalysis: false, lifetime, preferParallel: true));
 
     internal Task<TrackDiagnosticSnapshot> AnalyzeDiagnosticAsync(string path, CancellationToken token) =>
         TrackLibraryWork(preparation.AnalyzeDiagnosticAsync(path, token));
@@ -133,16 +137,23 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
         finally { lock (_cacheGate) _libraryWork.Remove(work); }
     }
 
-    private async Task<bool> ScanAsync(TrackFile file, bool replaceAnalysis, CancellationToken token)
+    private async Task<bool> ScanAsync(TrackFile file, bool replaceAnalysis, CancellationToken token,
+        bool preferParallel = false)
     {
-        await _analysisSlots.AcquireAsync(scan: true, token).ConfigureAwait(false);
-        bool scanning = false;
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, lifetime);
+        token = linked.Token;
+        var gate = _trackGates.GetValue(file, static _ => new SemaphoreSlim(1));
+        await gate.WaitAsync(token).ConfigureAwait(false);
+        bool slot = false, helper = false, scanning = false;
         try
         {
             if (!replaceAnalysis && store.HasAnalysis(file)) return false;
+            await _analysisSlots.AcquireAsync(scan: true, token).ConfigureAwait(false);
+            slot = true;
+            helper = preferParallel && _analysisSlots.TryAcquireHelper(Environment.ProcessorCount);
             lock (_cacheGate) _analyzing[file] = _analyzing.GetValueOrDefault(file) + 1;
             scanning = true;
-            var analysis = await preparation.AnalyzeAsync(file.LocalPath!, token).ConfigureAwait(false);
+            var analysis = await preparation.AnalyzeAsync(file.LocalPath!, token, parallelKey: helper).ConfigureAwait(false);
             await store.SaveAnalysisAsync(file, analysis.Waveform, analysis.Info, null, token, replaceAnalysis)
                 .ConfigureAwait(false);
             return true;
@@ -157,7 +168,9 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
                     else _analyzing[file]--;
                 }
             }
-            _analysisSlots.Release(scan: true);
+            if (helper) _analysisSlots.ReleaseHelper();
+            if (slot) _analysisSlots.Release(scan: true);
+            gate.Release();
         }
     }
 
@@ -165,11 +178,19 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
     private async Task<CachedTrack> DecodeAsync(TrackFile file, Task<TrackMetadata>? metadata,
         CancellationToken token, Task<CachedTrack>? previous, Task cacheCleanup)
     {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, lifetime);
+        token = linked.Token;
         if (previous is not null)
         {
             // Wait for the superseded writer to finish cleaning its file before replacing its result.
-            try { return await previous.ConfigureAwait(false); }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex.Message); }
+            try
+            {
+                var existing = await previous.WaitAsync(token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+                return existing;
+            }
+            catch (Exception ex) when (!token.IsCancellationRequested)
+            { System.Diagnostics.Debug.WriteLine(ex.Message); }
         }
 
         // A prior eviction may still be deleting the PCM named by this track's saved analysis.
@@ -184,39 +205,48 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
             System.Diagnostics.Debug.WriteLine(ex);
         }
 
-        var analysis = await store.ReadAnalysisAsync(file, token).ConfigureAwait(false);
-        if (analysis is not null && store.FindPcm(analysis) is { } pcm)
-        {
-            tags ??= await preparation.ReadMetadataAsync(file, token).ConfigureAwait(false);
-            var cached = new CachedTrack(file.Name, pcm, analysis.Waveform, tags, analysis.AudioInfo);
-            _decodedFiles[cached] = file;
-            store.ClaimRestoredPcm(file);
-            return cached;
-        }
-
-        // Only a cache miss competes with background work for a decoder.
-        await _analysisSlots.AcquireAsync(scan: false, token).ConfigureAwait(false);
+        var gate = _trackGates.GetValue(file, static _ => new SemaphoreSlim(1));
+        await gate.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            var track = await preparation.ImportAsync(file, tags,
-                analysis is null ? null : (analysis.Waveform, analysis.AudioInfo), token).ConfigureAwait(false);
+            var analysis = await store.ReadAnalysisAsync(file, token).ConfigureAwait(false);
+            if (analysis is not null && store.FindPcm(analysis) is { } pcm)
+            {
+                tags ??= await preparation.ReadMetadataAsync(file, token).ConfigureAwait(false);
+                var cached = new CachedTrack(file.Name, pcm, analysis.Waveform, tags, analysis.AudioInfo);
+                _decodedFiles[cached] = file;
+                store.ClaimRestoredPcm(file);
+                return cached;
+            }
+
+            // Only a cache miss competes with background work for a decoder.
+            await _analysisSlots.AcquireAsync(scan: false, token).ConfigureAwait(false);
+            bool helper = false;
             try
             {
-                await store.SaveAnalysisAsync(file, track.Waveform, track.AudioInfo, track.Path, token).ConfigureAwait(false);
+                helper = analysis is null && _analysisSlots.TryAcquireHelper(Environment.ProcessorCount);
+                var track = await preparation.ImportAsync(file, tags,
+                    analysis is null ? null : (analysis.Waveform, analysis.AudioInfo), token, parallelKey: helper).ConfigureAwait(false);
+                try
+                {
+                    await store.SaveAnalysisAsync(file, track.Waveform, track.AudioInfo, track.Path, token).ConfigureAwait(false);
+                }
+                catch
+                {
+                    track.Delete();
+                    throw;
+                }
+                _decodedFiles[track] = file;
+                store.ClaimRestoredPcm(file);
+                return track;
             }
-            catch
+            finally
             {
-                track.Delete();
-                throw;
+                if (helper) _analysisSlots.ReleaseHelper();
+                _analysisSlots.Release(scan: false);
             }
-            _decodedFiles[track] = file;
-            store.ClaimRestoredPcm(file);
-            return track;
         }
-        finally
-        {
-            _analysisSlots.Release(scan: false);
-        }
+        finally { gate.Release(); }
     }
 
     /// <summary>Waits for pending imports and leaves complete PCM caches available for the next launch.</summary>

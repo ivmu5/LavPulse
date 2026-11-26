@@ -22,6 +22,7 @@ internal static class TrackPreparationChecks
         CheckLocalTempoAndGridBounds();
         CheckPcmSaturation();
         MusicalKeyChecks.Run();
+        await ParallelAnalysisChecks.RunAsync();
         var input = TrackFile.FromStream("fixture.mp3", () => Task.FromResult<Stream>(CreateMp3()));
         var original = await new TrackPreparation(directory).ImportAsync(input, CancellationToken.None);
         byte[] expected = await File.ReadAllBytesAsync(original.Path);

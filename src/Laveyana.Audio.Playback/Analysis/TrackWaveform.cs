@@ -20,9 +20,28 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
     public static TrackWaveform Analyze(IPcmSource source, CancellationToken token) =>
         Analyze(source, token, null);
 
-    internal static TrackWaveform Analyze(IPcmSource source, CancellationToken token, TrackRhythmTrace? trace)
+    internal static TrackWaveform Analyze(IPcmSource source, CancellationToken token, TrackRhythmTrace? trace,
+        bool parallelKey = false)
     {
         ArgumentNullException.ThrowIfNull(source);
+        token.ThrowIfCancellationRequested();
+        using var pipeline = parallelKey ? new ParallelKeyAnalysis(source.SampleRate, token) : null;
+        try
+        {
+            return AnalyzeCore(source, pipeline?.Token ?? token, trace, pipeline);
+        }
+        catch (OperationCanceledException) when (pipeline is not null && !token.IsCancellationRequested)
+        {
+            // The consumer may have cancelled the producer because it failed.
+            // Await its original exception instead of reporting a user cancellation.
+            pipeline.Join();
+            throw;
+        }
+    }
+
+    private static TrackWaveform AnalyzeCore(IPcmSource source, CancellationToken token,
+        TrackRhythmTrace? trace, ParallelKeyAnalysis? pipeline)
+    {
         const int maxPoints = 8192;
         const int channels = PcmMixer.ChannelCount;
         int framesPerPoint = Math.Max(1, source.SampleRate / 25);
@@ -41,7 +60,7 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         Vector4 rhythmSum = Vector4.Zero;
         var rhythmEnergy = new List<RhythmEnergy>();
         long totalFrames = 0;
-        var key = new MusicalKeyAnalyzer(source.SampleRate);
+        var key = pipeline is null ? new MusicalKeyAnalyzer(source.SampleRate) : null;
 
         while (true)
         {
@@ -55,7 +74,8 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
             if ((uint)frames > (uint)(pcm.Length / channels))
                 throw new InvalidDataException("Аудиоисточник вернул некорректное количество кадров.");
             totalFrames += frames;
-            key.Add(pcm.AsSpan(0, frames * channels), token);
+            if (pipeline is null) key!.Add(pcm.AsSpan(0, frames * channels), token);
+            else pipeline.Submit(pcm.AsSpan(0, frames * channels));
             int offset = 0;
             while (offset < frames)
             {
@@ -111,11 +131,12 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
             throw new InvalidDataException("В файле нет аудиоданных.");
         }
 
+        pipeline?.CompleteInput();
         var waveform = new TrackWaveform(points.AsReadOnly(), totalFrames, framesPerPoint);
         return waveform with
         {
             Rhythm = TrackRhythmAnalyzer.AnalyzeEnergy(rhythmEnergy, rhythmHopFrames, totalFrames, token, trace),
-            MusicalKey = key.Finish()
+            MusicalKey = pipeline is null ? key!.Finish() : pipeline.Join()
         };
     }
 

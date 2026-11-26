@@ -1,0 +1,92 @@
+using Laveyana.Audio.Playback;
+
+internal static class ParallelAnalysisChecks
+{
+    public static async Task RunAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await Task.Run(() =>
+        {
+            var serial = TrackWaveform.Analyze(new ToneSource(), timeout.Token);
+            var parallel = TrackWaveform.Analyze(new ToneSource(), timeout.Token, null, parallelKey: true);
+            Require(serial.TotalFrames == parallel.TotalFrames &&
+                serial.FramesPerPoint == parallel.FramesPerPoint && serial.Points.SequenceEqual(parallel.Points) &&
+                serial.MusicalKey == parallel.MusicalKey &&
+                serial.Rhythm!.BeatFrames.SequenceEqual(parallel.Rhythm!.BeatFrames) &&
+                serial.Rhythm.PredictedBeatFrames.SequenceEqual(parallel.Rhythm.PredictedBeatFrames),
+                "Parallel analysis changed ordered PCM evidence.");
+            using var pipeline = new ParallelKeyAnalysis((_, _, _) => throw new InvalidDataException("worker fault"),
+                () => null, timeout.Token);
+            try
+            {
+                for (int i = 0; i < 32; i++) pipeline.Submit(new float[32]);
+                pipeline.CompleteInput();
+            }
+            catch (OperationCanceledException) when (!timeout.IsCancellationRequested) { }
+            try { pipeline.Join(); throw new InvalidOperationException("Worker fault was hidden."); }
+            catch (InvalidDataException ex) when (ex.Message == "worker fault") { }
+        }, timeout.Token).WaitAsync(timeout.Token);
+
+        // Cancellation must release a producer blocked on a full buffer,
+        // and disposal must wait for the consumer before returning pooled PCM.
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+        using var entered = new ManualResetEventSlim();
+        using var pipeline2 = new ParallelKeyAnalysis((_, _, token) =>
+        {
+            entered.Set();
+            token.WaitHandle.WaitOne();
+            token.ThrowIfCancellationRequested();
+        }, () => null, cancellation.Token);
+        var producer = Task.Run(() =>
+        {
+            try
+            {
+                for (int i = 0; i < 32; i++) pipeline2.Submit(new float[32]);
+                throw new InvalidOperationException("A full buffer ignored cancellation.");
+            }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        });
+        Require(entered.Wait(TimeSpan.FromSeconds(5)), "The key worker did not start.");
+        cancellation.Cancel();
+        await producer.WaitAsync(timeout.Token);
+        try { pipeline2.Join(); throw new InvalidOperationException("The consumer ignored cancellation."); }
+        catch (OperationCanceledException) { }
+
+        // Source failure must not strand the consumer waiting for more PCM.
+        await Task.Run(() =>
+        {
+            try
+            {
+                TrackWaveform.Analyze(new ToneSource(fail: true), timeout.Token, null, parallelKey: true);
+                throw new InvalidOperationException("Decoder fault was hidden.");
+            }
+            catch (IOException ex) when (ex.Message == "decoder fault") { }
+        }).WaitAsync(timeout.Token);
+        Console.WriteLine("OK: two-lane analysis equivalence, bounded buffer, consumer and producer failures, cancellation.");
+    }
+
+    private sealed class ToneSource(bool fail = false) : IPcmSource
+    {
+        private int _position;
+        public int SampleRate => 48000;
+        public int Read(Span<float> destination)
+        {
+            if (fail && _position >= 16384) throw new IOException("decoder fault");
+            int frames = Math.Min(destination.Length / 2, 48000 * 6 - _position);
+            for (int i = 0; i < frames; i++, _position++)
+            {
+                double t = _position / 48000d;
+                float sample = (float)(.2 * Math.Sin(Math.Tau * 261.6256 * t) +
+                    .15 * Math.Sin(Math.Tau * 329.6276 * t) + .15 * Math.Sin(Math.Tau * 391.9954 * t));
+                destination[i * 2] = sample;
+                destination[i * 2 + 1] = -sample;
+            }
+            return frames;
+        }
+    }
+
+    private static void Require(bool condition, string message)
+    {
+        if (!condition) throw new InvalidOperationException(message);
+    }
+}

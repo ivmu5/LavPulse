@@ -69,7 +69,22 @@ internal static partial class Program
 
         await analysis.Update([file], allowed: true, pcmLookahead: 1, analysisLookahead: 0)!.WaitAsync(stop.Token);
         Require(prepared && attempts == 2, "A superseded foreground decode prevented the background retry.");
-        Console.WriteLine("OK: background analysis retries after a selection is superseded.");
+        attempts = 0;
+        var cancelled = new QueueTrackAnalysis(_ => false, _ =>
+        {
+            attempts++;
+            return Task.FromCanceled(new CancellationToken(true));
+        }, () => { }, stop.Token);
+        await cancelled.Update([file], true, 1, 0)!.WaitAsync(stop.Token);
+        cancelled.Finish();
+        Require(attempts == 3 && cancelled.Update([file], true, 1, 0) is null,
+            "Persistent cancellation caused unbounded retry.");
+        var missing = new QueueTrackAnalysis(_ => false, _ => Task.CompletedTask, () => { }, stop.Token);
+        await missing.Update([file], true, 1, 0)!.WaitAsync(stop.Token);
+        missing.Finish();
+        Require(missing.Update([file], true, 1, 0) is null,
+            "A missing published preparation caused unbounded retry.");
+        Console.WriteLine("OK: background analysis retries, bounded cancellation and missing result isolation.");
     }
 
     private static async Task CheckQueueAnalysisLookahead()

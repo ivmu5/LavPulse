@@ -9,6 +9,7 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
 {
     private readonly object _gate = new();
     private readonly HashSet<TrackFile> _failed = [];
+    private readonly Dictionary<TrackFile, int> _cancelled = [];
     private TrackFile[] _upcoming = [];
     private int _pcmLookahead;
     private int _analysisLookahead;
@@ -29,7 +30,12 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
             _upcoming = upcoming;
             _pcmLookahead = Math.Max(0, pcmLookahead);
             _analysisLookahead = Math.Max(0, analysisLookahead);
-            if (changed) _failed.RemoveWhere(file => !upcoming.Contains(file));
+            if (changed)
+            {
+                _failed.RemoveWhere(file => !upcoming.Contains(file));
+                foreach (var file in _cancelled.Keys.Where(file => !upcoming.Contains(file)).ToArray())
+                    _cancelled.Remove(file);
+            }
             _allowed = allowed;
             if (_running || lifetime.IsCancellationRequested || FindNext().File is null) return null;
 
@@ -71,6 +77,14 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
                 var work = next.PreparePcm ? prepare(file) : analyze!(file);
                 if (!work.IsCompleted) progress();
                 await work.ConfigureAwait(false);
+                lock (_gate)
+                {
+                    _cancelled.Remove(file);
+                    // A completed task must publish its result before returning.
+                    // Otherwise the same queue item would spin forever.
+                    if (_upcoming.Contains(file) && !(next.PreparePcm ? isPrepared(file) : isAnalyzed!(file)))
+                        _failed.Add(file);
+                }
             }
             catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
             {
@@ -78,7 +92,17 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
             }
             catch (OperationCanceledException)
             {
-                // A foreground selection can supersede a shared decode. The file can still be preloaded.
+                // Retry a superseded foreground decode, but do not spin
+                // indefinitely on an independently cancelled provider.
+                lock (_gate)
+                {
+                    if (_upcoming.Contains(file))
+                    {
+                        int count = _cancelled.GetValueOrDefault(file) + 1;
+                        _cancelled[file] = count;
+                        if (count >= 3) _failed.Add(file);
+                    }
+                }
             }
             catch (Exception ex)
             {
