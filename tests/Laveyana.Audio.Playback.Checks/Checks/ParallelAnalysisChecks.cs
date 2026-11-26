@@ -7,6 +7,12 @@ internal static class ParallelAnalysisChecks
     public static async Task RunAsync()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        try
+        {
+            TrackWaveform.Analyze(new ToneSource(sampleRate:44100), timeout.Token);
+            throw new InvalidOperationException("A noncanonical PCM rate was accepted.");
+        }
+        catch (ArgumentException ex) when (ex.ParamName == "source") { }
         await Task.Run(() =>
         {
             var serial = TrackWaveform.Analyze(new ToneSource(), timeout.Token);
@@ -111,10 +117,10 @@ internal static class ParallelAnalysisChecks
         Require(gates.ActiveKeys == 0, "Track-gate entries leaked after cancellation or release.");
     }
 
-    private sealed class ToneSource(bool fail = false) : IPcmSource
+    private sealed class ToneSource(bool fail = false, int sampleRate = 48000) : IPcmSource
     {
         private int _position;
-        public int SampleRate => 48000;
+        public int SampleRate => sampleRate;
         public int Read(Span<float> destination)
         {
             if (fail && _position >= 16384) throw new IOException("decoder fault");

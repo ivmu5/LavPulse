@@ -605,6 +605,20 @@ internal static class TrackPreparationChecks
             try { bands.Measure(0,4000,cancelled.Token); throw new InvalidOperationException("Periodicity ignored cancellation."); }
             catch (OperationCanceledException) { }
         }
+        // Fixed-seed equivalence tests for the selective autocorrelation path.
+        // These are test cases, not independent source-review iterations.
+        var random = new Random(1973);
+        for(int trial=0;trial<100;trial++)
+        {
+            int first=random.Next(-10,3900);
+            int end=first+random.Next(1,500);
+            double a=40+random.NextDouble()*200,b=40+random.NextDouble()*440;
+            var all=bands.Measure(first,end);
+            var pair=bands.MeasurePair(first,end,a,b);
+            Require(Math.Abs(pair.First-all.AtBpm(a))<1e-12 &&
+                Math.Abs(pair.Second-all.AtBpm(b))<1e-12,
+                "Selective lag calculation changed periodicity.");
+        }
         var quiet = energy.Select(e => new RhythmEnergy(e.Low * .004f, e.Mid * .004f, e.High * .004f)).ToArray();
         var quietBands = new RhythmBandEvidence(quiet, rate, CancellationToken.None);
         Require(quietBands.IsWeakOpening(250) && !quietBands.IsWeakOpening(950),
@@ -715,6 +729,17 @@ internal static class TrackPreparationChecks
             "A beat outside its confirmed section was accepted.");
         Require(!TrackRhythmAnalyzer.IsValid(grid with { Sections = [section, section] }, 600000),
             "Overlapping sections were accepted.");
+        Require(!TrackRhythmAnalyzer.IsValid(grid with { Sections = [null!] }, 600000) &&
+            !TrackRhythmAnalyzer.IsValid(grid with { Windows = [null!] }, 600000),
+            "Null cache records were not rejected.");
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        try
+        {
+            TrackRhythmAnalyzer.AnalyzeEnergy([],480,0,cancelled.Token);
+            throw new InvalidOperationException("Empty analysis ignored cancellation.");
+        }
+        catch (OperationCanceledException) { }
     }
 
     private static void CheckPcmSaturation()

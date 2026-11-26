@@ -28,6 +28,7 @@ public static partial class TrackRhythmAnalyzer
     }
 
     public static bool IsValid(TrackBeatGrid rhythm, long totalFrames) =>
+        rhythm is not null && totalFrames > 0 &&
         rhythm.Bpm >= 0 && rhythm.Bpm <= MaximumBpm && double.IsFinite(rhythm.Bpm) &&
         rhythm.Confidence >= 0 && rhythm.Confidence <= 1 && float.IsFinite(rhythm.Confidence) &&
         rhythm.FirstBeatFrame >= 0 && rhythm.FirstBeatFrame <= totalFrames &&
@@ -44,13 +45,13 @@ public static partial class TrackRhythmAnalyzer
             estimates.Where(estimate => estimate.Confirmed).Select(estimate => estimate.Frame).SequenceEqual(beats)) &&
         rhythm.Sections is { Length: <= 4096 } sections &&
         rhythm.Windows is { Length: <= 8192 } windows &&
-        sections.All(section => section.StartFrame >= 0 && section.StartFrame < section.EndFrame &&
+        sections.All(section => section is not null && section.StartFrame >= 0 && section.StartFrame < section.EndFrame &&
             section.EndFrame <= totalFrames && section.Bpm >= MinimumBpm &&
             section.Bpm <= MaximumBpm && double.IsFinite(section.Bpm) &&
             float.IsFinite(section.Confidence) && section.Confidence >= 0 && section.Confidence <= 1 &&
             section.OnsetCount >= 0 && section.MatchedBeats >= 0 &&
             section.SubdivisionFactor is >= 1 and <= 4) &&
-        windows.All(window => window.StartFrame >= 0 && window.StartFrame <= window.EndFrame &&
+        windows.All(window => window is not null && window.StartFrame >= 0 && window.StartFrame <= window.EndFrame &&
             window.EndFrame <= totalFrames && window.Bpm >= 0 && window.Bpm <= MaximumBpm &&
             double.IsFinite(window.Bpm) && float.IsFinite(window.Confidence) &&
             window.Confidence >= 0 && window.Confidence <= 1 && window.OnsetCount >= 0 &&
@@ -104,6 +105,7 @@ public static partial class TrackRhythmAnalyzer
     internal static TrackBeatGrid AnalyzeEnergy(IReadOnlyList<RhythmEnergy> energy, int framesPerHop,
         long totalFrames, CancellationToken cancellationToken = default, TrackRhythmTrace? trace = null)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (trace is not null)
         {
             trace.HopFrames = framesPerHop;

@@ -116,10 +116,8 @@ public static partial class TrackRhythmAnalyzer
                 i + 1 < sections.Count && Compatible(section, sections[i + 1]);
             if (section.Bpm <= 120 && hasNeighbor)
             {
-                var correlation = bands.Measure((int)(section.StartFrame / hopFrames),
-                    (int)Math.Ceiling(section.EndFrame / (double)hopFrames), token);
-                double normal = correlation.AtBpm(section.Bpm);
-                double doubled = correlation.AtBpm(section.Bpm * 2);
+                var (normal,doubled) = bands.MeasurePair((int)(section.StartFrame / hopFrames),
+                    (int)Math.Ceiling(section.EndFrame / (double)hopFrames), section.Bpm, section.Bpm*2, token);
                 if (normal >= .075 && doubled >= .10 && doubled >= .65 * normal)
                 {
                     foreach (double shift in new[] { -.5, .5 })
@@ -257,8 +255,8 @@ public static partial class TrackRhythmAnalyzer
                     (int)correction, true, false, true));
             }
             if (tail.Count < 3 || predicted.Count + added.Count + tail.Count > MaximumBeatFrames) continue;
-            double q = bands.Measure((int)(anchor / hopFrames),
-                (int)Math.Ceiling(tail[^1].Frame / (double)hopFrames), token).AtBpm(section.Bpm);
+            double q = bands.MeasurePair((int)(anchor / hopFrames),
+                (int)Math.Ceiling(tail[^1].Frame / (double)hopFrames), section.Bpm, 0, token).First;
             if (q < .15) continue;
             long end = Math.Min(limit, tail[^1].Frame + (long)(period / 2) + 1);
             replaced.Add((section.EndFrame, end));
@@ -335,7 +333,7 @@ public static partial class TrackRhythmAnalyzer
             double interval = distance / steps;
             int from = (int)Math.Clamp(first / hopFrames, 0, int.MaxValue);
             int to = (int)Math.Clamp(last / hopFrames + 1, 0, int.MaxValue);
-            double correlation = bands.Measure(from, to, token).AtBpm(bpm);
+            double correlation = bands.MeasurePair(from, to, bpm, 0, token).First;
             var bridge = new List<TrackBeatEstimate>(steps - 1);
             int supported = 0, consecutiveMisses = 0, maxMisses = 0, troughs = 0;
             for (int step = 1; step < steps; step++)

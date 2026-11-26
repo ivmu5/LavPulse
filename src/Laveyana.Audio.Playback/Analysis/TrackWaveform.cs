@@ -19,7 +19,7 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
     [System.Text.Json.Serialization.JsonIgnore]
     public TrackAnalysisTiming? Timing { get; init; }
 
-    /// <summary>Reads PCM in blocks and reduces it to a bounded set of display points.</summary>
+    /// <summary>Reads finite, interleaved stereo PCM at 48 kHz and reduces it to a bounded set of display points.</summary>
     public static TrackWaveform Analyze(IPcmSource source, CancellationToken token) =>
         Analyze(source, token, null);
 
@@ -28,6 +28,11 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
     {
         ArgumentNullException.ThrowIfNull(source);
         token.ThrowIfCancellationRequested();
+        // All cached frame coordinates and rhythm/profile calculations use the
+        // playback rate. Reject an incompatible custom source instead of
+        // producing silently mis-scaled BPM and timestamps.
+        if (source.SampleRate != PlaybackFormat.SampleRate)
+            throw new ArgumentException("Analysis requires 48 kHz stereo PCM.", nameof(source));
         using var pipeline = parallelKey ? new ParallelKeyAnalysis(source.SampleRate, token) : null;
         try
         {

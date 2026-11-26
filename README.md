@@ -194,6 +194,8 @@ For one-shot, independently controlled decks, [`PlaybackSession`](src/Laveyana.A
 </details>
 
 
+Direct calls to `TrackWaveform.Analyze` require 48 kHz interleaved stereo PCM; the import pipeline resamples encoded audio to that rate. Noncanonical custom PCM sources are rejected rather than producing incorrect rhythm coordinates.
+
 ## Checks and limitations
 
 ```bash

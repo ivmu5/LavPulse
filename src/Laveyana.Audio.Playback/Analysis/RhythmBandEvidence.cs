@@ -84,6 +84,7 @@ internal sealed class RhythmBandEvidence
 
     public Periodicity Measure(int firstHop, int endHop, CancellationToken token = default)
     {
+        token.ThrowIfCancellationRequested();
         int start = Math.Clamp(firstHop / _bin, 0, _flux[0].Length);
         int end = Math.Clamp((int)Math.Ceiling(endHop / (double)_bin), start, _flux[0].Length);
         double rate = _hopsPerSecond / _bin;
@@ -117,6 +118,58 @@ internal sealed class RhythmBandEvidence
         for (int lag = 1; lag <= maxLag; lag++)
             maximum[lag] = .55 * maximum[lag] + .15 * sum[lag];
         return new(maximum, rate);
+    }
+
+    // Recovery needs one or two tempos, not the entire lag spectrum.
+    // Use the same centering, normalization and interpolation as Measure.
+    internal (double First, double Second) MeasurePair(int firstHop, int endHop,
+        double firstBpm, double secondBpm, CancellationToken token = default)
+    {
+        token.ThrowIfCancellationRequested();
+        int start = Math.Clamp(firstHop / _bin, 0, _flux[0].Length);
+        int end = Math.Clamp((int)Math.Ceiling(endHop / (double)_bin), start, _flux[0].Length);
+        double rate = _hopsPerSecond / _bin;
+        int maxLag = Math.Min(end-start-1, (int)Math.Ceiling(rate*60/40)+1);
+        double first = rate*60/firstBpm, second = rate*60/secondBpm;
+        bool Valid(double lag) => double.IsFinite(lag) && lag >= 1 && lag < maxLag;
+        bool validFirst = Valid(first), validSecond = Valid(second);
+        if (!validFirst && !validSecond) return default;
+        Span<int> lags = stackalloc int[4];
+        lags[0] = validFirst ? (int)first : 0;
+        lags[1] = validFirst ? lags[0]+1 : 0;
+        lags[2] = validSecond ? (int)second : 0;
+        lags[3] = validSecond ? lags[2]+1 : 0;
+        Span<double> maximum = stackalloc double[4], sum = stackalloc double[4];
+        maximum.Clear(); sum.Clear();
+        foreach (float[] band in _flux)
+        {
+            token.ThrowIfCancellationRequested();
+            double mean = 0;
+            for (int i=start;i<end;i++) mean+=band[i];
+            mean/=end-start;
+            double norm=0;
+            for (int i=start;i<end;i++)
+            {
+                double value=band[i]-mean;
+                norm+=value*value;
+            }
+            if (norm<=1e-12) continue;
+            for (int j=0;j<lags.Length;j++)
+            {
+                int lag=lags[j];
+                if (lag==0) continue;
+                token.ThrowIfCancellationRequested();
+                double dot=0;
+                for (int i=start;i<end-lag;i++)
+                    dot+=(band[i]-mean)*(band[i+lag]-mean);
+                double value=Math.Clamp(dot/norm,0,1);
+                sum[j]+=value;
+                maximum[j]=Math.Max(maximum[j],value);
+            }
+        }
+        for(int j=0;j<4;j++) maximum[j]=.55*maximum[j]+.15*sum[j];
+        return (validFirst ? maximum[0]+(maximum[1]-maximum[0])*(first-lags[0]) : 0,
+            validSecond ? maximum[2]+(maximum[3]-maximum[2])*(second-lags[2]) : 0);
     }
 
     internal readonly record struct PhaseChoice(double OriginalPhase, double Phase,
@@ -161,8 +214,7 @@ internal sealed class RhythmBandEvidence
     {
         if (end - start < 4 * period || bpm > 120 || strongAnchor)
             return new(phase, phase, 0, 0, false, false);
-        var evidence = Measure((int)Math.Floor(start), (int)Math.Ceiling(end), token);
-        double normal = evidence.AtBpm(bpm), doubled = evidence.AtBpm(bpm * 2);
+        var (normal,doubled) = MeasurePair((int)Math.Floor(start), (int)Math.Ceiling(end), bpm, bpm*2, token);
         if (normal < .075 || doubled < .10 || doubled < .65 * normal)
             return new(phase, phase, 0, 0, false, false);
         double original = PhaseScore(phase, period, start, end);
@@ -225,6 +277,7 @@ internal sealed class RhythmBandEvidence
         public double AtBpm(double bpm)
         {
             double lag = Rate * 60 / bpm;
+            if (!double.IsFinite(lag) || lag < 1 || lag >= Values.Length - 1) return 0;
             int lower = (int)lag;
             if (lower < 1 || lower + 1 >= Values.Length) return 0;
             return Values[lower] + (Values[lower + 1] - Values[lower]) * (lag - lower);
