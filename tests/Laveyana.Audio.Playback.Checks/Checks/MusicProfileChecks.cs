@@ -26,6 +26,24 @@ internal static class MusicProfileChecks
             "Loudness peak, short-term windows or silence failed.");
         Require(a.RecommendedGainDb() is float gain&&gain<=6&&gain+a.SamplePeakDbfs.GetValueOrDefault()<=-3+.001,
             "Suggested gain exceeds sample-peak headroom.");
+        // Different chunk boundaries must not change any loudness measurement.
+        var chunked=new TrackLoudnessAnalyzer();
+        for(int n=0;n<60;n++)
+        {
+            for(int i=0;i<4800;i++)
+            {
+                float v=(float)(.25*Math.Sin(Math.Tau*1000*(n*4800L+i)/48000));
+                block[2*i]=block[2*i+1]=v;
+            }
+            for(int i=0;i<block.Length;i+=246)
+                chunked.Add(block.AsSpan(i,Math.Min(246,block.Length-i)));
+        }
+        var split=chunked.Finish();
+        Require(a.IntegratedLufs==split.IntegratedLufs&&a.SamplePeakDbfs==split.SamplePeakDbfs&&
+            a.LoudnessRange==split.LoudnessRange&&a.ShortTerm.SequenceEqual(split.ShortTerm),
+            "LUFS depended on PCM chunk boundaries.");
+        try { chunked.Add([.1f]); throw new InvalidOperationException("Partial loudness stereo frame accepted."); }
+        catch(ArgumentException) { }
         var points=Enumerable.Range(0,400).Select(i=>new WaveformPoint(.6f,i%12==0?.6f:.2f,.2f,.1f)).ToArray();
         // 125 BPM grid, 4 pulses/bar, exact 40ms peak bins.
         const int hop=1920, beatHop=12, count=32;
@@ -61,6 +79,20 @@ internal static class MusicProfileChecks
             "An uncertain local key was incorrectly replaced by a global harmony match.");
         Require(MixCompatibilityAnalyzer.Compare(withKey,-1,withKey,0).Score is null,
             "An out-of-range transition was scored.");
+        var invalidEnergy=withKey with{MusicProfile=profile with
+        {Energy=[new(0,waveform.TotalFrames,float.NaN,0,0)]}};
+        Require(MixCompatibilityAnalyzer.Compare(withKey,0,invalidEnergy,0).Energy is null,
+            "A nonfinite energy value contaminated compatibility.");
+        var restored=TrackMusicProfileAnalyzer.Derive(waveform,profile with{EnergyVersion=1});
+        Require(restored.EnergyVersion==TrackMusicProfile.CurrentEnergyVersion&&ReferenceEquals(restored.Meter,profile.Meter),
+            "Updating energy forced a redundant meter analysis.");
+        var malformed=TrackMusicProfileAnalyzer.Derive(waveform,profile with{Energy=null!});
+        Require(malformed.IsValid(waveform.TotalFrames),"Invalid current-version profile was reused.");
+        // Two 40ms points, but only one frame represented by the final loud bin.
+        var partial=new TrackWaveform([new(.1f,0,.1f,0),new(1,1,0,0)],1921,1920);
+        var partialProfile=TrackMusicProfileAnalyzer.Derive(partial);
+        Require(partialProfile.Energy.Length==1&&partialProfile.Energy[0].BassShare<.01f,
+            "Partial waveform interval was lost.");
         var metrics=RhythmReportReplay.Metrics([0,48000,96000,200000],[0,48000,96000],4800);
         Require(metrics.F1==1&&metrics.MaeMs==0,"Unannotated tail biased regression metrics.");
         Console.WriteLine("OK: loudness, conservative meter, derived cache, compatibility and excerpt metrics.");

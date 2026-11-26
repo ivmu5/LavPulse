@@ -44,6 +44,8 @@ internal sealed class MusicalKeyAnalyzer
 
     public void Add(ReadOnlySpan<float> stereo, CancellationToken token)
     {
+        token.ThrowIfCancellationRequested();
+        if ((stereo.Length & 1) != 0) throw new ArgumentException("Incomplete stereo frame.", nameof(stereo));
         for (int i = 0; i + 1 < stereo.Length; i += 2)
         {
             float left = stereo[i], right = stereo[i + 1];
@@ -119,7 +121,9 @@ internal sealed class MusicalKeyAnalyzer
     private void FlushLocal()
     {
         long end = (long)_total * Size * Decimation;
-        if (_localKeys.Count < 8192 && end > _localStart)
+        // Reserve the final slot for explicit unknown coverage when the
+        // bounded local timeline is exhausted; TrackWaveform appends it.
+        if (_localKeys.Count < 8191 && end > _localStart)
             _localKeys.Add(new(_localStart, end, Estimate(_local, _localTonal, _localTotal)));
         _localStart = end;
         _localTotal = _localTonal = 0;

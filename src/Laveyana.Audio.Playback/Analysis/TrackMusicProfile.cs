@@ -13,7 +13,7 @@ public sealed record TrackMeterSection(long StartFrame, long EndFrame, int Pulse
 /// Derived results can be rebuilt from saved waveform/rhythm without opening the audio.</summary>
 public sealed record TrackMusicProfile
 {
-    public const int CurrentMeterVersion = 1, CurrentEnergyVersion = 1, CurrentStructureVersion = 1,
+    public const int CurrentMeterVersion = 1, CurrentEnergyVersion = 2, CurrentStructureVersion = 1,
         CurrentLocalKeyVersion = 1;
     public int MeterVersion { get; init; }
     public int EnergyVersion { get; init; }

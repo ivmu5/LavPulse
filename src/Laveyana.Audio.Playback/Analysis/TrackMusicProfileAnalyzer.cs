@@ -5,8 +5,9 @@ public static class TrackMusicProfileAnalyzer
     public static TrackMusicProfile Derive(TrackWaveform waveform, TrackMusicProfile? existing = null,
         CancellationToken token = default)
     {
+        ArgumentNullException.ThrowIfNull(waveform);
         token.ThrowIfCancellationRequested();
-        existing ??= new();
+        if(existing is null||!existing.IsValid(waveform.TotalFrames)) existing=new();
         if (existing.HasCurrentDerived) return existing;
         var energy = existing.EnergyVersion == TrackMusicProfile.CurrentEnergyVersion
             ? existing.Energy : BuildEnergy(waveform, token);
@@ -39,18 +40,22 @@ public static class TrackMusicProfileAnalyzer
             long endFrame = Math.Min(w.TotalFrames, (long)end * w.FramesPerPoint);
             if (endFrame <= startFrame) break;
             double power = 0, bass = 0, bands = 0;
+            long representedFrames=0;
             for (int j = i; j < end; j++)
             {
+                long frames=Math.Min(w.FramesPerPoint,endFrame-(long)j*w.FramesPerPoint);
+                if(frames<=0)break;
                 var p = w.Points[j];
-                power += .55*p.Peak*p.Peak + .30*p.Low*p.Low + .15*p.Mid*p.Mid;
-                bass += p.Low;
-                bands += p.Low+p.Mid+p.High;
+                power += (.55*p.Peak*p.Peak + .30*p.Low*p.Low + .15*p.Mid*p.Mid)*frames;
+                bass += (double)p.Low*frames;
+                bands += ((double)p.Low+p.Mid+p.High)*frames;
+                representedFrames+=frames;
             }
             while (hit < attacks.Length && attacks[hit] < startFrame) hit++;
             int first = hit;
             while (hit < attacks.Length && attacks[hit] < endFrame) hit++;
             float density = (float)((hit-first) * (double)PlaybackFormat.SampleRate / (endFrame-startFrame));
-            double amplitude = Math.Sqrt(Math.Max(0, power/(end-i)));
+            double amplitude = Math.Sqrt(Math.Max(0, power/Math.Max(1,representedFrames)));
             float raw = (float)Math.Clamp(amplitude * (.8 + .2*Math.Min(1,density/5)), 0, 1);
             result.Add(new(startFrame, endFrame, raw, (float)Math.Clamp(bass/Math.Max(1e-12,bands),0,1), density));
         }

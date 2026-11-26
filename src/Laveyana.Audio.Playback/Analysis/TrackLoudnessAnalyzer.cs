@@ -5,6 +5,7 @@ namespace Laveyana.Audio.Playback;
 internal sealed class TrackLoudnessAnalyzer
 {
     private const int Hop = 4800;
+    private static readonly double AbsoluteGate = Math.Pow(10, (-70 + .691) / 10);
     private Biquad _ls = Biquad.Shelf(), _rs = Biquad.Shelf();
     private Biquad _lh = Biquad.HighPass(), _rh = Biquad.HighPass();
     private readonly double[] _history = new double[30];
@@ -17,6 +18,7 @@ internal sealed class TrackLoudnessAnalyzer
 
     public void Add(ReadOnlySpan<float> pcm)
     {
+        if ((pcm.Length & 1) != 0) throw new ArgumentException("Incomplete stereo frame.", nameof(pcm));
         for (int i = 0; i + 1 < pcm.Length; i += 2)
         {
             double l = float.IsFinite(pcm[i]) ? Math.Clamp(pcm[i], -1, 1) : 0;
@@ -33,11 +35,15 @@ internal sealed class TrackLoudnessAnalyzer
             _sum4 += power - (_hops >= 4 ? _history[(_hops - 4) % 30] : 0);
             _history[index] = power;
             _hops++;
-            if (_hops >= 4) _blocks.Add(Math.Max(0, _sum4 / 4));
+            if (_hops >= 4)
+            {
+                double blockPower=Math.Max(0,_sum4/4);
+                if(blockPower>=AbsoluteGate)_blocks.Add(blockPower);
+            }
             if (_hops >= 30 && _hops % 10 == 0 && _short.Count < 86400)
             {
                 double shortPower = Math.Max(0, _sum30 / 30);
-                _shortPowers.Add(shortPower);
+                if(shortPower>=AbsoluteGate)_shortPowers.Add(shortPower);
                 _short.Add(new(_frames, (float)Math.Max(-120, ToLufs(shortPower))));
             }
             _count = 0;
@@ -64,7 +70,7 @@ internal sealed class TrackLoudnessAnalyzer
     private static double ToLufs(double power) => -.691 + 10 * Math.Log10(power);
     private static double Threshold(List<double> powers, int relative)
     {
-        double absolute = Math.Pow(10, (-70 + .691) / 10);
+        double absolute = AbsoluteGate;
         double sum = 0;
         int count = 0;
         foreach (double power in powers)
