@@ -11,6 +11,9 @@ public sealed partial class TrackLibraryPanel
     {
         private readonly TrackLibraryPanel _panel;
         private readonly bool _scanRow;
+        private Button? _skipScan;
+        private Label? _scanStats;
+        private bool _scanCompleted;
         private readonly Label _chevron = MixerStyle.Label("", 14, MixerColor.Accent);
         private readonly Label _title = TrackLabel(MixerStyle.PhoneFont(13, 12), MixerColor.Text, bold: true);
         private readonly Label _details = TrackLabel(MixerStyle.PhoneFont(11, 10), MixerColor.Muted);
@@ -43,7 +46,13 @@ public sealed partial class TrackLibraryPanel
             _size.HorizontalTextAlignment = TextAlignment.End;
             if (skip is not null)
             {
-                var skipButton = MixerStyle.Button("Пропустить");
+                var skipButton = _skipScan = MixerStyle.Button("Пропустить");
+                _scanStats = MixerStyle.Label("", MixerStyle.PhoneFont(10, 9), MixerColor.Muted);
+                _scanStats.IsVisible = false;
+                _scanStats.VerticalOptions = LayoutOptions.Center;
+                _scanStats.HorizontalTextAlignment = TextAlignment.End;
+                _scanStats.LineBreakMode = LineBreakMode.NoWrap;
+                _scanStats.MaxLines = 3;
                 skipButton.VerticalOptions = LayoutOptions.Center;
                 skipButton.Clicked += (_, _) =>
                 {
@@ -55,7 +64,7 @@ public sealed partial class TrackLibraryPanel
                 {
                     Spacing = 4,
                     VerticalOptions = LayoutOptions.Center,
-                    Children = { _size, skipButton }
+                    Children = { _size, _scanStats, skipButton }
                 });
                 return;
             }
@@ -153,7 +162,31 @@ public sealed partial class TrackLibraryPanel
 
         public void UpdateSize()
         {
-            if (_row is { } row) _size.Text = _panel.SizeText(row);
+            if (!_scanCompleted && _row is { } row) _size.Text = _panel.SizeText(row);
+        }
+
+        internal void CompleteScan(TrackScanResult result)
+        {
+            if (!_scanRow || _scanStats is null || _skipScan is null) return;
+            _scanCompleted = true;
+            Opacity = 1;
+            _skipScan.IsVisible = false;
+            _skipScan.IsEnabled = false;
+            _scanStats.IsVisible = true;
+            string outcome = result.Outcome switch
+            {
+                TrackScanOutcome.Scanned => "",
+                TrackScanOutcome.Skipped => " · Пропущен",
+                TrackScanOutcome.Failed => " · Ошибка",
+                _ => " · Остановлен"
+            };
+            string elapsed = result.Elapsed.TotalSeconds < 60
+                ? $"{result.Elapsed.TotalSeconds:0.0} с"
+                : $"{(int)result.Elapsed.TotalMinutes}:{result.Elapsed.Seconds:00}";
+            _size.Text = FormatSize(result.AfterBytes ?? result.BeforeBytes);
+            _scanStats.Text = $"До: {FormatSize(result.BeforeBytes)}\nПосле: {FormatSize(result.AfterBytes)}\n{elapsed}{outcome}";
+            SemanticProperties.SetDescription(_scanStats,
+                $"Размер до анализа: {FormatSize(result.BeforeBytes)}. После: {FormatSize(result.AfterBytes)}. Время: {elapsed}{outcome}");
         }
 
         private void LoadMetadata()

@@ -98,6 +98,11 @@ public sealed partial class TrackLibraryPanel
             bytes = _localTrackSizes.GetValueOrDefault(path);
         }
         else bytes = file.SizeBytes;
+        return FormatSize(bytes);
+    }
+
+    private static string FormatSize(long? bytes)
+    {
         if (bytes is not >= 0) return "—";
         double value = bytes.Value;
         int unit = 0;

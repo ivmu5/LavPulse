@@ -4,6 +4,11 @@ using Laveyana.Audio.Playback;
 
 namespace Laveyana.LavPulse.Controls;
 
+internal enum TrackScanOutcome { Scanned, Skipped, Failed, Stopped }
+
+internal readonly record struct TrackScanResult(TrackFile File, TrackScanOutcome Outcome,
+    long? BeforeBytes, long? AfterBytes, TimeSpan Elapsed);
+
 internal sealed class TrackScanBatch(int parallelism, CancellationToken lifetime) : IDisposable
 {
     private readonly CancellationTokenSource _stop = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
@@ -19,7 +24,9 @@ internal sealed class TrackScanBatch(int parallelism, CancellationToken lifetime
 
     public async Task<(int Scanned, int Skipped, int Failed)> RunAsync(IReadOnlyList<TrackFile> files,
         Func<TrackFile, CancellationToken, Task<bool>> scan, Action<IReadOnlyList<TrackFile>, int, int> show,
-        Action<TrackFile> completed)
+        Action<TrackFile> completed,
+        Func<TrackFile, CancellationToken, ValueTask<long?>>? measure = null,
+        Action<TrackScanResult>? finishedRow = null)
     {
         int next = 0;
         int scanned = 0;
@@ -33,10 +40,10 @@ internal sealed class TrackScanBatch(int parallelism, CancellationToken lifetime
                 {
                     var file = files[next++];
                     var cancellation = CancellationTokenSource.CreateLinkedTokenSource(Token);
-                    _running.Add(new(file, cancellation, ScanAsync(file, scan, cancellation.Token)));
+                    _running.Add(new(file, cancellation, ScanAsync(file, scan, measure, cancellation.Token)));
                 }
                 if (!Token.IsCancellationRequested)
-                    show(_running.Where(item => !item.Work.IsCompleted).Select(item => item.File).ToArray(),
+                    show(_running.Select(item => item.File).ToArray(),
                         scanned + skipped + failed, files.Count);
                 if (_running.Count == 0) break;
 
@@ -45,15 +52,17 @@ internal sealed class TrackScanBatch(int parallelism, CancellationToken lifetime
                 var finished = _running[index];
                 _running.RemoveAt(index);
                 finished.Cancellation.Dispose();
-                switch (await work)
+                var result = await work;
+                switch (result.Outcome)
                 {
-                    case Outcome.Scanned:
+                    case TrackScanOutcome.Scanned:
                         scanned++;
                         completed(finished.File);
                         break;
-                    case Outcome.Skipped: skipped++; break;
-                    case Outcome.Failed: failed++; break;
+                    case TrackScanOutcome.Skipped: skipped++; break;
+                    case TrackScanOutcome.Failed: failed++; break;
                 }
+                finishedRow?.Invoke(result);
             }
         }
         finally
@@ -69,24 +78,50 @@ internal sealed class TrackScanBatch(int parallelism, CancellationToken lifetime
         return (scanned, skipped, failed);
     }
 
-    private async Task<Outcome> ScanAsync(TrackFile file, Func<TrackFile, CancellationToken, Task<bool>> scan, CancellationToken token)
+    private async Task<TrackScanResult> ScanAsync(TrackFile file,
+        Func<TrackFile, CancellationToken, Task<bool>> scan,
+        Func<TrackFile, CancellationToken, ValueTask<long?>>? measure, CancellationToken token)
     {
+        long? before = null, after = null;
+        var watch = new Stopwatch();
+        TrackScanOutcome outcome;
         try
         {
             token.ThrowIfCancellationRequested();
-            return await scan(file, token).ConfigureAwait(false) ? Outcome.Scanned : Outcome.Skipped;
+            before = await MeasureAsync(file, measure, token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            watch.Start();
+            outcome = await scan(file, token).ConfigureAwait(false)
+                ? TrackScanOutcome.Scanned : TrackScanOutcome.Skipped;
         }
-        catch (OperationCanceledException) when (Token.IsCancellationRequested) { return Outcome.Stopped; }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { return Outcome.Skipped; }
+        catch (OperationCanceledException) when (Token.IsCancellationRequested) { outcome = TrackScanOutcome.Stopped; }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { outcome = TrackScanOutcome.Skipped; }
         catch (Exception ex)
         {
             Debug.WriteLine(ex);
-            return Outcome.Failed;
+            outcome = TrackScanOutcome.Failed;
+        }
+        finally { watch.Stop(); }
+
+        // Measurements are best effort and never turn successful analysis into a failure.
+        if (!token.IsCancellationRequested)
+            after = await MeasureAsync(file, measure, token).ConfigureAwait(false);
+        return new(file, outcome, before, after, watch.Elapsed);
+    }
+
+    private static async ValueTask<long?> MeasureAsync(TrackFile file,
+        Func<TrackFile, CancellationToken, ValueTask<long?>>? measure, CancellationToken token)
+    {
+        if (measure is null) return null;
+        try { return await measure(file, token).ConfigureAwait(false); }
+        catch (Exception ex)
+        {
+            Debug.WriteLine(ex);
+            return null;
         }
     }
 
-    private sealed record Scan(TrackFile File, CancellationTokenSource Cancellation, Task<Outcome> Work);
-    private enum Outcome { Scanned, Skipped, Failed, Stopped }
+    private sealed record Scan(TrackFile File, CancellationTokenSource Cancellation, Task<TrackScanResult> Work);
 
     public void Dispose() => _stop.Dispose();
 }

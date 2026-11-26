@@ -17,12 +17,22 @@ public sealed partial class TrackLibraryPanel
     private readonly ProgressBar _scanProgress = new() { HeightRequest = 6 };
     private readonly Button _stopScan = MixerStyle.Button("Остановить", icon: "player_cancel.png");
     private readonly VerticalStackLayout _scanRows = new() { Spacing = TrackListLayout.Stride - TrackListLayout.RowHeight };
+    private readonly ScrollView _scanScroll = new();
+    // Bound the number of realized covers and labels even for very large libraries.
+    private const int CompletedHistoryLimit = 6;
+    private readonly Queue<LibraryTreeItem> _completedScans = new();
+    private readonly Dictionary<LibraryTreeItem, ScanMotion> _scanMotions = new();
+    private readonly List<LibraryTreeItem> _motionKeys = new();
+    private bool _scanFollowQueued;
+    private int _scanGeneration;
+    private TaskCompletionSource? _scanDone;
+    private sealed record ScanMotion(double Offset, double? Start = null);
     private readonly Dictionary<TrackFile, LibraryTreeItem> _activeScans = new(ReferenceEqualityComparer.Instance);
     private TrackScanBatch? _scanBatch;
     private double? _scanPulseStart;
 
     internal event Action? ScanAnimationChanged;
-    internal bool NeedsScanFrames => _activeScans.Count > 0;
+    internal bool NeedsScanFrames => _activeScans.Count > 0 || _scanMotions.Count > 0;
 
     internal void DrawScanFrame(double time)
     {
@@ -30,6 +40,20 @@ public sealed partial class TrackLibraryPanel
         _scanPulseStart ??= time;
         double elapsed = time - _scanPulseStart.Value;
         foreach (var row in _activeScans.Values) row.DrawLoadingPulse(elapsed);
+        bool hadMotion = _scanMotions.Count > 0;
+        _motionKeys.Clear();
+        _motionKeys.AddRange(_scanMotions.Keys);
+        foreach (var row in _motionKeys)
+        {
+            var motion = _scanMotions[row];
+            double start = motion.Start ?? time;
+            double progress = Math.Clamp((time - start) / .24, 0, 1);
+            row.TranslationY = motion.Offset * (1 - PlayerMotion.Ease(progress));
+            if (progress >= 1) _scanMotions.Remove(row);
+            else if (motion.Start is null) _scanMotions[row] = motion with { Start = start };
+        }
+        _motionKeys.Clear();
+        if (hadMotion && !NeedsScanFrames) ScanAnimationChanged?.Invoke();
     }
 
     private Grid CreateScanActions()
@@ -48,6 +72,11 @@ public sealed partial class TrackLibraryPanel
         MixerStyle.UseColor(_scanProgress, ProgressBar.ProgressColorProperty, MixerColor.Accent);
         _stopScan.Clicked += (_, _) =>
         {
+            if (_scanDone is { } done)
+            {
+                done.TrySetResult();
+                return;
+            }
             _scanRows.IsEnabled = _stopScan.IsEnabled = false;
             _scanPosition.Text = "Остановка анализа…";
             _scanBatch?.Stop();
@@ -59,7 +88,8 @@ public sealed partial class TrackLibraryPanel
             RowDefinitions = [new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)]
         };
         panel.Add(new VerticalStackLayout { Spacing = 6, Children = { _scanPosition, _scanProgress } });
-        panel.Add(new ScrollView { Content = _scanRows }, row: 1);
+        _scanScroll.Content = _scanRows;
+        panel.Add(_scanScroll, row: 1);
         panel.Add(_stopScan, row: 2);
         return panel;
     }
@@ -69,6 +99,8 @@ public sealed partial class TrackLibraryPanel
         if (!_local || _selected is not { } selected) return;
         using var batch = new TrackScanBatch(_analysisParallelism, _token);
         _scanBatch = batch;
+        ClearScanRows();
+        _stopScan.Text = "Остановить";
         _scanActions.IsVisible = _tree.IsVisible = false;
         _scanPanel.IsVisible = true;
         _scanRows.IsEnabled = _stopScan.IsEnabled = true;
@@ -83,7 +115,7 @@ public sealed partial class TrackLibraryPanel
             batch.Token.ThrowIfCancellationRequested();
             if (files.Count == 0)
             {
-                _message.Text = "В выбранной папке нет MP3.";
+                _message.Text = "В выбранной папке нет музыкальных файлов.";
                 return;
             }
             if (!replaceAnalysis)
@@ -100,10 +132,18 @@ public sealed partial class TrackLibraryPanel
                 ShowScanProgress, file =>
                 {
                     if (file.LocalPath is { } path) completed.Add(path);
-                });
+                }, _readLocalStorageSize, CompleteScanRow);
             _token.ThrowIfCancellationRequested();
             string summary = $"Проанализировано: {result.Scanned} · Пропущено: {result.Skipped} · Ошибок: {result.Failed}";
             _message.Text = batch.Token.IsCancellationRequested ? $"Остановлено. {summary}" : summary;
+            _scanPosition.Text = _message.Text;
+            _scanRows.IsEnabled = true;
+            _stopScan.IsEnabled = true;
+            _stopScan.Text = "Готово";
+            // Keep the final results visible until dismissed. Closing the panel
+            // cancels this wait without keeping views or work alive.
+            _scanDone = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            await _scanDone.Task.WaitAsync(_token);
         }
         catch (OperationCanceledException) when (batch.Token.IsCancellationRequested)
         {
@@ -111,7 +151,8 @@ public sealed partial class TrackLibraryPanel
         }
         finally
         {
-            ShowActiveScans([]);
+            _scanDone = null;
+            ClearScanRows();
             _scanPanel.IsVisible = false;
             _scanBatch = null;
             if (!_token.IsCancellationRequested)
@@ -140,13 +181,6 @@ public sealed partial class TrackLibraryPanel
     private void ShowActiveScans(IReadOnlyList<TrackFile> active)
     {
         bool animated = NeedsScanFrames;
-        foreach (var file in _activeScans.Keys.Where(file => !active.Contains(file, ReferenceEqualityComparer.Instance)).ToArray())
-        {
-            var row = _activeScans[file];
-            row.Bind(null);
-            _scanRows.Children.Remove(row);
-            _activeScans.Remove(file);
-        }
         foreach (var file in active)
         {
             if (_activeScans.ContainsKey(file)) continue;
@@ -154,8 +188,93 @@ public sealed partial class TrackLibraryPanel
             row.Bind(new TreeRow([], file));
             _activeScans.Add(file, row);
             _scanRows.Add(row);
+            MoveScanRow(row, TrackListLayout.Stride);
         }
-        if (animated == NeedsScanFrames) return;
+        UpdateScanAnimation(animated);
+        FollowScanTail();
+    }
+
+    private void CompleteScanRow(TrackScanResult result)
+    {
+        if (_closed || _token.IsCancellationRequested) return;
+        bool animated = NeedsScanFrames;
+        if (!_activeScans.Remove(result.File, out var row))
+        {
+            row = new LibraryTreeItem(this, _ => { });
+            row.Bind(new TreeRow([], result.File));
+            _scanRows.Add(row);
+        }
+        row.CompleteScan(result);
+        // Preserve the row, its metadata and artwork; move finished rows ahead
+        // of active tasks. Animate from the previous visual position.
+        var previous = _scanRows.Children.OfType<LibraryTreeItem>()
+            .Select((item, index) => (item, offset: index * TrackListLayout.Stride + item.TranslationY))
+            .ToDictionary(item => item.item, item => item.offset);
+        _scanRows.Children.Remove(row);
+        _scanRows.Children.Insert(_completedScans.Count, row);
+        _completedScans.Enqueue(row);
+        while (_completedScans.Count > CompletedHistoryLimit)
+        {
+            var old = _completedScans.Dequeue();
+            _scanMotions.Remove(old);
+            old.Bind(null);
+            _scanRows.Children.Remove(old);
+        }
+        for (int index = 0; index < _scanRows.Children.Count; index++)
+        {
+            if (_scanRows.Children[index] is LibraryTreeItem item && previous.TryGetValue(item, out double offset))
+                MoveScanRow(item, offset - index * TrackListLayout.Stride);
+        }
+        UpdateScanAnimation(animated);
+        FollowScanTail();
+    }
+
+    private void MoveScanRow(LibraryTreeItem row, double offset)
+    {
+        row.TranslationY = offset;
+        if (Math.Abs(offset) < .1)
+        {
+            row.TranslationY = 0;
+            _scanMotions.Remove(row);
+        }
+        else _scanMotions[row] = new(offset);
+    }
+
+    private void FollowScanTail()
+    {
+        // Follow incoming work only if the user is already near the end.
+        if (_scanFollowQueued || _scanScroll.ScrollY + _scanScroll.Height + TrackListLayout.Stride < _scanRows.Height) return;
+        _scanFollowQueued = true;
+        int generation = _scanGeneration;
+        double previousScroll = _scanScroll.ScrollY;
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(16), () =>
+        {
+            if (generation != _scanGeneration) return;
+            _scanFollowQueued = false;
+            if (_closed || !_scanPanel.IsVisible || _scanRows.Children.Count == 0 ||
+                _scanScroll.Height <= 0 || _scanScroll.ScrollY < previousScroll - TrackListLayout.Stride) return;
+            _ = _scanScroll.ScrollToAsync(0, Math.Max(0, TrackListLayout.RowsHeight(_scanRows.Children.Count) -
+                _scanScroll.Height), false);
+        });
+    }
+
+    private void ClearScanRows()
+    {
+        bool animated = NeedsScanFrames;
+        foreach (var row in _scanRows.Children.OfType<LibraryTreeItem>()) row.Bind(null);
+        _scanRows.Children.Clear();
+        _activeScans.Clear();
+        _completedScans.Clear();
+        _scanMotions.Clear();
+        _motionKeys.Clear();
+        _scanFollowQueued = false;
+        _scanGeneration++;
+        UpdateScanAnimation(animated);
+    }
+
+    private void UpdateScanAnimation(bool wasAnimated)
+    {
+        if (wasAnimated == NeedsScanFrames) return;
         _scanPulseStart = null;
         ScanAnimationChanged?.Invoke();
     }
