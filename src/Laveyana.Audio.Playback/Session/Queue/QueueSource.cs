@@ -29,10 +29,9 @@ internal sealed class QueueSource : IPcmSource, IDisposable
 
     // An immutable publication owns its state value. A render lease prevents
     // control CAS from replacing/disposing a reader while it is being used.
-    private sealed class Publication(State state, bool rendering = false)
+    private sealed class Publication(State state)
     {
         public readonly State State = state;
-        public readonly bool Rendering = rendering;
         public readonly QueueSnapshot Snapshot = new(
             state.Current is { } current ? new PlayingTrack(current.Track,
                 state.SeekFrame ?? current.Cursor.Position, current.Deck, state.Speed) : null,
@@ -41,6 +40,10 @@ internal sealed class QueueSource : IPcmSource, IDisposable
         { MixPending = state.Manual };
     }
 
+    // Reusable lease marker; only the single render owner publishes its predecessor.
+    private static readonly Publication RenderLease = new(default);
+    private Publication? _renderSnapshot;
+    private int _renderOwner;
     private Publication _published = new(new State
     {
         AutoMix = true, QueueEnabled = true, Speed = 1,
@@ -50,7 +53,15 @@ internal sealed class QueueSource : IPcmSource, IDisposable
     private readonly float[] _other = new float[PlaybackFormat.BlockFrames * PlaybackFormat.Channels];
 
     public int SampleRate => PlaybackFormat.SampleRate;
-    public QueueSnapshot Snapshot => Volatile.Read(ref _published).Snapshot;
+    public QueueSnapshot Snapshot
+    {
+        get
+        {
+            var publication = Volatile.Read(ref _published);
+            return ReferenceEquals(publication, RenderLease)
+                ? Volatile.Read(ref _renderSnapshot)!.Snapshot : publication.Snapshot;
+        }
+    }
 
     private Publication WaitForIdle()
     {
@@ -58,7 +69,7 @@ internal sealed class QueueSource : IPcmSource, IDisposable
         while (true)
         {
             var publication = Volatile.Read(ref _published);
-            if (!publication.Rendering) return publication;
+            if (!ReferenceEquals(publication, RenderLease)) return publication;
             spin.SpinOnce();
         }
     }
@@ -188,32 +199,36 @@ internal sealed class QueueSource : IPcmSource, IDisposable
     /// waiting, and reader retirement never closes a file on the render path.</summary>
     public int Read(Span<float> destination)
     {
-        Publication expected;
-        while (true)
-        {
-            expected = Volatile.Read(ref _published);
-            if (expected.State.Disposed) return 0;
-            if (expected.Rendering) throw new InvalidOperationException("Concurrent queue render.");
-            var lease = new Publication(expected.State, rendering: true);
-            if (ReferenceEquals(Interlocked.CompareExchange(ref _published, lease, expected), expected)) break;
-        }
-
-        var state = expected.State;
-        Voice? retired = null;
+        if (Interlocked.CompareExchange(ref _renderOwner, 1, 0) != 0)
+            throw new InvalidOperationException("Concurrent queue render.");
         try
         {
-            if (state.SeekFrame is long frame && state.Current is { } current)
+            Publication expected;
+            while (true)
             {
-                current.Cursor.Seek(frame);
-                state.SeekFrame = null;
+                expected = Volatile.Read(ref _published);
+                if (expected.State.Disposed) return 0;
+                Volatile.Write(ref _renderSnapshot, expected);
+                if (ReferenceEquals(Interlocked.CompareExchange(ref _published, RenderLease, expected), expected)) break;
             }
-            return ReadBlock(destination, ref state, ref retired);
+            var state = expected.State;
+            Voice? retired = null;
+            try
+            {
+                if (state.SeekFrame is long frame && state.Current is { } current)
+                {
+                    current.Cursor.Seek(frame);
+                    state.SeekFrame = null;
+                }
+                return ReadBlock(destination, ref state, ref retired);
+            }
+            finally
+            {
+                if (retired is not null) _retired.Enqueue(retired);
+                Volatile.Write(ref _published, new Publication(state));
+            }
         }
-        finally
-        {
-            if (retired is not null) _retired.Enqueue(retired);
-            Volatile.Write(ref _published, new Publication(state));
-        }
+        finally { Volatile.Write(ref _renderOwner, 0); }
     }
 
     private int ReadBlock(Span<float> destination, ref State state, ref Voice? retired)

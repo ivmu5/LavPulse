@@ -28,13 +28,13 @@ internal static class LocalTrackStoreChecks
         await store.SaveAnalysisAsync(first, ready.Waveform, ready.AudioInfo, ready.Path, default);
         await store.SaveAnalysisAsync(first, scanned.Waveform, scanned.Info, null, default);
 
-        foreach (string version in new[] { "analysis-v1", "analysis-v2", "analysis-v3", "analysis-v4", "analysis-v5", "analysis-v6", "analysis-v7", "analysis-v8", "analysis-v9", "analysis-v10", "analysis-v11" })
+        foreach (string version in new[] { "analysis-v1", "analysis-v2", "analysis-v3", "analysis-v4", "analysis-v5", "analysis-v6", "analysis-v7", "analysis-v8", "analysis-v9", "analysis-v10", "analysis-v11", "analysis-v12" })
         {
             var path = Path.Combine(root, version);
             Directory.CreateDirectory(path);
             await File.WriteAllTextAsync(Path.Combine(path, "legacy.json"), "{}");
         }
-        var obsolete = Path.Combine(root, "analysis-v11");
+        var obsolete = Path.Combine(root, "analysis-v12");
         var reopened = new LocalTrackStore(root);
         var (tracks, current) = await reopened.ReadQueueAsync(default);
         Require(!Directory.Exists(obsolete) && !Directory.Exists(Path.Combine(root, "analysis-v1")) &&
@@ -46,7 +46,8 @@ internal static class LocalTrackStoreChecks
             !Directory.Exists(Path.Combine(root, "analysis-v7")) &&
             !Directory.Exists(Path.Combine(root, "analysis-v8")) &&
             !Directory.Exists(Path.Combine(root, "analysis-v9")) &&
-            !Directory.Exists(Path.Combine(root, "analysis-v10")),
+            !Directory.Exists(Path.Combine(root, "analysis-v10")) &&
+            !Directory.Exists(Path.Combine(root, "analysis-v11")),
             "Old analysis manifests were not discarded on upgrade.");
         Require(tracks.Select(file => file.Name).SequenceEqual(["second.mp3", "first.mp3"]) &&
             ReferenceEquals(current, tracks[1]), "Queue order or current track changed after reopening.");
@@ -62,12 +63,14 @@ internal static class LocalTrackStoreChecks
 
         var points = ready.Waveform.Points.ToArray();
         points[0] = points[0] with { Peak = 0.193f };
-        var rescanned = new TrackWaveform(points, ready.Waveform.TotalFrames, ready.Waveform.FramesPerPoint);
+        var rescanned = new TrackWaveform(points, ready.Waveform.TotalFrames, ready.Waveform.FramesPerPoint)
+        { MusicalKey = new TrackMusicalKey(9, MusicalMode.Minor, .7f, .85f, .18f, 12, 15) };
         var changes = new List<string>();
         reopened.TrackStorageChanged += changes.Add;
         await reopened.SaveAnalysisAsync(tracks[1], rescanned, ready.AudioInfo, null, default, replaceAnalysis: true);
         cached = await reopened.ReadAnalysisAsync(tracks[1], default);
-        Require(cached is not null && cached.Points[0] == points[0] && reopened.FindPcm(cached) == ready.Path,
+        Require(cached is not null && cached.Points[0] == points[0] && reopened.FindPcm(cached) == ready.Path &&
+            cached.Waveform.MusicalKey == rescanned.MusicalKey,
             "Forced analysis did not replace the waveform while keeping compatible PCM.");
 
         // After PCM eviction the saved waveform remains usable when rebuilding the playback cache.
@@ -92,7 +95,7 @@ internal static class LocalTrackStoreChecks
         Console.WriteLine("OK: durable track copies, queue restore, saved waveform reuse and ordered analysis.");
         Console.WriteLine("OK: track storage sizes, including analysis and PCM cache eviction.");
 
-        long AnalysisBytes(TrackFile file) => new FileInfo(Path.Combine(root, "analysis-v12",
+        long AnalysisBytes(TrackFile file) => new FileInfo(Path.Combine(root, "analysis-v13",
             Path.GetFileNameWithoutExtension(file.LocalPath) + ".json")).Length;
     }
 

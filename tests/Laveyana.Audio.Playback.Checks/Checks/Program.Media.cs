@@ -159,6 +159,14 @@ internal static partial class Program
         summed.Render(output);
         Require(output.AsSpan(0, 8).IndexOfAnyExcept(1f) < 0 &&
             output.AsSpan(8).IndexOfAnyExcept(.25f) < 0, "Multi-input gain, clipping or tail handling changed.");
+        var invalid = new PcmMixer([new PcmInput(new ShortSource(float.NaN)), new PcmInput(new ContinuousPcm())]);
+        invalid.Render(output);
+        Require(output.AsSpan().IndexOfAnyExcept(.25f) < 0, "A nonfinite input poisoned another deck.");
+        var vectorOutput = new float[1026];
+        var vectorMixer = new PcmMixer([new PcmInput(new ContinuousPcm(), .5f),
+            new PcmInput(new ContinuousPcm(), .25f)]);
+        vectorMixer.Render(vectorOutput);
+        Require(vectorOutput.AsSpan().IndexOfAnyExcept(.1875f) < 0, "SIMD gain or scalar tail changed the master.");
     }
 
     private static void CheckPcm16Conversion()
@@ -190,7 +198,9 @@ internal static partial class Program
         Pcm16.Encode(input, encoded);
         for (int i = 0; i < input.Length; i++)
         {
-            short expected = input[i] <= -1f ? short.MinValue : (short)MathF.Round(input[i] * short.MaxValue);
+            float sample = input[i];
+            short expected = !float.IsFinite(sample) ? (short)0 : sample <= -1f ? short.MinValue :
+                sample >= 1f ? short.MaxValue : (short)MathF.Round(sample * short.MaxValue);
             Require(encoded[i] == expected, "PCM16 encoding changed the scalar rounding or clipping rule.");
         }
         Require(encoded[^1] == 123, "PCM16 encoding wrote past the input samples.");

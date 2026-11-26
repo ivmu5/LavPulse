@@ -14,7 +14,8 @@ internal sealed partial class LocalTrackStore
         if (analysis is { TotalFrames: > 0, FramesPerPoint: > 0, Points.Length: > 0 and <= 8192 } &&
             analysis.TotalFrames <= long.MaxValue / PlaybackFormat.Pcm16FrameBytes &&
             (analysis.TotalFrames - 1) / analysis.FramesPerPoint + 1 == analysis.Points.LongLength &&
-            analysis.Rhythm is { } rhythm && TrackRhythmAnalyzer.IsValid(rhythm, analysis.TotalFrames))
+            analysis.Rhythm is { } rhythm && TrackRhythmAnalyzer.IsValid(rhythm, analysis.TotalFrames) &&
+            (analysis.MusicalKey is null || analysis.MusicalKey.IsValid))
         {
             _analyzed[file.LocalPath!] = 0;
             return analysis;
@@ -109,7 +110,8 @@ internal sealed partial class LocalTrackStore
             var analysis = new StoredAnalysis(waveform.TotalFrames, waveform.FramesPerPoint, waveform.Points.ToArray(),
                 info, Path.GetFileName(pcm))
             {
-                Rhythm = waveform.Rhythm ?? TrackRhythmAnalyzer.Analyze(waveform)
+                Rhythm = waveform.Rhythm ?? TrackRhythmAnalyzer.Analyze(waveform),
+                MusicalKey = waveform.MusicalKey
             };
             await WriteAsync(AnalysisPath(file), analysis, TrackStoreJson.Default.StoredAnalysis, token).ConfigureAwait(false);
             _analyzed[file.LocalPath!] = 0;
