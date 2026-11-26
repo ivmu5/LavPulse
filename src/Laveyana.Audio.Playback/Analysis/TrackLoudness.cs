@@ -1,5 +1,3 @@
-using System.Text.Json.Serialization;
-
 namespace Laveyana.Audio.Playback;
 
 public sealed record LoudnessPoint(long EndFrame, float Lufs);
@@ -14,15 +12,26 @@ public sealed record TrackLoudness(float? IntegratedLufs, float? SamplePeakDbfs,
         if (IntegratedLufs is not float integrated || SamplePeakDbfs is not float peak ||
             !float.IsFinite(integrated) || !float.IsFinite(peak) || !float.IsFinite(targetLufs)) return null;
         // At most 6 dB boost and 3 dB sample-peak headroom. Not a limiter
-        // or an inter-sample peak guarantee; never applied automatically.
+        // or an inter-sample peak guarantee; opt-in playback uses this gain.
         return Math.Min(Math.Clamp(targetLufs - integrated, -30, 6), -3 - peak);
     }
 
     public bool IsValid(long frames) =>
         Valid(IntegratedLufs, -70, 20) && Valid(SamplePeakDbfs, -1000, 20) &&
         Valid(LoudnessRange, 0, 100) && ShortTerm is { Length: <= 86400 } &&
-        ShortTerm.All(p => p is not null && p.EndFrame > 0 && p.EndFrame <= frames &&
-            float.IsFinite(p.Lufs) && p.Lufs is >= -120 and <= 20);
+        OrderedShortTerm(frames);
+
+    private bool OrderedShortTerm(long frames)
+    {
+        long previous = 0;
+        foreach (var point in ShortTerm)
+        {
+            if (point is null || point.EndFrame <= previous || point.EndFrame > frames ||
+                !float.IsFinite(point.Lufs) || point.Lufs is < -120 or > 20) return false;
+            previous = point.EndFrame;
+        }
+        return true;
+    }
 
     private static bool Valid(float? value, float low, float high) =>
         value is null || float.IsFinite(value.Value) && value.Value >= low && value.Value <= high;
@@ -75,23 +84,30 @@ internal sealed class TrackLoudnessAnalyzer
 
     public TrackLoudness Finish()
     {
-        double[] gated = Gate(_blocks, 10);
-        double[] shortGated = Gate(_shortPowers, 20);
+        double integratedThreshold = Threshold(_blocks, 10);
+        double integratedSum = 0;
+        int integratedCount = 0;
+        foreach (double power in _blocks)
+            if (power >= integratedThreshold) { integratedSum += power; integratedCount++; }
+        double shortThreshold = Threshold(_shortPowers, 20);
+        var shortGated = _shortPowers.Where(power => power >= shortThreshold).ToArray();
         Array.Sort(shortGated);
         float? range = shortGated.Length < 2 ? null :
             (float)Math.Max(0, ToLufs(Percentile(shortGated, .95)) - ToLufs(Percentile(shortGated, .10)));
-        return new(gated.Length == 0 ? null : (float)ToLufs(gated.Average()),
+        return new(integratedCount == 0 ? null : (float)ToLufs(integratedSum / integratedCount),
             _peak > 0 ? (float)(20 * Math.Log10(_peak)) : null, range, _short.ToArray());
     }
 
     private static double ToLufs(double power) => -.691 + 10 * Math.Log10(power);
-    private static double[] Gate(List<double> powers, int relative)
+    private static double Threshold(List<double> powers, int relative)
     {
         double absolute = Math.Pow(10, (-70 + .691) / 10);
-        var above = powers.Where(p => p >= absolute).ToArray();
-        if (above.Length == 0) return [];
-        double threshold = Math.Max(absolute, above.Average() * Math.Pow(10, -relative / 10d));
-        return above.Where(p => p >= threshold).ToArray();
+        double sum = 0;
+        int count = 0;
+        foreach (double power in powers)
+            if (power >= absolute) { sum += power; count++; }
+        return count == 0 ? double.PositiveInfinity :
+            Math.Max(absolute, sum / count * Math.Pow(10, -relative / 10d));
     }
 
     private static double Percentile(double[] sorted, double p)

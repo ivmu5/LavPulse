@@ -72,7 +72,8 @@ internal static class LocalTrackStoreChecks
         await reopened.SaveAnalysisAsync(tracks[1], rescanned, ready.AudioInfo, null, default, replaceAnalysis: true);
         cached = await reopened.ReadAnalysisAsync(tracks[1], default);
         Require(cached is not null && cached.Points[0] == points[0] && reopened.FindPcm(cached) == ready.Path &&
-            cached.Waveform.MusicalKey == rescanned.MusicalKey,
+            cached.Waveform.MusicalKey == rescanned.MusicalKey &&
+            ReferenceEquals(cached.Waveform.MusicProfile, cached.Waveform.MusicProfile),
             "Forced analysis did not replace the waveform while keeping compatible PCM.");
 
         // After PCM eviction the saved waveform remains usable when rebuilding the playback cache.

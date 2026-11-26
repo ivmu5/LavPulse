@@ -79,7 +79,12 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
             if ((uint)frames > (uint)(pcm.Length / channels))
                 throw new InvalidDataException("Аудиоисточник вернул некорректное количество кадров.");
             totalFrames += frames;
-            loudness?.Add(pcm.AsSpan(0, frames * channels));
+            // Custom PCM sources can bypass decoder validation. Prevent one
+            // nonfinite sample from poisoning both recursive band filters.
+            var block = pcm.AsSpan(0, frames * channels);
+            for (int i=0;i<block.Length;i++)
+                if (!float.IsFinite(block[i])) block[i]=0;
+            loudness?.Add(block);
             if (pipeline is null) key!.Add(pcm.AsSpan(0, frames * channels), token);
             else pipeline.Submit(pcm.AsSpan(0, frames * channels));
             int offset = 0;
@@ -144,6 +149,11 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         double rhythmMs = watch.Elapsed.TotalMilliseconds - readMs;
         var musicalKey = pipeline is null ? key!.Finish() : pipeline.Join();
         var localKeys = pipeline is null ? key!.FinishLocal() : pipeline.LocalKeys;
+        // The incomplete final FFT window has no local tonal evidence.
+        // Represent it explicitly rather than borrowing the global estimate.
+        long keyEnd = localKeys.Length == 0 ? 0 : localKeys[^1].EndFrame;
+        if (keyEnd < totalFrames && localKeys.Length < 8192)
+            localKeys = [..localKeys, new TrackKeySection(keyEnd,totalFrames,null)];
         var profile = new TrackMusicProfile
         {
             LocalKeyVersion = TrackMusicProfile.CurrentLocalKeyVersion,
@@ -154,8 +164,9 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         waveform = waveform with { Rhythm = rhythm, MusicalKey = musicalKey };
         profile = TrackMusicProfileAnalyzer.Derive(waveform, profile, token);
         token.ThrowIfCancellationRequested();
+        double totalMs = watch.Elapsed.TotalMilliseconds;
         return waveform with { MusicProfile = profile, Timing = new(readMs, rhythmMs,
-            watch.Elapsed.TotalMilliseconds - readMs - rhythmMs, watch.Elapsed.TotalMilliseconds) };
+            totalMs - readMs - rhythmMs, totalMs) };
     }
 
     private static WaveformPoint ToPoint(Vector4 peak) => new(peak.X, peak.Y, peak.Z, peak.W);

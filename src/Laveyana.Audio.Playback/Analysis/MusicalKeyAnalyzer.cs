@@ -101,7 +101,7 @@ internal sealed class MusicalKeyAnalyzer
             sum += weight;
             concentrated += _power[i - 1] + p + _power[i + 1];
         }
-        if (sum <= 0 || concentrated < total * .35) return;
+        if (sum <= 0 || concentrated < total * .35 || !double.IsFinite(sum)) return;
         _tonal++;
         _localTonal++;
         for (int i = 0; i < 12; i++)

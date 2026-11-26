@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Collections.Concurrent;
 
 namespace Laveyana.Audio.Playback;
@@ -259,7 +260,9 @@ internal sealed class QueueSource : IPcmSource, IDisposable
 
                 if (state.FadeLength > 0)
                 {
-                    int frames = Math.Min(requested, state.FadeLength - state.FadePosition);
+                    // Callers may request more than the native block size.
+                    int frames = Math.Min(Math.Min(requested, _other.Length / PlaybackFormat.Channels),
+                        state.FadeLength - state.FadePosition);
                     MixFade(current, next, output[..(frames * PlaybackFormat.Channels)], state.Speed, state.FadePosition, state.FadeLength, state.NormalizeLoudness);
                     written += frames;
                     state.FadePosition += frames;
@@ -369,14 +372,23 @@ internal sealed class QueueSource : IPcmSource, IDisposable
             if (samples.IsEmpty) return;
             float target = enabled ? _normalizedGain : 1;
             if (!_hasRendered) { _gain = target; _hasRendered = true; }
-            if (_gain == 1 && target == 1) return;
-            for (int i=0;i<samples.Length;i+=2)
+            int i=0;
+            for (; i<samples.Length && _gain!=target; i+=2)
             {
                 _gain += (target-_gain)*.001f;
                 if (Math.Abs(target-_gain)<.00001f) _gain=target;
                 samples[i]*=_gain;
                 samples[i+1]*=_gain;
             }
+            if (_gain==1) return;
+            if (Vector.IsHardwareAccelerated)
+            {
+                var gain = new Vector<float>(_gain);
+                int width = Vector<float>.Count;
+                for (; i<=samples.Length-width; i+=width)
+                    (new Vector<float>(samples[i..])*gain).CopyTo(samples[i..]);
+            }
+            for (;i<samples.Length;i++) samples[i]*=_gain;
         }
 
         public CachedTrack Track { get; }

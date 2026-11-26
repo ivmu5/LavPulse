@@ -40,6 +40,16 @@ internal static class MusicProfileChecks
             "Distinct repeated accents did not produce the expected meter hypothesis.");
         var flat=waveform with{Points=points.Select(_=>new WaveformPoint(.6f,.3f,.2f,.1f)).ToArray()};
         Require(TrackMusicProfileAnalyzer.Derive(flat).Meter.Length==0,"Uniform accents invented a bar.");
+        var gapBeats=beats.Where((_,i)=>i!=10).ToArray();
+        var gap=waveform with{Rhythm=rhythm with{BeatFrames=gapBeats}};
+        Require(TrackMusicProfileAnalyzer.Derive(gap).Meter.Length==0,
+            "A missing beat rotated the inferred bar phase.");
+        Require(!(profile with{Meter=[profile.Meter[0] with{Downbeats=[0,0]}]}).IsValid(waveform.TotalFrames),
+            "Duplicate downbeat passed profile validation.");
+        Require(!(profile with{LocalKeyVersion=int.MaxValue}).IsValid(waveform.TotalFrames),
+            "Unknown future profile version passed validation.");
+        Require(!(a with{ShortTerm=[a.ShortTerm[0],a.ShortTerm[0]]}).IsValid(288000),
+            "Duplicate loudness timestamp passed validation.");
         Require(ReferenceEquals(profile,TrackMusicProfileAnalyzer.Derive(waveform,profile)),
             "A current derived profile was recomputed.");
         var key=new TrackMusicalKey(9,MusicalMode.Minor,.8f,.9f,.2f,8,10);
@@ -49,6 +59,8 @@ internal static class MusicProfileChecks
         var uncertain=withKey with{MusicProfile=profile with{LocalKeys=[new(0,10000,null)]}};
         Require(MixCompatibilityAnalyzer.Compare(withKey,0,uncertain,0).Harmony is null,
             "An uncertain local key was incorrectly replaced by a global harmony match.");
+        Require(MixCompatibilityAnalyzer.Compare(withKey,-1,withKey,0).Score is null,
+            "An out-of-range transition was scored.");
         var metrics=RhythmReportReplay.Metrics([0,48000,96000,200000],[0,48000,96000],4800);
         Require(metrics.F1==1&&metrics.MaeMs==0,"Unannotated tail biased regression metrics.");
         Console.WriteLine("OK: loudness, conservative meter, derived cache, compatibility and excerpt metrics.");

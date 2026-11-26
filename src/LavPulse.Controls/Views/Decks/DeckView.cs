@@ -47,6 +47,7 @@ public sealed partial class DeckView : Border
     private long _position;
     private double _shownBpm = double.NaN;
     private TrackMusicalKey? _shownKey;
+    private bool _shownUnknownKey;
     private long _displayPosition;
     private DeckPlayhead _playhead;
     private bool _animatePlayhead;
@@ -262,14 +263,22 @@ public sealed partial class DeckView : Border
         double localBpm = deck.Track.Waveform.Rhythm is { HasBeatGrid: true } rhythm
             ? rhythm.BpmAt(_position) : 0;
         localBpm = Math.Round(localBpm, 1);
-        var localKey = deck.Track.Waveform.MusicProfile?.KeyAt(_position) ?? deck.Track.Waveform.MusicalKey;
-        if (localBpm != _shownBpm || trackChanged || localKey != _shownKey)
+        var localKey = deck.Track.Waveform.MusicalKey;
+        bool localUnknown = false;
+        if (deck.Track.Waveform.MusicProfile is { } profile && profile.TryGetLocalKey(_position, out var estimated))
+        {
+            localKey = estimated;
+            localUnknown = estimated is null;
+        }
+        if (localBpm != _shownBpm || trackChanged || localKey != _shownKey || localUnknown != _shownUnknownKey)
         {
             _shownBpm = localBpm;
             _shownKey = localKey;
+            _shownUnknownKey = localUnknown;
             string tempo = localBpm > 0 ? $"≈{localBpm:0.#} BPM" : "";
             if (localKey is { IsValid: true } key)
                 tempo += (tempo.Length == 0 ? "" : " · ") + $"{key.Name} / {key.Camelot}";
+            if (localUnknown) tempo += (tempo.Length == 0 ? "" : " · ") + "Key ?";
             _bpm.Text = tempo;
             _bpm.IsVisible = tempo.Length != 0;
         }

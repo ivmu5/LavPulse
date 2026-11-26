@@ -55,13 +55,16 @@ public sealed record TrackMusicProfile
     {
         bool Range(long start, long end) => start >= 0 && end > start && end <= total;
         bool Unit(float v) => float.IsFinite(v) && v >= 0 && v <= 1;
-        return MeterVersion >= 0 && EnergyVersion >= 0 && StructureVersion >= 0 &&
-            LocalKeyVersion >= 0 && LoudnessVersion >= 0 &&
+        return MeterVersion is >= 0 and <= CurrentMeterVersion &&
+            EnergyVersion is >= 0 and <= CurrentEnergyVersion &&
+            StructureVersion is >= 0 and <= CurrentStructureVersion &&
+            LocalKeyVersion is >= 0 and <= CurrentLocalKeyVersion &&
+            LoudnessVersion is >= 0 and <= TrackLoudness.Version &&
             Meter is { Length: <= 4096 } && Energy is { Length: <= 8192 } &&
             Structure is { Length: <= 8192 } && LocalKeys is { Length: <= 8192 } &&
             Meter.All(m => m is not null && Range(m.StartFrame,m.EndFrame) && m.PulsesPerBar is 3 or 4 &&
                 Unit(m.Confidence) && m.Downbeats is { Length: <= 32768 } &&
-                m.Downbeats.All(f => f >= m.StartFrame && f < m.EndFrame)) &&
+                StrictFrames(m.Downbeats, m.StartFrame, m.EndFrame)) &&
             Energy.All(e => e is not null && Range(e.StartFrame,e.EndFrame) && Unit(e.Energy) &&
                 Unit(e.BassShare) && float.IsFinite(e.AttacksPerSecond) && e.AttacksPerSecond >= 0) &&
             Structure.All(s => s is not null && Range(s.StartFrame,s.EndFrame) && Unit(s.Energy) && Enum.IsDefined(s.Kind)) &&
@@ -71,6 +74,29 @@ public sealed record TrackMusicProfile
             Ordered(Structure.Select(s => (s.StartFrame,s.EndFrame))) &&
             Ordered(LocalKeys.Select(k => (k.StartFrame,k.EndFrame))) &&
             (Loudness is null || Loudness.IsValid(total));
+    }
+
+    private static bool StrictFrames(long[] frames, long start, long end)
+    {
+        long previous = start - 1;
+        foreach (long frame in frames)
+        {
+            if (frame <= previous || frame >= end) return false;
+            previous = frame;
+        }
+        return true;
+    }
+
+    public TrackEnergyPoint? EnergyAt(long frame)
+    {
+        int lo = 0, hi = Energy.Length;
+        while (lo < hi)
+        {
+            int mid = lo + (hi-lo)/2;
+            if (Energy[mid].EndFrame <= frame) lo = mid+1;
+            else hi = mid;
+        }
+        return lo < Energy.Length && Energy[lo].StartFrame <= frame ? Energy[lo] : null;
     }
 
     private static bool Ordered(IEnumerable<(long Start,long End)> spans)
@@ -90,6 +116,7 @@ public static class TrackMusicProfileAnalyzer
     public static TrackMusicProfile Derive(TrackWaveform waveform, TrackMusicProfile? existing = null,
         CancellationToken token = default)
     {
+        token.ThrowIfCancellationRequested();
         existing ??= new();
         if (existing.HasCurrentDerived) return existing;
         var energy = existing.EnergyVersion == TrackMusicProfile.CurrentEnergyVersion
@@ -102,7 +129,9 @@ public static class TrackMusicProfileAnalyzer
             Energy = energy,
             Meter = existing.MeterVersion == TrackMusicProfile.CurrentMeterVersion
                 ? existing.Meter : BuildMeter(waveform, token),
-            Structure = BuildStructure(energy)
+            Structure = existing.StructureVersion == TrackMusicProfile.CurrentStructureVersion &&
+                existing.EnergyVersion == TrackMusicProfile.CurrentEnergyVersion
+                ? existing.Structure : BuildStructure(energy)
         };
     }
 
@@ -156,7 +185,7 @@ public static class TrackMusicProfileAnalyzer
                 next-previous>.28f&&e.Energy>previous?MusicSectionKind.BuildUp:
                 e.Energy<.38f?MusicSectionKind.Breakdown:
                 e.Energy>.76f?MusicSectionKind.HighEnergy:MusicSectionKind.Steady;
-            if(sections.Count>0&&sections[^1].Kind==kind)
+            if(sections.Count>0&&sections[^1].Kind==kind&&sections[^1].EndFrame==e.StartFrame)
             {
                 var last=sections[^1];
                 double frames=e.EndFrame-e.StartFrame;
@@ -181,12 +210,25 @@ public static class TrackMusicProfileAnalyzer
             while(cursor<rhythm.BeatFrames.Length&&rhythm.BeatFrames[cursor]<section.EndFrame)cursor++;
             int count=cursor-first;
             if(count<16)continue;
+            // A missing beat can rotate every later downbeat. Reject sections
+            // containing such discontinuities rather than assuming a bar phase.
+            double period = 60d * PlaybackFormat.SampleRate / section.Bpm;
+            bool discontinuous = false;
+            for (int i=first+1; i<cursor; i++)
+                if (Math.Abs((rhythm.BeatFrames[i]-rhythm.BeatFrames[i-1])/period-1) > .35)
+                { discontinuous=true; break; }
+            if(discontinuous)continue;
             var strength=new double[count];
             for(int i=0;i<count;i++)
             {
                 int bin=(int)Math.Min(w.Points.Count-1,rhythm.BeatFrames[first+i]/w.FramesPerPoint);
-                var p=w.Points[bin];
-                strength[i]=.7*p.Low+.3*p.Mid;
+                double peak=0;
+                for(int j=Math.Max(0,bin-1);j<=Math.Min(w.Points.Count-1,bin+1);j++)
+                {
+                    var p=w.Points[j];
+                    peak=Math.Max(peak,.7*p.Low+.3*p.Mid);
+                }
+                strength[i]=peak;
             }
             double mean=strength.Average();
             if(mean<.015)continue;
@@ -224,6 +266,8 @@ public static class MixCompatibilityAnalyzer
 {
     public static MixCompatibility Compare(TrackWaveform outgoing,long outFrame,TrackWaveform incoming,long inFrame)
     {
+        if(outFrame<0||outFrame>=outgoing.TotalFrames||inFrame<0||inFrame>=incoming.TotalFrames)
+            return new(null,0,null,null,null);
         double a=outgoing.Rhythm is {HasBeatGrid:true} ar?ar.BpmAt(outFrame):0;
         double b=incoming.Rhythm is {HasBeatGrid:true} br?br.BpmAt(inFrame):0;
         float? tempo=a>0&&b>0?(float)Math.Clamp(1-Math.Min(Math.Abs(Math.Log2(a/b)),
@@ -240,8 +284,8 @@ public static class MixCompatibilityAnalyzer
             int delta=Math.Abs(na-nb);
             harmony=na==nb?(ka.Mode==kb.Mode?1f:.9f):ka.Mode==kb.Mode&&(delta==1||delta==11)?.85f:.25f;
         }
-        var ea=outgoing.MusicProfile?.Energy.FirstOrDefault(p=>p.StartFrame<=outFrame&&outFrame<p.EndFrame);
-        var eb=incoming.MusicProfile?.Energy.FirstOrDefault(p=>p.StartFrame<=inFrame&&inFrame<p.EndFrame);
+        var ea=outgoing.MusicProfile?.EnergyAt(outFrame);
+        var eb=incoming.MusicProfile?.EnergyAt(inFrame);
         // Energy is normalized per track: this is relative intensity, not equal loudness.
         float? energy=ea is not null&&eb is not null?1-Math.Abs(ea.Energy-eb.Energy):null;
         float sum=0,weight=0;
