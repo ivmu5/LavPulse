@@ -39,6 +39,8 @@ internal sealed class WaveSampleDecoder : IMp3SampleDecoder
             long start = source.Position;
             if (size > end - start)
                 throw new InvalidDataException("Повреждён WAV-чанк.");
+            long next = start + size + (size & 1);
+            if (next > end) throw new InvalidDataException("Некорректное выравнивание WAV.");
             if (chunk[..4].SequenceEqual("fmt "u8) && formatTag == 0)
             {
                 if (size < 16) throw new InvalidDataException("Неполный WAV fmt.");
@@ -51,7 +53,10 @@ internal sealed class WaveSampleDecoder : IMp3SampleDecoder
                 bits = BinaryPrimitives.ReadUInt16LittleEndian(format[14..]);
                 if (formatTag == 0xfffe)
                 {
-                    if (size < 40 || BinaryPrimitives.ReadUInt16LittleEndian(format[16..]) < 22)
+                    int extra=BinaryPrimitives.ReadUInt16LittleEndian(format[16..]);
+                    int validBits=BinaryPrimitives.ReadUInt16LittleEndian(format[18..]);
+                    if (size < 40 || extra < 22 || extra > size-18 ||
+                        validBits<=0 || validBits>bits)
                         throw new InvalidDataException("Неполный WAVE_FORMAT_EXTENSIBLE.");
                     Guid sub = new(format[24..40]);
                     formatTag = sub == new Guid("00000001-0000-0010-8000-00aa00389b71") ? 1 :
@@ -65,8 +70,6 @@ internal sealed class WaveSampleDecoder : IMp3SampleDecoder
                 dataSize = size;
             }
             if (formatTag != 0 && dataOffset >= 0) break;
-            long next = start + size + (size & 1);
-            if (next > end) throw new InvalidDataException("Некорректное выравнивание WAV.");
             source.Position = next;
         }
         bool floating = formatTag == 3;

@@ -1,3 +1,4 @@
+using System.Numerics;
 using NLayer;
 
 namespace Laveyana.Audio.Playback;
@@ -23,6 +24,7 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
     private int _offset;
     private int _available;
     private bool _decoderEnded;
+    private bool _disposed;
     private int _phase;
     private bool _initialized;
     private bool _hasCurrent;
@@ -53,6 +55,8 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
     /// <summary>Interpolates decoded frames onto the mixer format with no per-block allocation.</summary>
     public int Read(Span<float> destination)
     {
+        ObjectDisposedException.ThrowIf(_disposed,this);
+        if(destination.Length<PcmMixer.ChannelCount)return 0;
         if (_sourceRate == SampleRate) return ReadAtNativeRate(destination);
 
         if (!_initialized)
@@ -97,8 +101,7 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
             var output = destination.Slice(frames * 2, count * 2);
             if (_channels == 2)
             {
-                for (int i = 0; i < output.Length; i++)
-                    output[i] = Normalize(samples[i]);
+                NormalizeStereo(samples,output);
             }
             else
             {
@@ -127,6 +130,25 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
         return true;
     }
 
+    private static void NormalizeStereo(ReadOnlySpan<float> input,Span<float> output)
+    {
+        int i=0;
+        if(Vector.IsHardwareAccelerated)
+        {
+            int width=Vector<float>.Count;
+            var max=Vector<float>.One;
+            var min=-max;
+            var finiteMax=new Vector<float>(float.MaxValue);
+            for(;i<=input.Length-width;i+=width)
+            {
+                var value=new Vector<float>(input[i..]);
+                value=Vector.ConditionalSelect(Vector.LessThanOrEqual(Vector.Abs(value),finiteMax),value,Vector<float>.Zero);
+                Vector.Min(max,Vector.Max(min,value)).CopyTo(output[i..]);
+            }
+        }
+        for(;i<input.Length;i++)output[i]=Normalize(input[i]);
+    }
+
     private static float Normalize(float value) => float.IsFinite(value) ? Math.Clamp(value, -1f, 1f) : 0;
 
     private bool RefillSamples()
@@ -142,7 +164,12 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
     }
 
     /// <summary>Releases the decoder. The importer owns the input stream.</summary>
-    public void Dispose() => _decoder.Dispose();
+    public void Dispose()
+    {
+        if(_disposed)return;
+        _disposed=true;
+        _decoder.Dispose();
+    }
 
     private readonly record struct StereoFrame(float Left, float Right);
 

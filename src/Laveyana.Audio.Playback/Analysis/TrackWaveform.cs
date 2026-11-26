@@ -19,7 +19,8 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
     [System.Text.Json.Serialization.JsonIgnore]
     public TrackAnalysisTiming? Timing { get; init; }
 
-    /// <summary>Reads finite, interleaved stereo PCM at 48 kHz and reduces it to a bounded set of display points.</summary>
+    /// <summary>Reads normalized interleaved stereo PCM at 48 kHz and reduces it to a bounded set of display points.
+    /// Nonfinite samples become zero and samples outside [-1,1] are clamped.</summary>
     public static TrackWaveform Analyze(IPcmSource source, CancellationToken token) =>
         Analyze(source, token, null);
 
@@ -88,11 +89,10 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
             // Custom PCM sources can bypass decoder validation. Prevent one
             // nonfinite sample from poisoning both recursive band filters.
             var block = pcm.AsSpan(0, frames * channels);
-            for (int i=0;i<block.Length;i++)
-                if (!float.IsFinite(block[i])) block[i]=0;
+            NormalizeBlock(block);
             loudness?.Add(block);
-            if (pipeline is null) key!.Add(pcm.AsSpan(0, frames * channels), token);
-            else pipeline.Submit(pcm.AsSpan(0, frames * channels));
+            if (pipeline is null) key!.Add(block, token);
+            else pipeline.Submit(block);
             int offset = 0;
             while (offset < frames)
             {
@@ -174,6 +174,25 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         double totalMs = watch.Elapsed.TotalMilliseconds;
         return waveform with { MusicProfile = profile, Timing = new(readMs, rhythmMs,
             totalMs - readMs - rhythmMs, totalMs) };
+    }
+
+    private static void NormalizeBlock(Span<float> block)
+    {
+        int i=0;
+        if(Vector.IsHardwareAccelerated)
+        {
+            int width=Vector<float>.Count;
+            var max=Vector<float>.One;
+            var min=-max;
+            var finiteMax=new Vector<float>(float.MaxValue);
+            for(;i<=block.Length-width;i+=width)
+            {
+                var value=new Vector<float>(block[i..]);
+                value=Vector.ConditionalSelect(Vector.LessThanOrEqual(Vector.Abs(value),finiteMax),value,Vector<float>.Zero);
+                Vector.Min(max,Vector.Max(min,value)).CopyTo(block[i..]);
+            }
+        }
+        for(;i<block.Length;i++)block[i]=float.IsFinite(block[i])?Math.Clamp(block[i],-1,1):0;
     }
 
     private static WaveformPoint ToPoint(Vector4 peak) => new(peak.X, peak.Y, peak.Z, peak.W);

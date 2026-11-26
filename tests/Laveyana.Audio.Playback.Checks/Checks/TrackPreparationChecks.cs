@@ -5,6 +5,7 @@ internal static class TrackPreparationChecks
     public static async Task RunAsync(string directory)
     {
         CheckNativeRate();
+        CheckDecoderContracts();
         await CheckWaveFormatsAsync(directory);
         CheckRhythmAnalysis();
         CheckHighResolutionRhythmAnalysis();
@@ -394,6 +395,57 @@ internal static class TrackPreparationChecks
             "Native-rate mono samples were not copied into both channels.");
     }
 
+    private static void CheckDecoderContracts()
+    {
+        float[] samples=Enumerable.Range(0,64).Select(i=>i%8 switch
+        {
+            0=>float.NaN,1=>float.PositiveInfinity,2=>float.NegativeInfinity,
+            3=>2f,4=>-2f,_=>i/64f
+        }).ToArray();
+        using(var source=new Mp3PcmSource(new BlockDecoder(2,[samples])))
+        {
+            var output=new float[samples.Length+1];
+            output[^1]=10;
+            Require(source.Read(output)==samples.Length/2&&
+                output[..samples.Length].SequenceEqual(samples.Select(v=>float.IsFinite(v)?Math.Clamp(v,-1,1):0))&&
+                output[^1]==10,"Native normalization or unused buffer tail changed.");
+        }
+        var decoder=new BlockDecoder(1,[[.25f,.5f]],44100);
+        var resampled=new Mp3PcmSource(decoder);
+        Require(resampled.Read([])==0&&resampled.Read(new float[1])==0&&decoder.Reads==0,
+            "Empty resampler read consumed decoder frames.");
+        Require(resampled.Read(new float[8])==3,"Resampler lost a final fractional frame.");
+        resampled.Dispose();
+        resampled.Dispose();
+        Require(decoder.Disposals==1,"Decoder disposed more than once.");
+        try { resampled.Read(new float[2]);throw new InvalidOperationException("Disposed decoder accepted read."); }
+        catch(ObjectDisposedException) { }
+        float[] tooSmall=[7];
+        try { Pcm16.Decode([1,2],tooSmall);throw new InvalidOperationException("Short PCM destination accepted."); }
+        catch(ArgumentException) { }
+        Require(tooSmall[0]==7,"PCM decoding wrote before validating destination.");
+        // RIFF PCM8 mono with one odd-sized data byte and mandatory padding.
+        byte[] wav=new byte[46];
+        using(var memory=new MemoryStream(wav))
+        using(var writer=new BinaryWriter(memory))
+        {
+            writer.Write("RIFF"u8);writer.Write(38);writer.Write("WAVEfmt "u8);
+            writer.Write(16);writer.Write((short)1);writer.Write((short)1);
+            writer.Write(48000);writer.Write(48000);writer.Write((short)1);writer.Write((short)8);
+            writer.Write("data"u8);writer.Write(1);writer.Write((byte)160);writer.Write((byte)0);
+        }
+        using(var valid=new WaveSampleDecoder(new MemoryStream(wav)))
+        {
+            float[] value=new float[1];
+            Require(valid.ReadSamples(value)==1&&value[0]==.25f,"Padded PCM8 data was rejected.");
+        }
+        Array.Resize(ref wav,45);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(wav.AsSpan(4),37);
+        try { using var invalid=new WaveSampleDecoder(new MemoryStream(wav));throw new InvalidOperationException("Unpadded odd WAV chunk accepted."); }
+        catch(InvalidDataException) { }
+        Console.WriteLine("OK: decoder empty reads, disposal, PCM validation and RIFF padding.");
+    }
+
     internal static Stream CreateMp3()
     {
         var frame = new byte[417];
@@ -411,11 +463,12 @@ internal static class TrackPreparationChecks
         if (!condition) throw new InvalidOperationException(message);
     }
 
-    private sealed class BlockDecoder(int channels, float[][] blocks) : IMp3SampleDecoder
+    private sealed class BlockDecoder(int channels, float[][] blocks,int sampleRate=PlaybackFormat.SampleRate) : IMp3SampleDecoder
     {
         public int Channels => channels;
-        public int SampleRate => PlaybackFormat.SampleRate;
+        public int SampleRate => sampleRate;
         public int Reads { get; private set; }
+        public int Disposals { get; private set; }
 
         public int ReadSamples(float[] destination)
         {
@@ -425,7 +478,7 @@ internal static class TrackPreparationChecks
             return blocks[block].Length;
         }
 
-        public void Dispose() { }
+        public void Dispose() => Disposals++;
     }
 
     private sealed class TestDecoder(int reads, bool stopAtEnd = false, Action? onEnd = null) : IMp3SampleDecoder

@@ -68,6 +68,9 @@ public static class TrackMusicProfileAnalyzer
     private static TrackMusicSection[] BuildStructure(TrackEnergyPoint[] energy)
     {
         var sections = new List<TrackMusicSection>();
+        long start=0,end=0;
+        float mean=0;
+        MusicSectionKind previousKind=default;
         for(int i=0;i<energy.Length;i++)
         {
             var e=energy[i];
@@ -79,14 +82,19 @@ public static class TrackMusicProfileAnalyzer
                 next-previous>.28f&&e.Energy>previous?MusicSectionKind.BuildUp:
                 e.Energy<.38f?MusicSectionKind.Breakdown:
                 e.Energy>.76f?MusicSectionKind.HighEnergy:MusicSectionKind.Steady;
-            if(sections.Count>0&&sections[^1].Kind==kind&&sections[^1].EndFrame==e.StartFrame)
+            if(i>0&&previousKind==kind&&end==e.StartFrame)
             {
-                var last=sections[^1];
                 double frames=e.EndFrame-e.StartFrame;
-                sections[^1]=last with {EndFrame=e.EndFrame,Energy=(float)((last.Energy*(last.EndFrame-last.StartFrame)+e.Energy*frames)/(e.EndFrame-last.StartFrame))};
+                mean=(float)((mean*(end-start)+e.Energy*frames)/(e.EndFrame-start));
+                end=e.EndFrame;
             }
-            else sections.Add(new(e.StartFrame,e.EndFrame,kind,e.Energy));
+            else
+            {
+                if(i>0)sections.Add(new(start,end,previousKind,mean));
+                start=e.StartFrame;end=e.EndFrame;mean=e.Energy;previousKind=kind;
+            }
         }
+        if(energy.Length>0)sections.Add(new(start,end,previousKind,mean));
         return sections.ToArray();
     }
 
@@ -117,6 +125,7 @@ public static class TrackMusicProfileAnalyzer
             var strength=new double[count];
             for(int i=0;i<count;i++)
             {
+                if((i&4095)==0)token.ThrowIfCancellationRequested();
                 int bin=(int)Math.Min(w.Points.Count-1,rhythm.BeatFrames[first+i]/w.FramesPerPoint);
                 double peak=0;
                 for(int j=Math.Max(0,bin-1);j<=Math.Min(w.Points.Count-1,bin+1);j++)
@@ -151,8 +160,10 @@ public static class TrackMusicProfileAnalyzer
                 }
             }
             if(best.Score<.22||best.Score-second.Score<.10)continue;
-            long[] downbeats=Enumerable.Range(0,count).Where(i=>i%best.Meter==best.Phase)
-                .Select(i=>rhythm.BeatFrames[first+i]).ToArray();
+            int downbeatCount=1+(count-1-best.Phase)/best.Meter;
+            var downbeats=new long[downbeatCount];
+            for(int i=0;i<downbeatCount;i++)
+                downbeats[i]=rhythm.BeatFrames[first+best.Phase+i*best.Meter];
             result.Add(new(section.StartFrame,section.EndFrame,best.Meter,
                 (float)Math.Clamp((best.Score-second.Score)*.8,0,1),downbeats));
         }

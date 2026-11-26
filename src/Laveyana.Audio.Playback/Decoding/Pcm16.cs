@@ -53,6 +53,7 @@ public static class Pcm16
     /// <summary>Converts signed 16-bit PCM to normalized samples at the original rate.</summary>
     internal static void Decode(ReadOnlySpan<short> input, Span<float> output)
     {
+        if(output.Length<input.Length)throw new ArgumentException("PCM destination is too small.",nameof(output));
         int i = 0;
         if (Vector.IsHardwareAccelerated)
         {

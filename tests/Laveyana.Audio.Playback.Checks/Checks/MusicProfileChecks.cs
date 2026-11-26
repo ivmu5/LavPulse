@@ -93,6 +93,11 @@ internal static class MusicProfileChecks
         var partialProfile=TrackMusicProfileAnalyzer.Derive(partial);
         Require(partialProfile.Energy.Length==1&&partialProfile.Energy[0].BassShare<.01f,
             "Partial waveform interval was lost.");
+        var malformedPcm=TrackWaveform.Analyze(new MalformedPcm(),default);
+        Require(malformedPcm.Points.All(p=>float.IsFinite(p.Peak)&&p.Peak<=1&&
+            float.IsFinite(p.Low)&&float.IsFinite(p.Mid)&&float.IsFinite(p.High))&&
+            malformedPcm.MusicProfile!.IsValid(malformedPcm.TotalFrames),
+            "Extreme custom PCM poisoned analysis.");
         var metrics=RhythmReportReplay.Metrics([0,48000,96000,200000],[0,48000,96000],4800);
         Require(metrics.F1==1&&metrics.MaeMs==0,"Unannotated tail biased regression metrics.");
         Console.WriteLine("OK: loudness, conservative meter, derived cache, compatibility and excerpt metrics.");
@@ -132,6 +137,20 @@ internal static class MusicProfileChecks
         try { reader.ReadAtRate(oversized,double.NaN); throw new InvalidOperationException("Invalid rate accepted."); }
         catch (ArgumentOutOfRangeException) { }
         Console.WriteLine("OK: optional deck loudness gain, smooth bypass and bounded large reads.");
+    }
+
+    private sealed class MalformedPcm : Laveyana.Audio.IPcmSource
+    {
+        private bool _read;
+        public int SampleRate=>48000;
+        public int Read(Span<float> destination)
+        {
+            if(_read)return 0;
+            _read=true;
+            for(int i=0;i<destination.Length;i++)
+                destination[i]=i%4 switch{0=>float.NaN,1=>float.MaxValue,2=>float.NegativeInfinity,_=>-float.MaxValue};
+            return destination.Length/2;
+        }
     }
 
     private static void Require(bool value,string message)
