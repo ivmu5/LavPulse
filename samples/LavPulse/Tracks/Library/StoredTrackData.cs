@@ -13,9 +13,18 @@ internal sealed record StoredAnalysis(long TotalFrames, int FramesPerPoint, Wave
 {
     public TrackBeatGrid? Rhythm { get; init; }
     public TrackMusicalKey? MusicalKey { get; init; }
+    public TrackMusicProfile? MusicProfile { get; init; }
 
     [JsonIgnore]
-    public TrackWaveform Waveform => new(Array.AsReadOnly(Points), TotalFrames, FramesPerPoint) { Rhythm = Rhythm, MusicalKey = MusicalKey };
+    public TrackWaveform Waveform
+    {
+        get
+        {
+            var waveform = new TrackWaveform(Array.AsReadOnly(Points), TotalFrames, FramesPerPoint)
+            { Rhythm = Rhythm, MusicalKey = MusicalKey };
+            return waveform with { MusicProfile = TrackMusicProfileAnalyzer.Derive(waveform, MusicProfile) };
+        }
+    }
 }
 
 [JsonSerializable(typeof(StoredQueue))]

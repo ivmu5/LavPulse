@@ -53,7 +53,9 @@ internal static class LocalTrackStoreChecks
             ReferenceEquals(current, tracks[1]), "Queue order or current track changed after reopening.");
         Require(reopened.HasAnalysis(tracks[0]), "Compact analysis was not indexed after reopening.");
         var cached = await reopened.ReadAnalysisAsync(tracks[1], default);
-        Require(cached is not null && cached.Rhythm is not null && reopened.FindPcm(cached) == ready.Path,
+        Require(cached is not null && cached.Rhythm is not null && reopened.FindPcm(cached) == ready.Path &&
+            cached.MusicProfile is { HasCurrentDerived: true, LoudnessVersion: 1, LocalKeyVersion: 1 } &&
+            cached.MusicProfile.IsValid(cached.TotalFrames),
             "Completed PCM was lost or replaced by a compact scan.");
         Require(await reopened.ReadTrackStorageSizeAsync(tracks[0], default) ==
                 tracks[0].SizeBytes + AnalysisBytes(tracks[0]) &&

@@ -12,6 +12,9 @@ internal sealed class ParallelKeyAnalysis : IDisposable
     private readonly BlockingCollection<Block> _pending = new(Capacity);
     private readonly CancellationTokenSource _stop;
     private readonly Task<TrackMusicalKey?> _worker;
+    private readonly MusicalKeyAnalyzer? _analyzer;
+    // Only accessed after Join, when the consumer no longer touches its state.
+    internal TrackKeySection[] LocalKeys => _analyzer?.FinishLocal() ?? [];
     private readonly record struct Block(float[] Samples, int Count);
     public CancellationToken Token { get; }
 
@@ -20,7 +23,7 @@ internal sealed class ParallelKeyAnalysis : IDisposable
 
     private ParallelKeyAnalysis(MusicalKeyAnalyzer analyzer, CancellationToken token)
         : this((samples, count, cancellation) => analyzer.Add(samples.AsSpan(0, count), cancellation),
-            analyzer.Finish, token) { }
+            analyzer.Finish, token) { _analyzer = analyzer; }
 
     // Separate consumer seam for deterministic cancellation and fault tests.
     internal ParallelKeyAnalysis(Action<float[], int, CancellationToken> consume,

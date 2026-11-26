@@ -14,6 +14,9 @@ internal static class ParallelAnalysisChecks
             Require(serial.TotalFrames == parallel.TotalFrames &&
                 serial.FramesPerPoint == parallel.FramesPerPoint && serial.Points.SequenceEqual(parallel.Points) &&
                 serial.MusicalKey == parallel.MusicalKey &&
+                serial.MusicProfile!.LocalKeys.SequenceEqual(parallel.MusicProfile!.LocalKeys) &&
+                serial.MusicProfile.Energy.SequenceEqual(parallel.MusicProfile.Energy) &&
+                serial.MusicProfile.Loudness!.IntegratedLufs == parallel.MusicProfile.Loudness!.IntegratedLufs &&
                 serial.Rhythm!.BeatFrames.SequenceEqual(parallel.Rhythm!.BeatFrames) &&
                 serial.Rhythm.PredictedBeatFrames.SequenceEqual(parallel.Rhythm.PredictedBeatFrames),
                 "Parallel analysis changed ordered PCM evidence.");

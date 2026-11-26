@@ -24,6 +24,11 @@ internal sealed class MusicalKeyAnalyzer
     private readonly double[] _power = new double[Size / 2];
     private readonly double[] _chroma = new double[12];
     private readonly double[] _aggregate = new double[12];
+    private readonly double[] _local = new double[12];
+    private readonly List<TrackKeySection> _localKeys = new();
+    private const int LocalWindows = 12;
+    private int _localTotal, _localTonal;
+    private long _localStart;
     private double _left1, _left2, _right1, _right2;
     private int _skip, _count, _total, _tonal;
 
@@ -51,6 +56,8 @@ internal sealed class MusicalKeyAnalyzer
             {
                 token.ThrowIfCancellationRequested();
                 AnalyzeWindow();
+                _localTotal++;
+                if (_localTotal == LocalWindows) FlushLocal();
                 _count = 0;
             }
         }
@@ -96,15 +103,39 @@ internal sealed class MusicalKeyAnalyzer
         }
         if (sum <= 0 || concentrated < total * .35) return;
         _tonal++;
-        for (int i = 0; i < 12; i++) _aggregate[i] += _chroma[i] / sum;
+        _localTonal++;
+        for (int i = 0; i < 12; i++)
+        {
+            double value = _chroma[i] / sum;
+            _aggregate[i] += value;
+            _local[i] += value;
+        }
     }
 
-    public TrackMusicalKey? Finish()
+    public TrackMusicalKey? Finish() => Estimate(_aggregate, _tonal, _total);
+
+    private void FlushLocal()
     {
-        if (_tonal < 3 || _tonal < _total * .15) return null;
-        double largest = _aggregate.Max();
-        if (_aggregate.Count(v => v >= largest * .12) < 3) return null;
-        var normalized = Normalize(_aggregate);
+        long end = (long)_total * Size * Decimation;
+        if (_localKeys.Count < 8192 && end > _localStart)
+            _localKeys.Add(new(_localStart, end, Estimate(_local, _localTonal, _localTotal)));
+        _localStart = end;
+        _localTotal = _localTonal = 0;
+        Array.Clear(_local);
+    }
+
+    public TrackKeySection[] FinishLocal()
+    {
+        if (_localTotal > 0) FlushLocal();
+        return _localKeys.ToArray();
+    }
+
+    private static TrackMusicalKey? Estimate(double[] chroma, int tonal, int total)
+    {
+        if (tonal < 3 || tonal < total * .15) return null;
+        double largest = chroma.Max();
+        if (chroma.Count(v => v >= largest * .12) < 3) return null;
+        var normalized = Normalize(chroma);
         double best = -2, second = -2;
         int tonic = 0, mode = 0;
         for (int m = 0; m < 2; m++)
@@ -119,9 +150,9 @@ internal sealed class MusicalKeyAnalyzer
         // Conservative gates: an unknown key is preferable to false certainty.
         if (best < .55 || margin < .045) return null;
         float confidence = (float)(Math.Clamp((best - .45) / .55, 0, 1) *
-            Math.Clamp(margin / .20, 0, 1) * Math.Min(1, _tonal / 8d));
+            Math.Clamp(margin / .20, 0, 1) * Math.Min(1, tonal / 8d));
         return new(tonic, (MusicalMode)mode, confidence, (float)Math.Clamp(best, -1, 1),
-            (float)Math.Clamp(margin, 0, 2), _tonal, _total);
+            (float)Math.Clamp(margin, 0, 2), tonal, total);
     }
 
     private static double[] Normalize(double[] values)

@@ -17,6 +17,9 @@ internal sealed partial class LocalTrackStore
             analysis.Rhythm is { } rhythm && TrackRhythmAnalyzer.IsValid(rhythm, analysis.TotalFrames) &&
             (analysis.MusicalKey is null || analysis.MusicalKey.IsValid))
         {
+            // An invalid optional profile must not invalidate a usable beat grid or PCM.
+            if (analysis.MusicProfile is { } profile && !profile.IsValid(analysis.TotalFrames))
+                analysis = analysis with { MusicProfile = null };
             _analyzed[file.LocalPath!] = 0;
             return analysis;
         }
@@ -111,7 +114,8 @@ internal sealed partial class LocalTrackStore
                 info, Path.GetFileName(pcm))
             {
                 Rhythm = waveform.Rhythm ?? TrackRhythmAnalyzer.Analyze(waveform),
-                MusicalKey = waveform.MusicalKey
+                MusicalKey = waveform.MusicalKey,
+                MusicProfile = TrackMusicProfileAnalyzer.Derive(waveform, waveform.MusicProfile, token)
             };
             await WriteAsync(AnalysisPath(file), analysis, TrackStoreJson.Default.StoredAnalysis, token).ConfigureAwait(false);
             _analyzed[file.LocalPath!] = 0;
