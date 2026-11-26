@@ -264,6 +264,8 @@ public sealed partial class DeckView : Border
         {
             _shownBpm = localBpm;
             string tempo = localBpm > 0 ? $"≈{localBpm:0.#} BPM" : "";
+            if (deck.Track.Waveform.MusicalKey is { IsValid: true } key)
+                tempo += (tempo.Length == 0 ? "" : " · ") + $"{key.Name} / {key.Camelot}";
             _bpm.Text = tempo;
             _bpm.IsVisible = tempo.Length != 0;
         }

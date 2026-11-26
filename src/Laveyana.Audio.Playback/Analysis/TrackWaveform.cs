@@ -14,6 +14,7 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
 {
     /// <summary>Estimated musical rhythm and detected transients, produced by the analysis pass.</summary>
     public TrackBeatGrid? Rhythm { get; init; }
+    public TrackMusicalKey? MusicalKey { get; init; }
 
     /// <summary>Reads PCM in blocks and reduces it to a bounded set of display points.</summary>
     public static TrackWaveform Analyze(IPcmSource source, CancellationToken token) =>
@@ -31,8 +32,7 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         var right = new BandFilter();
         var pcm = new float[4096 * channels];
         var points = new List<WaveformPoint>();
-        Vector4 leftPeak = Vector4.Zero;
-        Vector4 rightPeak = Vector4.Zero;
+        Vector4 peak = Vector4.Zero;
         int framesInPoint = 0;
         // Rhythm uses 10 ms energy windows even when the 25 Hz display waveform is reduced.
         // Keep this envelope only during analysis; the persisted result contains beat/onset positions.
@@ -41,6 +41,7 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         Vector4 rhythmSum = Vector4.Zero;
         var rhythmEnergy = new List<RhythmEnergy>();
         long totalFrames = 0;
+        var key = new MusicalKeyAnalyzer(source.SampleRate);
 
         while (true)
         {
@@ -54,6 +55,7 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
             if ((uint)frames > (uint)(pcm.Length / channels))
                 throw new InvalidDataException("Аудиоисточник вернул некорректное количество кадров.");
             totalFrames += frames;
+            key.Add(pcm.AsSpan(0, frames * channels), token);
             int offset = 0;
             while (offset < frames)
             {
@@ -63,9 +65,9 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
                 {
                     var leftBands = left.Process(pcm[sample], bass, treble);
                     var rightBands = right.Process(pcm[sample + 1], bass, treble);
-                    leftPeak = Vector4.Max(leftPeak, leftBands);
-                    rightPeak = Vector4.Max(rightPeak, rightBands);
-                    rhythmSum += Vector4.Max(leftBands, rightBands);
+                    var bands = Vector4.Max(leftBands, rightBands);
+                    peak = Vector4.Max(peak, bands);
+                    rhythmSum += bands;
                     if (++framesInRhythmHop == rhythmHopFrames)
                     {
                         float inverse = 1f / framesInRhythmHop;
@@ -79,8 +81,8 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
                 framesInPoint += count;
                 if (framesInPoint != framesPerPoint) continue;
 
-                points.Add(ToPoint(Vector4.Max(leftPeak, rightPeak)));
-                leftPeak = rightPeak = Vector4.Zero;
+                points.Add(ToPoint(peak));
+                peak = Vector4.Zero;
                 framesInPoint = 0;
                 if (points.Count != maxPoints) continue;
 
@@ -95,7 +97,7 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
 
         if (framesInPoint > 0)
         {
-            points.Add(ToPoint(Vector4.Max(leftPeak, rightPeak)));
+            points.Add(ToPoint(peak));
         }
         if (framesInRhythmHop > 0)
         {
@@ -112,7 +114,8 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         var waveform = new TrackWaveform(points.AsReadOnly(), totalFrames, framesPerPoint);
         return waveform with
         {
-            Rhythm = TrackRhythmAnalyzer.AnalyzeEnergy(rhythmEnergy, rhythmHopFrames, totalFrames, token, trace)
+            Rhythm = TrackRhythmAnalyzer.AnalyzeEnergy(rhythmEnergy, rhythmHopFrames, totalFrames, token, trace),
+            MusicalKey = key.Finish()
         };
     }
 

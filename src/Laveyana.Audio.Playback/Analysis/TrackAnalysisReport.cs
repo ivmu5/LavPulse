@@ -29,6 +29,9 @@ public static class TrackAnalysisReport
             Add($"Audio: {audio.Codec}, {audio.SampleRate} Hz, {audio.BitrateKbps} kbps, " +
                 $"VBR={audio.IsVariableBitrate}, channel mode={audio.ChannelMode}");
         Add($"Waveform: {waveform.Points.Count} points; {waveform.FramesPerPoint} PCM frames/point");
+        if (waveform.MusicalKey is { IsValid: true } key)
+            Add($"Musical key: {key.Name} ({key.Camelot}); confidence={Number(key.Confidence)}; correlation={Number(key.Correlation)}; margin={Number(key.Margin)}; tonal windows={key.TonalWindows}/{key.TotalWindows}");
+        else Add("Musical key: unknown or insufficient tonal evidence");
         if (rhythm is null)
         {
             Add("Rhythm: no saved result. Rescan the track.");

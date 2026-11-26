@@ -15,6 +15,7 @@ public sealed class MasterSpectrum
     private readonly int _windowFrames;
     private readonly float[] _history;
     private readonly float[] _snapshot;
+    private readonly float[] _analysisInput;
     private readonly float[] _hann;
     private readonly Complex[] _stereo;
     private readonly Complex[] _twiddles;
@@ -45,6 +46,7 @@ public sealed class MasterSpectrum
         _untilSnapshot = windowFrames;
         _history = new float[checked(windowFrames * Channels)];
         _snapshot = new float[_history.Length];
+        _analysisInput = new float[_history.Length];
         _hann = new float[windowFrames];
         _stereo = new Complex[windowFrames];
         _twiddles = new Complex[windowFrames / 2];
@@ -136,17 +138,18 @@ public sealed class MasterSpectrum
                 return false;
             }
 
-            for (int frame = 0; frame < _windowFrames; frame++)
-            {
-                int sample = frame * Channels;
-                int fftIndex = _reversed[frame];
-                _stereo[fftIndex] = new Complex(_snapshot[sample] * _hann[frame],
-                    _snapshot[sample + 1] * _hann[frame]);
-            }
-
+            // Only copy while holding the capture gate. Windowing and FFT run outside it.
+            _snapshot.AsSpan().CopyTo(_analysisInput);
             _readFrame = endFrame;
         }
 
+        for (int frame = 0; frame < _windowFrames; frame++)
+        {
+            int sample = frame * Channels;
+            int fftIndex = _reversed[frame];
+            _stereo[fftIndex] = new Complex(_analysisInput[sample] * _hann[frame],
+                _analysisInput[sample + 1] * _hann[frame]);
+        }
         Transform(_stereo);
         for (int band = 0; band < _bandBins.Length; band++)
         {

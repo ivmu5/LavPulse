@@ -176,18 +176,21 @@ internal sealed class MixedPlayback : IAudioRenderSource, ISpectrumSource
         {
             if (_resumeAnalysis is not null) return false;
             long oldest = Math.Max(Math.Max(version, _minimumSpectrumVersion), _spectrumVersion - SpectrumHistorySize);
-            for (long snapshot = _spectrumVersion; snapshot > oldest; snapshot--)
+            if (oldest >= _spectrumVersion) return false;
+            long low = oldest + 1, high = _spectrumVersion;
+            int first = (int)((low - 1) % SpectrumHistorySize);
+            if (_spectrumCenters[first] > played) return false;
+            // FFT centers increase with rendered frames, including after capture resumes.
+            while (low < high)
             {
-                int slot = (int)((snapshot - 1) % SpectrumHistorySize);
-                if (_spectrumCenters[slot] <= played)
-                {
-                    _spectrum.AsSpan(slot * PlaybackFormat.SpectrumBars, PlaybackFormat.SpectrumBars).CopyTo(destination);
-                    version = snapshot;
-                    return true;
-                }
+                long mid = low + (high - low + 1) / 2;
+                if (_spectrumCenters[(int)((mid - 1) % SpectrumHistorySize)] <= played) low = mid;
+                else high = mid - 1;
             }
+            int slot = (int)((low - 1) % SpectrumHistorySize);
+            _spectrum.AsSpan(slot * PlaybackFormat.SpectrumBars, PlaybackFormat.SpectrumBars).CopyTo(destination);
+            version = low;
+            return true;
         }
-
-        return false;
     }
 }

@@ -12,9 +12,10 @@ internal sealed record StoredAnalysis(long TotalFrames, int FramesPerPoint, Wave
     TrackAudioInfo? AudioInfo, string? PcmFile)
 {
     public TrackBeatGrid? Rhythm { get; init; }
+    public TrackMusicalKey? MusicalKey { get; init; }
 
     [JsonIgnore]
-    public TrackWaveform Waveform => new(Array.AsReadOnly(Points), TotalFrames, FramesPerPoint) { Rhythm = Rhythm };
+    public TrackWaveform Waveform => new(Array.AsReadOnly(Points), TotalFrames, FramesPerPoint) { Rhythm = Rhythm, MusicalKey = MusicalKey };
 }
 
 [JsonSerializable(typeof(StoredQueue))]
