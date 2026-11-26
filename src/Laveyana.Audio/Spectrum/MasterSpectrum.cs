@@ -173,6 +173,8 @@ public sealed class MasterSpectrum
     /// <summary>Keeps a rolling history of the master and publishes a window at each analysis hop.</summary>
     internal void Capture(ReadOnlySpan<float> master)
     {
+        if (master.Length % Channels != 0)
+            throw new ArgumentException("Spectrum capture requires complete stereo frames.", nameof(master));
         int generation = Volatile.Read(ref _requestedGeneration);
         if ((generation & 1) == 0)
         {

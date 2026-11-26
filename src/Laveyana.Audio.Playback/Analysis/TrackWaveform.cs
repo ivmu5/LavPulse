@@ -78,6 +78,7 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         {
             token.ThrowIfCancellationRequested();
             int frames = source.Read(pcm);
+            token.ThrowIfCancellationRequested();
             if (frames == 0)
             {
                 break;

@@ -35,16 +35,20 @@ public sealed record TrackMusicProfile
 
     public bool TryGetLocalKey(long frame, out TrackMusicalKey? key)
     {
-        int lo = 0, hi = LocalKeys.Length;
+        key = null;
+        if (frame < 0 || LocalKeys is not { } keys) return false;
+        int lo = 0, hi = keys.Length;
         while (lo < hi)
         {
             int mid = lo + (hi-lo)/2;
-            if (LocalKeys[mid].EndFrame <= frame) lo = mid + 1;
+            if (keys[mid] is not { } candidate) return false;
+            if (candidate.EndFrame <= frame) lo = mid + 1;
             else hi = mid;
         }
-        if (lo < LocalKeys.Length && LocalKeys[lo].StartFrame <= frame)
+        if (lo < keys.Length && keys[lo] is { } section &&
+            section.StartFrame >= 0 && section.StartFrame <= frame && frame < section.EndFrame)
         {
-            key = LocalKeys[lo].Key;
+            key = section.Key is { IsValid: true } valid ? valid : null;
             return true;
         }
         key = null;
@@ -89,14 +93,20 @@ public sealed record TrackMusicProfile
 
     public TrackEnergyPoint? EnergyAt(long frame)
     {
-        int lo = 0, hi = Energy.Length;
+        if (frame < 0 || Energy is not { } energy) return null;
+        int lo = 0, hi = energy.Length;
         while (lo < hi)
         {
             int mid = lo + (hi-lo)/2;
-            if (Energy[mid].EndFrame <= frame) lo = mid+1;
+            if (energy[mid] is not { } candidate) return null;
+            if (candidate.EndFrame <= frame) lo = mid+1;
             else hi = mid;
         }
-        return lo < Energy.Length && Energy[lo].StartFrame <= frame ? Energy[lo] : null;
+        return lo < energy.Length && energy[lo] is { } point &&
+            point.StartFrame >= 0 && point.StartFrame <= frame && frame < point.EndFrame &&
+            float.IsFinite(point.Energy) && point.Energy is >= 0 and <= 1 &&
+            float.IsFinite(point.BassShare) && point.BassShare is >= 0 and <= 1 &&
+            float.IsFinite(point.AttacksPerSecond) && point.AttacksPerSecond >= 0 ? point : null;
     }
 
     private static bool Ordered(IEnumerable<(long Start,long End)> spans)

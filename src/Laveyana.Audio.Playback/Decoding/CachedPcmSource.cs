@@ -9,6 +9,7 @@ internal sealed class CachedPcmSource(string path, DeckCursor cursor) : IPcmSour
     private DeckCursor.SeekPoint? _applied;
     private long _position;
     private double _fraction;
+    private bool _disposed;
 
     public int SampleRate => PlaybackFormat.SampleRate;
     public int LastReadFrames { get; private set; }
@@ -16,6 +17,7 @@ internal sealed class CachedPcmSource(string path, DeckCursor cursor) : IPcmSour
     /// <summary>Returns the number of output frames remaining at the chosen speed.</summary>
     public long RemainingAtRate(double rate)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         if (!double.IsFinite(rate) || rate < .75 || rate > 1.25)
             throw new ArgumentOutOfRangeException(nameof(rate));
         ApplyPendingSeek();
@@ -29,7 +31,10 @@ internal sealed class CachedPcmSource(string path, DeckCursor cursor) : IPcmSour
     /// <summary>Reads stereo samples at the requested speed, keeping the cursor in source frames.</summary>
     public int ReadAtRate(Span<float> destination, double rate)
     {
+        LastReadFrames = 0;
         const int channels = PlaybackFormat.Channels;
+        if (destination.Length % channels != 0)
+            throw new ArgumentException("Cache reads require complete stereo frames.", nameof(destination));
         int frames = (int)Math.Min(Math.Min(destination.Length / channels, PlaybackFormat.BlockFrames), RemainingAtRate(rate));
         if (frames == 0)
         {
@@ -38,7 +43,7 @@ internal sealed class CachedPcmSource(string path, DeckCursor cursor) : IPcmSour
             return 0;
         }
 
-        long byteOffset = _position * PlaybackFormat.Pcm16FrameBytes;
+        long byteOffset = checked(_position * PlaybackFormat.Pcm16FrameBytes);
         if (_file.Position != byteOffset)
         {
             _file.Position = byteOffset;
@@ -90,5 +95,11 @@ internal sealed class CachedPcmSource(string path, DeckCursor cursor) : IPcmSour
     }
 
     /// <summary>Releases the underlying cache file after output stops.</summary>
-    public void Dispose() => _file.Dispose();
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        LastReadFrames = 0;
+        _file.Dispose();
+    }
 }

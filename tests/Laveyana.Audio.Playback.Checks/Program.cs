@@ -71,6 +71,7 @@ internal static partial class Program
             await CheckClearingPlaybackSuccessor(first, second);
             await CheckRepeatOne(first, second);
             await CheckConcurrentQueueControl(first);
+            await CheckStressAsync(directory, first, second);
             await CheckMasterEqualizer(directory);
             SpectrumFrameClockChecks.Run();
             Console.WriteLine("OK: transport envelopes, speed, queue transitions, repeat one, and filtered master output and spectrum.");

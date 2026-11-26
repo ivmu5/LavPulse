@@ -136,3 +136,18 @@ Added clock regressions for invalid timestamps and automatic/fixed-rate transiti
 80. Android and Apple display clocks reject duplicate native callback registration.
 
 Added deterministic native counter reset, impossible advance and wrap checks in Playback.Checks. Source-only review: no Android, Windows, iOS or Mac Catalyst device runs, no audio routing/interruption certification, no verified native build yet. Platform APIs reused; no new dependencies, settings, cache version, merge or release.
+
+## Twelfth batch (passes 81–90)
+
+81. Reject incomplete stereo frames at internal spectrum capture entry, preventing a zero-progress capture loop.
+82. Reject partial direct queue frames and make empty queue reads state-neutral before acquiring render ownership.
+83. Reset cached PCM read counts before any failing operation, check offset multiplication, reject partial frames and use explicit idempotent disposal guards.
+84. Reject unknown deck enum values instead of accidentally selecting or changing deck B.
+85. Observe source-triggered cancellation immediately after each PCM read, including EOF.
+86. Guard local-key/energy lookups against missing optional arrays, null records, invalid ranges and nonfinite energy; full manifest validation remains separate.
+87. Validate spectrum consumer buffer length and nonnegative version even before any frame is available.
+88. Add deterministic malformed-input regression cases: partial frames, truncated PCM, disposed readers, invalid deck, absent profile arrays/records, cancellation at EOF.
+89. Add a fixed-seed 512-step seek/rate/repeat/instant-transition stress scenario with finite bounded PCM and cursor invariants.
+90. Add 16 repeated output runs, concurrent-start rejection, short-spectrum-buffer rejection and mixer cleanup checks with per-run cancellation deadlines.
+
+This batch adds test source, not a passed test claim. No local dotnet SDK is present; earlier CI runs remain pending. Hardware soak tests and full native regression are still required. No merge, release, dependency or cache-schema change.
