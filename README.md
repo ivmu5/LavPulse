@@ -1,117 +1,159 @@
 # LavPulse
 
-English | [Русский](README.ru.md)
+English (primary) | [Русский](README.ru.md)
 
-LavPulse is a local MP3 player with a two-deck DJ mixer, built with .NET 10 and .NET MAUI.
+**LavPulse is a local music player with a two-deck DJ-style mixer, automatic transitions and detailed musical visualization.** Built on .NET 10 and .NET MAUI, it keeps audio, analysis and the library on your device. It is intended for continuous listening and experimentation with rhythm analysis, not a replacement for a professional DJ workstation.
 
-The application decodes tracks into a seekable PCM cache, mixes them on a shared 48 kHz stereo timeline, applies a configurable master equalizer, and displays waveforms and a spectrum of the resulting output. Windows, Android, and iOS have native audio and system-media integrations; the mixing and queue logic is shared.
+[Download releases](https://github.com/ivmu5/LavPulse/releases) · [Report an issue](https://github.com/ivmu5/LavPulse/issues) · [License](LICENSE)
 
 ## Contents
 
+- [Getting started](#getting-started)
+- [Player and queue](#player-and-queue)
+- [Media library and storage](#media-library-and-storage)
+- [Music analysis](#music-analysis)
+- [Sound and appearance](#sound-and-appearance)
+- [Diagnostics](#diagnostics)
 - [Build and run](#build-and-run)
-- [Capabilities](#capabilities)
 - [Architecture](#architecture)
-- [Repository map](#repository-map)
-- [Execution paths](#execution-paths)
 - [Public API](#public-api)
-- [Lifecycle and threading](#lifecycle-and-threading)
-- [Checks](#checks)
-- [Limitations](#limitations)
-- [Extension points](#extension-points)
+- [Checks and limitations](#checks-and-limitations)
 - [Dependencies and license](#dependencies-and-license)
+- [Continuous integration and releases](#continuous-integration-and-releases)
+
+## Getting started
+
+Download the release for your device. Windows releases are portable ZIP archives; extract before starting Laveyana.LavPulse.exe. Android releases provide an APK. macOS archives are unsigned; the iPhone simulator archive is **not** an installable app for a physical iPhone. See release/signing notes below.
+
+Open the folder icon next to **Queue**, select files or a folder, then use the import/queue actions. The first playable track opens in the current deck. LavPulse remembers the local library and queue order; ordinary restoration opens the saved current track paused at its beginning.
+
+| Platform | Import extensions |
+|---|---|
+| Windows | MP3, WAV, OGG/OGA (Vorbis), FLAC, AAC, M4A |
+| Android | MP3, WAV, OGG/OGA (Vorbis), FLAC, AAC, M4A, OPUS |
+| iOS / Mac Catalyst | MP3, WAV, OGG/OGA (Vorbis) |
+
+Extensions are accepted candidates, not a guarantee that every codec/container variant will decode. The app has managed MP3, PCM WAV and Vorbis support and uses available system decoders for additional formats on Windows and Android.
+
+**Open with LavPulse:** the app registers supported file types without changing your OS defaults. On Windows, launch it once, then use Settings → Playback → Opening music files → Default player, or Windows Default apps. On Android choose LavPulse in the file chooser and Always when offered. On iOS use Files → Open With; on macOS use Finder → Get Info → Open with → Change All. Availability depends on the OS.
+
+Opening a file from the OS gives it priority at cold start without clearing the previous library/queue. Opening the current track restarts it; a different track requests a transition, waiting for any existing transition to finish. Windows forwards a repeated launch to the running instance. See [file associations](docs/system-file-associations.ru.md).
+
+## Player and queue
+
+| Control | Behavior |
+|---|---|
+| Play / pause | Configurable fade-in/fade-out; the playback position is retained when paused. |
+| Previous / next | Navigate the queue or request the next prepared transition. |
+| Auto mix | Automatically crossfade to the prepared successor near the end; default transition 2.5 seconds. |
+| Repeat one | Repeat the current track rather than automatically advancing. |
+| Current / incoming decks | The incoming track appears during a transition; it becomes current when the mix finishes. |
+| Detailed waveform | Color, estimated beat grid or transient markers; configurable 5–60 s window (default 15 s). |
+| Overview | Progress bar or colored overview, optionally with beat marks. Tap/drag to seek. |
+| Detailed-wave drag | Preview signed scrubbing; release inside to commit, drag above the waveform to cancel. Seeking is disabled during a transition. |
+| Queue | Played entries remain visible but muted; current, prepared, unprepared and analyzing states have distinct styling. |
+
+Tap the active Queue tab again to open the editor. Drag rows to reorder, tap a track to play it, or switch to Removal to reveal delete buttons. Swipe left on an ordinary row to expose its delete action. Clear asks for confirmation; it clears the queue, not the library. The currently playing track can finish, and an ongoing crossfade is allowed to complete. Done returns to the player.
+
+The current track is brought to the top after a track change if the queue has been idle for ten seconds. In the editor it is centered where possible. Selecting another track changes the playback/history boundary, not the order of the list. On Windows, Back/Forward mouse buttons navigate between player panels; F11 toggles fullscreen with the custom window caption hidden until needed.
+
+The Recommendations tab is reserved for future recommendations; it is not a working streaming or AI recommendation service.
+
+## Media library and storage
+
+Imported audio is copied into the local library. Identical file contents share one stored original; folders organize catalog entries. Importing or removing a queue entry does not erase the original. The library shows file sizes including saved analysis and decoded PCM; the import browser shows source sizes. Folder sizes aggregate the contained entries. Swipe left or use Edit to remove catalog entries.
+
+Rescan a selected folder or branch to refresh its analysis. Active rows pulse and offer Skip; Stop cancels the batch. Completed rows keep their colors, stop pulsing and display disk size before/after and elapsed analysis time. They move upward into scrollable history while new tasks enter below. The complete history of the current batch remains until Done. Settings → Analysis → Scan scrolling sets the independent idle return delay (0–60 s, default 10 s; 0 disables automatic return after manual scrolling).
+
+| Analysis preference | Default | Range/meaning |
+|---|---:|---|
+| Analyze upcoming tracks | 10 | 0–100, compact analysis only |
+| Preload upcoming tracks | 1 | 1–20, full PCM for playback |
+| Concurrent library tracks | Auto | Device-dependent limit or explicit count |
+| Return to active scan rows | 10 s | 0–60 s |
+
+PCM preparation has priority; it analyzes tracks when required even when separate background analysis is disabled. Ordinary queue analysis and a first deck may use two workers on one track if CPU resources permit; library batches use one worker per track. The two-worker pipeline decodes once, passing bounded PCM blocks to the tonal/loudness worker. Analysis and artwork are reused.
+
+**Disk use:** compact analysis contains waveforms and musical estimates, not a second audio file. Prepared tracks additionally use a seekable 48 kHz stereo PCM16 cache (about 11.52 MB/minute). Once a played deck is no longer in use or in the preload horizon, its decoded file is eligible for deletion. The last current deck stays ready for replay/seek. Cached tracks outside the horizon are pruned; original audio and compact analysis remain. Returning to an evicted track requires PCM decoding again. The horizon is a track-count limit, not a fixed byte budget.
+
+Choose application storage, a Windows drive/folder, or supported Android app-specific shared storage/SD-card locations in Settings → Storage. Migration moves the library through the existing storage workflow; available locations and permissions depend on the platform.
+
+## Music analysis
+
+Analysis is automatic when needed and can be refreshed manually in the library.
+
+| Feature | What you see or can use |
+|---|---|
+| Rhythm | Global and local BPM, confirmed variable-tempo beats, transient marks, rhythmic sections and subdivision evidence. Unsupported regions remain without confirmed beats. |
+| Meter | Estimated repeating three- or four-pulse cycles; sufficiently confident downbeats appear as thicker lines in beat-grid mode. These are not verified musical time signatures. |
+| Musical key | Major/minor estimate, Camelot notation, local tonal windows (~8.2 s at 48 kHz); Key ? means insufficient local evidence. |
+| Loudness | Integrated and short-term LUFS, estimated loudness range, sample peak and proposed normalization gain. Sample peak is not true peak. |
+| Energy and structure | Relative intensity, bass share and attack density; heuristic intro/outro, buildup, breakdown, silence and high/steady-energy regions in diagnostics. |
+| Mix compatibility | Advisory API combining tempo, key and relative energy; it does not reorder the queue or choose harmonic transitions automatically. |
+
+The analyzer is deterministic C# DSP, with heuristic confidence rather than calibrated probabilities. It does not yet identify chords, verified time signatures, swing, semantic verse/chorus labels or true peak. Difficult tracks can contain missing or shifted beats and uncertain tonality.
+
+The current storage layout remains analysis-v13; individual derived profile fields have version tags. Older valid results remain readable. New audio-derived measurements require a rescan of older tracks. The rhythm-ranking and tail-recovery changes in this revision also take effect on fresh analysis/rescan; existing grids are not silently replaced.
+
+## Sound and appearance
+
+- Master EQ: ten bands (60, 170, 310, 600, 1k, 3k, 6k, 12k, 14k, 16k Hz), ±12 dB, and master gain; enable/disable without losing settings.
+- Optional loudness normalization: off by default, target −14 LUFS, maximum boost +6 dB, 3 dB sample-peak headroom. Applied separately to each deck before mixing; transitions in gain are smoothed. Unmeasured tracks keep unity gain. No true-peak limiter guarantee.
+- Mirrored master spectrum with optional peaks, frequency gradient/split/monochrome colors, signal-dependent brightness, minimum/full-brightness thresholds, side width and vertical padding. It measures the output after EQ.
+- System/light/dark themes, classic or AMOLED dark background, Laveyana/Ocean/Warm/Mint palettes and custom colors with live previews.
+- Interface and FPS: Auto follows the display clock; 30/60/90/120 FPS, with 144/165/240/360 also available on Windows. These are refresh limits, not promised measured FPS. Save commits appearance changes; Cancel restores the previous settings.
+- Adjustable transport fade times, crossfade length and visual latency compensation (the latter affects presentation, not the audio).
+- Background playback and OS media controls where supported; lock-screen integration and Android status-bar preference. Rendering is suspended when the player is not visible, while audio/eligible background work continues.
+
+## Diagnostics
+
+Use the deck's Rhythm button to tap beats manually, and mark problematic or strong-rhythm intervals with comments. These marks are diagnostic data; they do not retrain the analyzer automatically or edit its grid. Settings → Diagnostic reports can copy a text summary, export ZIP with originals, or clear reports. The export includes saved annotations and a fresh numerical analysis trace: waveforms, onsets, tempo evidence, predicted/confirmed beats, section attempts, local keys, downbeats, loudness and energy/structure CSVs.
+
+Exports may include the actual music files and personal notes. Review the archive before sharing; share only audio you have rights to share. Nothing needs to be uploaded for ordinary local analysis.
 
 ## Build and run
 
-Open [`LavPulse.slnx`](LavPulse.slnx) in Visual Studio with the **.NET 10 SDK** and the **.NET MAUI** workload. Android requires the Android SDK and JDK 21. Windows requires WinUI/MAUI tooling, and iOS requires a Mac, compatible Xcode, and the `maui-ios` workload.
+Open [LavPulse.slnx](LavPulse.slnx) with .NET 10 SDK and MAUI workloads. Android needs the Android SDK and JDK 21; Apple builds need a Mac and compatible Xcode. Windows requires the WinUI/MAUI tooling. Run restore after changing SDK/workloads.
 
-| Target | Project | Command |
-|---|---|---|
-| Windows | `LavPulse.csproj` | `dotnet build samples/LavPulse/LavPulse.csproj -c Debug` |
-| Android | `LavPulse.Android.csproj` | `dotnet build samples/LavPulse/LavPulse.Android.csproj -c Debug -p:AndroidPackageFormats=apk` |
+| Target | Command |
+|---|---|
+| Windows | dotnet build samples/LavPulse/LavPulse.csproj -c Debug |
+| Android | dotnet build samples/LavPulse/LavPulse.Android.csproj -c Debug -p:AndroidPackageFormats=apk |
+| iPhone simulator (Apple Silicon) | dotnet build samples/LavPulse/LavPulse.csproj -c Debug -p:LavPulsePlatform=ios -p:RuntimeIdentifier=iossimulator-arm64 -p:EnableCodeSigning=false |
 
-In Visual Studio, set **LavPulse.Android** as the startup project and select a device or emulator. If a previously opened solution reports that the Android project must be deployed, reopen `LavPulse.slnx` and check **Build** and **Deploy** for **LavPulse.Android** in **Build → Configuration Manager**. For Windows, build **LavPulse.Controls** and **LavPulse** in the same configuration so WinUI can resolve the controls assembly.
-
-On a Mac, build the iPhone simulator target as follows. The [iOS workflow](.github/workflows/ios.yml) pins a compatible SDK and Xcode. To build for an iPhone, select `ios-arm64` and configure Apple development signing.
-
-```bash
-dotnet workload install maui-ios
-dotnet build samples/LavPulse/LavPulse.csproj -c Debug -p:LavPulsePlatform=ios -p:RuntimeIdentifier=iossimulator-arm64 -p:EnableCodeSigning=false
-```
-
-Before installing the simulator build with `simctl install`, locally sign the generated bundle with `codesign --force --deep --sign - path/to/Laveyana.LavPulse.app`.
-
-Run `dotnet restore LavPulse.slnx` after switching platforms or updating workloads. The solution keeps Windows and Android intermediate outputs separate (see [`Directory.Build.props`](Directory.Build.props)) to prevent mixed NuGet assets and long Android resource paths.
-
-The application assembly is `Laveyana.LavPulse` and the Windows executable is `Laveyana.LavPulse.exe`. The package identifier stays the same so an installed copy can be updated while retaining its settings and library.
-
-Open the media library using the folder icon next to the **Queue** tab. The import browser shows import and queue buttons on each row. Saved tracks and folders always show the queue button. The size next to a saved track includes its MP3, saved analysis, and any PCM cache on disk. Folder sizes sum their track entries recursively. The import browser displays source MP3 sizes. Select a subfolder to import or rescan that branch. **Rescan** pulses the active track below the progress bar. **Skip** moves to the next track and **Stop** ends the pass. In the saved library, swipe left to reveal the trash button, or use **Edit** to show it on all eligible rows. The trash button in the library removes a catalog entry. Leaving the library exits edit mode.
-
-The player queue includes played tracks. When the track changes after ten seconds without queue interaction, the current track scrolls to the top of the viewport. Tap the active **Queue** tab again to open the editor. The editor centers the current track where the list allows it and starts in reorder mode. Tap any track in the editor to play it. **Clear** empties the queue after confirmation and keeps the tracks in the library. The active track can play to the end, and a crossfade already in progress can finish. **Removal** switches from drag handles to trash buttons. **Back to order** or system Back returns to reordering. In the ordinary queue, swipe left to reveal a single trash button. **Done** returns to the player.
-
-On Windows, the mouse **Back** and **Forward** buttons navigate between the player and its panels and editors. Opening another screen clears forward history.
-
-**Settings → Interface and FPS** limits the refresh rate of the master spectrum, deck playheads and transitions, queue animations, and the Windows fullscreen caption. **Auto** follows the display clock. The presets are 30, 60, 90 and 120 FPS, with 144, 165, 240 and 360 FPS also available on Windows. Changes preview immediately. **Save** keeps the selection and **Cancel** restores it. System scrolling and the FFT retain their own timing. Android reapplies the display preference when the app resumes or regains focus.
-
-Open an MP3 from the system file manager to play it in LavPulse. On Windows, launch LavPulse once from its installed location, then select it under **Settings → Apps → Default apps → .mp3**. On Android, choose LavPulse in the file chooser and tap **Always** when offered. On iPhone, select LavPulse in **Files → Open With**. On versions of Files that support a default per file type, set it in the MP3 file’s **Get Info** menu. On Mac, Finder’s **Get Info → Open with → Change All** sets the association for MP3.
-
-## Capabilities
-
-- Two decks with manually requested or automatic hyperbolic crossfades, transport fades and repeat-one.
-- Ten-band master EQ plus output gain, applied **before** master-spectrum analysis.
-- Detailed and overview waveforms, seek gestures, a frequency spectrum and an animated deck handoff.
-- Restorable folder library and editable queue, local MP3 copies, and sequential background scanning.
-- Background playback and OS media commands on Android, Windows, and iOS.
+Use [build.yml](.github/workflows/build.yml) and [ios.yml](.github/workflows/ios.yml) for the exact CI SDK, workloads, Mac Catalyst parameters and signing/smoke-test steps. Physical iPhone builds require ios-arm64 and Apple signing. In Visual Studio choose LavPulse.Android as startup project for Android and enable Build/Deploy in Configuration Manager. Windows and Android intermediate outputs are separated in Directory.Build.props.
 
 ## Architecture
 
-The UI never decodes MP3 on the render thread. A prepared track owns a PCM cache file and waveform data. One output session combines the decks, applies the master EQ, and reports the audible timeline.
-
 ```mermaid
 flowchart TD
-    PCM["CachedTrack · PCM"] --> QueueSource
-    QueueSource --> MasterEqualizerSource
-    MasterEqualizerSource --> PcmMixer
-    PcmMixer --> IAudioOutput["Native audio output"]
-    PcmMixer --> MasterSpectrum
+    A[Original audio] --> D[Decoder / recording]
+    D --> W[Waveform / rhythm]
+    D --> K[Key / LUFS worker]
+    W --> P[Music profile]
+    K --> P
+    D --> C[Optional PCM cache]
+    C --> Q[QueueSource: two decks]
+    P --> Q
+    Q --> E[Master EQ]
+    E --> M[PCM mixer]
+    M --> O[Native audio output]
+    M --> F[Master spectrum]
 ```
 
-| Layer | Responsibility | Entry points |
-|---|---|---|
-| Core DSP | Stereo mixing, common PCM contract, frequency analysis | [`IPcmSource`](src/Laveyana.Audio/Mixing/IPcmSource.cs), [`PcmMixer`](src/Laveyana.Audio/Mixing/PcmMixer.cs), [`MasterSpectrum`](src/Laveyana.Audio/Spectrum/MasterSpectrum.cs) |
-| Preparation and playback | Decode, caching, deck state, equalization, output abstraction | [`TrackPreparation`](src/Laveyana.Audio.Playback/Tracks/TrackPreparation.cs), [`QueuePlaybackSession`](src/Laveyana.Audio.Playback/Session/Queue/QueuePlaybackSession.cs), [`IAudioOutput`](src/Laveyana.Audio.Playback/Session/IAudioOutput.cs) |
-| Application | Library, ordered queue, commands, platform lifetime | [`MainPage`](samples/LavPulse/Pages/Player/MainPage.cs), [`PlayerLibrary`](samples/LavPulse/Tracks/Library/PlayerLibrary.cs), [`PlaybackQueue`](samples/LavPulse/Tracks/Queue/PlaybackQueue.cs) |
-| Views | C# MAUI controls and gestures | [`PlayerView`](src/LavPulse.Controls/Views/Player/PlayerView.cs), [`DeckView`](src/LavPulse.Controls/Views/Decks/DeckView.cs), [`TrackQueueView`](src/LavPulse.Controls/Views/Queue/TrackQueueView.cs) |
+| Location | Responsibility |
+|---|---|
+| [src/Laveyana.Audio](src/Laveyana.Audio) | PCM contracts, SIMD mixing, FFT spectrum |
+| [src/Laveyana.Audio.Playback](src/Laveyana.Audio.Playback) | Decoders, preparation, analysis, cache readers, deck sessions and EQ |
+| [src/LavPulse.Controls](src/LavPulse.Controls) | MAUI controls, virtualized track lists, visual frame clocks, gestures |
+| [samples/LavPulse](samples/LavPulse) | Application host, library, queue, settings, OS audio/file integration |
+| [tests/Laveyana.Audio.Playback.Checks](tests/Laveyana.Audio.Playback.Checks) | Executable deterministic regression suite |
 
-<details>
-<summary>Audio and queue internals</summary>
+The native output uses 48 kHz stereo float render blocks (1,024 frames); cache and Android/Windows output are PCM16, Apple uses AVAudioEngine float buffers. QueueSource publishes immutable state with a single render owner; control edits do not dispose an active reader. The audio callback still performs synchronous cached file reads and is not hard real-time. Background analysis is bounded; producers/consumers join during cancellation, and same-path analysis/PCM writes serialize. Queue/cache/library lifetime belongs to the window. UI changes are dispatched, artwork is downscaled, rows virtualized, and spectrum/history searches bounded.
 
-[`QueueSource`](src/Laveyana.Audio.Playback/Session/Queue/QueueSource.cs) owns the current and prepared next PCM readers, provides seek and speed control, and promotes the incoming deck when a transition finishes. A manual transition is requested before the next render block. [`MasterEqualizerSource`](src/Laveyana.Audio.Playback/Session/Equalizer/MasterEqualizerSource.cs) filters that **combined** signal using ten peaking bands and a gain stage; configuration changes crossfade between filter banks. [`MixedPlayback`](src/Laveyana.Audio.Playback/Session/MixedPlayback.cs) renders blocks and publishes FFT results with the native playback-head position where available.
+Analysis is separated into [models](src/Laveyana.Audio.Playback/Analysis/TrackBeatGrid.cs), [tempo estimation](src/Laveyana.Audio.Playback/Analysis/TrackRhythmAnalyzer.cs), [section tracking](src/Laveyana.Audio.Playback/Analysis/TrackRhythmAnalyzer.Sections.cs), [recovery](src/Laveyana.Audio.Playback/Analysis/TrackRhythmAnalyzer.Recovery.cs), [signal helpers](src/Laveyana.Audio.Playback/Analysis/TrackRhythmAnalyzer.Signal.cs), [tonality](src/Laveyana.Audio.Playback/Analysis/MusicalKeyAnalyzer.cs), [loudness](src/Laveyana.Audio.Playback/Analysis/TrackLoudnessAnalyzer.cs), [profile](src/Laveyana.Audio.Playback/Analysis/TrackMusicProfileAnalyzer.cs) and [compatibility](src/Laveyana.Audio.Playback/Analysis/MixCompatibilityAnalyzer.cs).
 
-[`PlayerLibrary`](samples/LavPulse/Tracks/Library/PlayerLibrary.cs) limits concurrent decoders, deduplicates preparation tasks, and protects the occupied decks and up to ten upcoming tracks from cache eviction. The app prepares that window in queue order and then saves compact analysis for the rest of the queue on the same worker. A directly selected track can use another decoding slot. The ordered [`PlaybackQueue`](samples/LavPulse/Tracks/Queue/PlaybackQueue.cs) does not reorder itself when the user selects a different track: the current position defines which entries are displayed as played.
-
-</details>
-
-## Repository map
-
-```text
-src/Laveyana.Audio/                 PCM mixing and FFT
-src/Laveyana.Audio.Playback/        MP3 preparation, cache, queue mixer, EQ
-src/LavPulse.Controls/             C# player UI and platform gestures
-samples/LavPulse/                  MAUI host, media library, settings, output adapters
-tests/Laveyana.Audio.Playback.Checks/  Executable regression checks
-```
-
-[`MainPage`](samples/LavPulse/Pages/Player/MainPage.cs) owns the application's state and event bindings. The partial files in the same folder separate playback, navigation, importing, the library panel, and queue persistence. The queue's cover-card implementation lives in [`TrackQueueView.TrackCard.cs`](src/LavPulse.Controls/Views/Queue/TrackQueueView.TrackCard.cs).
-
-The queue, its editor, and the library tree share a virtualized track list and row layout. They provide their own actions and artwork metadata.
-
-## Execution paths
-
-- **Import.** `MainPage.AddFilesAsync` adds entries through `PlayerLibrary.Add`. `LoadFirstAsync` prepares the first deck, and `TrackPreparation.ImportAsync` creates the PCM cache and waveform. `UpdateQueueAnalysis` gives upcoming files to `QueueTrackAnalysis`.
-- **Track selection.** `ChooseAsync` requests a transition through `StartMixAsync`. `ArmAsync` prepares the selected track for the next deck. `QueuePlaybackSession.RequestMix` forwards the request to `QueueSource`.
-- **Playback.** `QueuePlaybackSession.RunAsync` starts the native output, which pulls stereo PCM blocks through `MixedPlayback.Render` from the chain shown above.
-
-Android tries the system MP3 decoder through `MediaExtractor` and `MediaCodec`. The app imports MP3s into its application data directory. Identical contents share the same local copy. If the system decoder cannot prepare the track, the importer retries from the beginning with NLayer. Both paths use the same waveform format and write seekable 48 kHz stereo PCM16 when preparing a deck. LavPulse restores the saved queue order and opens the last current track paused at the start.
+See [audio pipeline](docs/audio-pipeline.ru.md), [two-worker analysis](docs/parallel-track-analysis.ru.md), [music profile](docs/music-analysis-profile.ru.md), and [iterative audit](docs/iterative-audit.md) for implementation details and caveats.
 
 ## Public API
 
@@ -121,11 +163,11 @@ The DSP and playback libraries have **no MAUI dependency**. External hosts suppl
 using Laveyana.Audio.Playback;
 
 static async Task PlayFileAsync(
-    string mp3Path, string cacheDirectory, IAudioOutput output,
+    string audioPath, string cacheDirectory, IAudioOutput output,
     CancellationToken token)
 {
     var preparation = new TrackPreparation(cacheDirectory);
-    var track = await preparation.ImportAsync(TrackFile.FromPath(mp3Path), token);
+    var track = await preparation.ImportAsync(TrackFile.FromPath(audioPath), token);
     try
     {
         using var session = new QueuePlaybackSession();
@@ -151,61 +193,17 @@ For one-shot, independently controlled decks, [`PlaybackSession`](src/Laveyana.A
 
 </details>
 
-## Lifecycle and threading
 
-- `MainPage` owns `PlayerLibrary`, `PlaybackQueue`, `QueuePlaybackSession` and the OS media bridge; `CloseAsync` cancels and awaits playback and analysis, completes the queue save, and releases the audio readers.
-- Imports and waveform analysis use async tasks with bounded decoding. The native output consumes PCM on its own thread; C# MAUI views and queue state are updated on the UI dispatcher.
-- The audio mixer has one render caller. `QueueSource` synchronizes changes to the active/next deck; the latest display snapshot is read separately. The decoder-to-UI track lookup uses a concurrent dictionary.
-- While minimized, track preparation continues independently of the visual refresh. Android uses a foreground service for batches started from the player. On iOS, background audio keeps preparation running during playback. While paused, iOS grants limited background time and unfinished work resumes when the player returns. On Windows, preparation continues while the window is minimized.
-- Minimizing does not cancel the mixer. Android uses a media foreground service, Windows publishes System Media Transport Controls, and iOS uses AVAudioSession and Now Playing.
-
-<details>
-<summary>Performance and ownership details</summary>
-
-The 256 MiB eviction threshold applies to decoded PCM. The cache can exceed it while keeping the active, selected, and upcoming tracks ready on disk. A local analysis record survives PCM eviction. If the app rebuilds that PCM, it reuses the saved waveform when the decoded frame count matches. Removing a row changes the saved queue and leaves its imported copy in the local collection. Queue rows are virtualized; full ID3 artwork is downscaled for thumbnails. Waveform geometry is cached separately from the playhead; the spectrum analyzer can be disabled when the master-spectrum UI is hidden.
-
-The master mixer renders a single source straight into the output block, applies gain when needed, clamps the samples, and clears any unwritten frames. PCM16 reads at 1× speed and a whole-frame position use SIMD when hardware supports it. Other speeds and fractional positions keep the interpolating path.
-
-The ID3 reader rents a temporary buffer and copies the selected cover once. Queue and deck image streams reuse array-backed cover bytes. Spectrum paint allocates a color for a brightness step on its first use and reuses it until the corresponding colors or mode change.
-
-The platform adapters use AudioTrack, WaveOut and AVAudioEngine. [Android](samples/LavPulse/Platforms/Android/Playback/PlatformAudioOutput.cs) · [Windows](samples/LavPulse/Platforms/Windows/Playback/PlatformAudioOutput.cs) · [Apple](samples/LavPulse/Apple/PlatformAudioOutput.cs)
-
-Android's [`AndroidMediaPlaybackService`](samples/LavPulse/Platforms/Android/Playback/AndroidMediaPlaybackService.cs) provides system controls, and [`WindowsMediaIdentity`](samples/LavPulse/Platforms/Windows/Playback/WindowsMediaIdentity.cs) registers the unpackaged desktop identity.
-
-</details>
-
-## Checks
-
-[`Laveyana.Audio.Playback.Checks`](tests/Laveyana.Audio.Playback.Checks/Program.cs) is an executable console regression suite, **not** an xUnit/NUnit project:
+## Checks and limitations
 
 ```bash
 dotnet run --project tests/Laveyana.Audio.Playback.Checks -c Release
+dotnet run --project tests/Laveyana.Audio.Playback.Checks -c Release -- --rhythm-report /path/to/report.zip
 ```
 
-It covers MP3 frame information, ID3 artwork selection, PCM16 reads, mixing and silence padding, spectrum capture, transport fades, seeking and speed, queue history, repeat-one, the master EQ, and output failure cleanup. Add deterministic audio invariants here; exercise native MAUI gestures, background playback and system media sessions on the corresponding devices. [`build.yml`](.github/workflows/build.yml) runs on pull requests to master and pushes to master.
+The first command runs the deterministic console suite (not xUnit/NUnit); the second replays saved numerical rhythm evidence and compares annotated excerpts. Test fixtures cover decoders, PCM clipping, mixing, repeat/seek, EQ, spectrum, cancellation, cache retention, queue limits, analysis profiles, rhythmic gaps, loudness and key detection. Real-device playback, gestures, OS integration, audio timing and accuracy on real music require separate checks. Report replays are not a substitute for decoding the original audio, and manual taps may be sparse or subdivisions.
 
-Start the iOS check manually through **Actions → iPhone simulator → Run workflow**. Once the updated workflow is on `master`, the run menu lets you select a branch. The job builds and launches the app in an iPhone simulator. [iOS workflow configuration](.github/workflows/ios.yml)
-
-For a manual iOS check, import two MP3s from Files, exercise mixing, EQ and seeking, then lock the screen and try the Now Playing controls.
-
-## Limitations
-
-- The import path accepts local **MP3**, not streaming services or arbitrary codecs. Decoding supports mono/stereo MP3 with a source rate up to 48 kHz.
-- The playback API's `TrySetSpeed` resamples PCM and **changes pitch**.
-- The mixer provides two playback decks and one stereo master output. It does not enumerate or synchronize several simultaneous audio devices.
-- Recommendations are a UI placeholder.
-- Windows may show additional latency due to WaveOut buffering; system controls and background behavior depend on the OS and device.
-
-## Extension points
-
-| Task | Start here |
-|---|---|
-| Add a decoder or input source | [`IPcmSource`](src/Laveyana.Audio/Mixing/IPcmSource.cs), [`TrackPreparation`](src/Laveyana.Audio.Playback/Tracks/TrackPreparation.cs) |
-| Change crossfades, pause or deck speed | [`QueueSource`](src/Laveyana.Audio.Playback/Session/Queue/QueueSource.cs), [`TransportFadeSource`](src/Laveyana.Audio.Playback/Session/TransportFadeSource.cs) |
-| Change EQ or frequency analysis | [`MasterEqualizerSource`](src/Laveyana.Audio.Playback/Session/Equalizer/MasterEqualizerSource.cs), [`MasterSpectrum`](src/Laveyana.Audio/Spectrum/MasterSpectrum.cs) |
-| Change queue, history or background preparation | [`MainPage.Queue.cs`](samples/LavPulse/Pages/Player/MainPage.Queue.cs), [`MainPage.Analysis.cs`](samples/LavPulse/Pages/Player/MainPage.Analysis.cs), [`PlaybackQueue`](samples/LavPulse/Tracks/Queue/PlaybackQueue.cs) |
-| Change gestures, waveforms or player layout | [`DeckView`](src/LavPulse.Controls/Views/Decks/DeckView.cs), [`TrackQueueView`](src/LavPulse.Controls/Views/Queue/TrackQueueView.cs), [`WaveformDrawable`](src/LavPulse.Controls/Views/Decks/WaveformDrawable.cs) |
-| Add a native output or media integration | [`IAudioOutput`](src/Laveyana.Audio.Playback/Session/IAudioOutput.cs), [`SystemPlaybackIntegration`](samples/LavPulse/Playback/SystemPlaybackIntegration.cs) |
+Current limits: two decks, one stereo master output, no streaming providers, no recommendation engine, no beat-matched time stretching/pitch locking, no automatic harmonic selection, no guaranteed low-latency disk access. The API supports pitch-changing rate resampling, but playback speed has been removed from the current player UI. Some features and accepted formats depend on system codecs. Cached analysis can be wrong; use diagnostics and rescan as needed.
 
 ## Dependencies and license
 
@@ -213,7 +211,7 @@ The shared UI foundation is [Laveyana.Maui.UI](https://www.nuget.org/packages/La
 
 LavPulse is source-available under the [LavPulse Noncommercial Source License 1.0](LICENSE). Personal use, study, modification and noncommercial redistribution are permitted; distributed forks and binaries must have their corresponding source publicly available under the same terms. Commercial use by third parties requires separate written permission from the copyright holder. The copyright holder retains the right to commercialize and separately license material they own or have rights to license. Rights previously granted under MIT remain effective; see [historical MIT notice](LICENSES/previous-MIT.txt). Contributions are governed by [CONTRIBUTING.md](CONTRIBUTING.md). This is not an OSI-approved open-source license. 
 
- Main external dependencies are [NLayer 3.0.1](https://www.nuget.org/packages/NLayer/3.0.1) (MP3 decoding, MIT), [NAudio.WinMM 2.2.1](https://www.nuget.org/packages/NAudio.WinMM/2.2.1) (Windows WaveOut, MIT), and [Microsoft.Maui.Controls](https://github.com/dotnet/maui) (cross-platform UI, MIT). The bundled Inter font uses the SIL Open Font License, with its text at [`Inter-OFL.txt`](samples/LavPulse/Resources/Fonts/Inter-OFL.txt). Retain third-party copyright/license notices when redistributing dependencies or fonts.
+Main external dependencies include [NVorbis 0.10.5](https://www.nuget.org/packages/NVorbis/0.10.5) (managed Vorbis decoding), [NLayer 3.0.1](https://www.nuget.org/packages/NLayer/3.0.1) (MP3 decoding, MIT), [NAudio.WinMM 2.2.1](https://www.nuget.org/packages/NAudio.WinMM/2.2.1) (Windows WaveOut, MIT), and [Microsoft.Maui.Controls](https://github.com/dotnet/maui) (cross-platform UI, MIT). The bundled Inter font uses the SIL Open Font License, with its text at [`Inter-OFL.txt`](samples/LavPulse/Resources/Fonts/Inter-OFL.txt). Retain third-party copyright/license notices when redistributing dependencies or fonts.
 
 ## Continuous integration and releases
 

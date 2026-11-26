@@ -9,8 +9,12 @@ internal sealed partial class PlayerLibrary
         IReadOnlyCollection<TrackFile> upcoming, CachedTrack? presentedCurrent = null,
         CachedTrack? presentedIncoming = null, CachedTrack? shownCurrent = null, CachedTrack? shownIncoming = null)
     {
-        lock (_cacheGate) TrimCache(current, incoming, selected, armed, upcoming,
-            presentedCurrent, presentedIncoming, shownCurrent, shownIncoming);
+        lock (_cacheGate)
+        {
+            if (_closing) return;
+            TrimCache(current, incoming, selected, armed, upcoming,
+                presentedCurrent, presentedIncoming, shownCurrent, shownIncoming);
+        }
     }
 
     private void TrimCache(CachedTrack? current, CachedTrack? incoming, TrackFile? selected, TrackFile? armed,
