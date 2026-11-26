@@ -15,7 +15,7 @@ public sealed partial class MainPage
             OpenSavedLibraryAsync, ImportLibrarySelectionAsync, _library.ReadLibraryMetadataAsync,
             ListLibraryScanTracksAsync, ScanLibraryTrackAsync, _library.HasAnalysis, _settings.AnalysisParallelism,
             RemoveLibrarySelectionAsync, ClosePanel, _lifetime.Token,
-            _trackStore.ReadTrackStorageSizeAsync));
+            _trackStore.ReadTrackStorageSizeAsync, _settings.ScanReturnSeconds));
         if (library is null) return false;
         library.ImportFolderOpened += RecordOpeningScreen;
         library.ImportFolderClosed += root =>

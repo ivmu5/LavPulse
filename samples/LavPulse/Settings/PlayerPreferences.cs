@@ -43,6 +43,8 @@ internal static class PlayerPreferences
             StorageDirectory = Preferences.Default.Get("library-storage-requested", defaults.StorageDirectory),
             AnalysisParallelism = Math.Clamp(Preferences.Default.Get("analysis-parallelism", defaults.AnalysisParallelism),
                 PlayerSettings.DefaultAnalysisParallelism, PlayerSettings.MaximumAnalysisParallelism),
+            ScanReturnSeconds = Math.Clamp(Preferences.Default.Get("scan-return-seconds", defaults.ScanReturnSeconds),
+                0, PlayerSettings.MaximumScanReturnSeconds),
             ShowOnLockScreen = Preferences.Default.Get("show-player-on-lock-screen", defaults.ShowOnLockScreen),
             HideStatusBar = Preferences.Default.Get("hide-status-bar", defaults.HideStatusBar),
             WaveformOverview = Preferences.Default.Get("waveform-overview", defaults.WaveformOverview),
@@ -89,6 +91,7 @@ internal static class PlayerPreferences
         Preferences.Default.Set("automix", settings.AutoMix);
         Preferences.Default.Set("library-storage-requested", settings.StorageDirectory);
         Preferences.Default.Set("analysis-parallelism", settings.AnalysisParallelism);
+        Preferences.Default.Set("scan-return-seconds", settings.ScanReturnSeconds);
         Preferences.Default.Set("show-player-on-lock-screen", settings.ShowOnLockScreen);
         Preferences.Default.Set("hide-status-bar", settings.HideStatusBar);
         Preferences.Default.Set("waveform-overview", settings.WaveformOverview);

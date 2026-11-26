@@ -1,4 +1,5 @@
 using System.Threading;
+using System.Diagnostics;
 using Laveyana.Audio.Playback;
 
 namespace Laveyana.LavPulse.Controls;
@@ -16,30 +17,34 @@ public sealed partial class TrackLibraryPanel
     private readonly Label _scanPosition = MixerStyle.Label("", 13, MixerColor.Accent, bold: true);
     private readonly ProgressBar _scanProgress = new() { HeightRequest = 6 };
     private readonly Button _stopScan = MixerStyle.Button("Остановить", icon: "player_cancel.png");
-    private readonly VerticalStackLayout _scanRows = new() { Spacing = TrackListLayout.Stride - TrackListLayout.RowHeight };
-    private readonly ScrollView _scanScroll = new();
-    // Bound the number of realized covers and labels even for very large libraries.
-    private const int CompletedHistoryLimit = 6;
-    private readonly Queue<LibraryTreeItem> _completedScans = new();
+    private readonly TrackScanHistory _scanHistory = new();
+    private TrackListView<TrackScanHistory.Entry, LibraryTreeItem> _scanScroll = null!;
+    private readonly int _scanReturnSeconds;
     private readonly Dictionary<LibraryTreeItem, ScanMotion> _scanMotions = new();
     private readonly List<LibraryTreeItem> _motionKeys = new();
-    private bool _scanFollowQueued;
+    private readonly Dictionary<TrackScanHistory.Entry, (double Y, bool Active)> _previousScanPositions = new();
+    private long? _lastScanInteraction;
+    private bool _scanFollowQueued, _scanProgrammaticScroll, _scanUpdating;
+    private double? _scanTarget;
+    private double _lastScanScrollY;
     private int _scanGeneration;
     private TaskCompletionSource? _scanDone;
     private sealed record ScanMotion(double Offset, double? Start = null);
-    private readonly Dictionary<TrackFile, LibraryTreeItem> _activeScans = new(ReferenceEqualityComparer.Instance);
     private TrackScanBatch? _scanBatch;
     private double? _scanPulseStart;
 
     internal event Action? ScanAnimationChanged;
-    internal bool NeedsScanFrames => _activeScans.Count > 0 || _scanMotions.Count > 0;
+    internal bool NeedsScanFrames => _scanHistory.ActiveCount > 0 || _scanMotions.Count > 0;
 
     internal void DrawScanFrame(double time)
     {
         if (!NeedsScanFrames) return;
         _scanPulseStart ??= time;
         double elapsed = time - _scanPulseStart.Value;
-        foreach (var row in _activeScans.Values) row.DrawLoadingPulse(elapsed);
+        foreach (var row in _scanScroll.RealizedRows)
+            if (row.IsActiveScan) row.DrawLoadingPulse(elapsed);
+        if (_scanHistory.ActiveCount > 0 && CanFollowScan)
+            FollowScanHead();
         bool hadMotion = _scanMotions.Count > 0;
         _motionKeys.Clear();
         _motionKeys.AddRange(_scanMotions.Keys);
@@ -77,7 +82,7 @@ public sealed partial class TrackLibraryPanel
                 done.TrySetResult();
                 return;
             }
-            _scanRows.IsEnabled = _stopScan.IsEnabled = false;
+            _scanScroll.IsEnabled = _stopScan.IsEnabled = false;
             _scanPosition.Text = "Остановка анализа…";
             _scanBatch?.Stop();
         };
@@ -88,7 +93,32 @@ public sealed partial class TrackLibraryPanel
             RowDefinitions = [new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)]
         };
         panel.Add(new VerticalStackLayout { Spacing = 6, Children = { _scanPosition, _scanProgress } });
-        _scanScroll.Content = _scanRows;
+        _scanScroll = new TrackListView<TrackScanHistory.Entry, LibraryTreeItem>(
+            () => new LibraryTreeItem(this, track => _scanBatch?.Skip(track)),
+            (row, entry, _) => row.BindScan(entry),
+            row =>
+            {
+                _scanMotions.Remove(row);
+                row.TranslationY = 0;
+                row.BindScan(null);
+            });
+        _scanScroll.Scrolled += (_, args) =>
+        {
+            if (Math.Abs(args.ScrollY - _lastScanScrollY) <= .1) return;
+            _lastScanScrollY = args.ScrollY;
+            bool reached = _scanTarget is double target && Math.Abs(args.ScrollY - target) <= 1;
+            if (reached) _scanTarget = null;
+            if (!_scanUpdating && !_scanProgrammaticScroll && !reached && _scanHistory.ActiveCount > 0)
+            {
+                _lastScanInteraction = Stopwatch.GetTimestamp();
+                _scanTarget = null;
+                _previousScanPositions.Clear();
+                foreach (var row in _scanMotions.Keys) row.TranslationY = 0;
+                _scanMotions.Clear();
+            }
+        };
+        _scanScroll.ContentSizeChanged += FollowScanHead;
+        _scanScroll.SizeChanged += (_, _) => FollowScanHead();
         panel.Add(_scanScroll, row: 1);
         panel.Add(_stopScan, row: 2);
         return panel;
@@ -103,7 +133,7 @@ public sealed partial class TrackLibraryPanel
         _stopScan.Text = "Остановить";
         _scanActions.IsVisible = _tree.IsVisible = false;
         _scanPanel.IsVisible = true;
-        _scanRows.IsEnabled = _stopScan.IsEnabled = true;
+        _scanScroll.IsEnabled = _stopScan.IsEnabled = true;
         _scanPosition.Text = "Подготовка к анализу…";
         _scanProgress.Progress = 0;
         _message.Text = "";
@@ -137,7 +167,9 @@ public sealed partial class TrackLibraryPanel
             string summary = $"Проанализировано: {result.Scanned} · Пропущено: {result.Skipped} · Ошибок: {result.Failed}";
             _message.Text = batch.Token.IsCancellationRequested ? $"Остановлено. {summary}" : summary;
             _scanPosition.Text = _message.Text;
-            _scanRows.IsEnabled = true;
+            _scanScroll.IsEnabled = true;
+            _scanScroll.SetEndPadding(0);
+            _previousScanPositions.Clear();
             _stopScan.IsEnabled = true;
             _stopScan.Text = "Готово";
             // Keep the final results visible until dismissed. Closing the panel
@@ -178,55 +210,52 @@ public sealed partial class TrackLibraryPanel
         ShowActiveScans(active);
     }
 
+    private bool CanFollowScan => TrackScanHistory.CanFollow(_lastScanInteraction,
+        Stopwatch.GetTimestamp(), _scanReturnSeconds);
+
     private void ShowActiveScans(IReadOnlyList<TrackFile> active)
     {
         bool animated = NeedsScanFrames;
-        foreach (var file in active)
-        {
-            if (_activeScans.ContainsKey(file)) continue;
-            var row = new LibraryTreeItem(this, track => _scanBatch?.Skip(track));
-            row.Bind(new TreeRow([], file));
-            _activeScans.Add(file, row);
-            _scanRows.Add(row);
-            MoveScanRow(row, TrackListLayout.Stride);
-        }
+        CaptureScanPositions();
+        _scanHistory.AddActive(active);
+        RefreshScanHistory();
         UpdateScanAnimation(animated);
-        FollowScanTail();
     }
 
     private void CompleteScanRow(TrackScanResult result)
     {
         if (_closed || _token.IsCancellationRequested) return;
         bool animated = NeedsScanFrames;
-        if (!_activeScans.Remove(result.File, out var row))
-        {
-            row = new LibraryTreeItem(this, _ => { });
-            row.Bind(new TreeRow([], result.File));
-            _scanRows.Add(row);
-        }
-        row.CompleteScan(result);
-        // Preserve the row, its metadata and artwork; move finished rows ahead
-        // of active tasks. Animate from the previous visual position.
-        var previous = _scanRows.Children.OfType<LibraryTreeItem>()
-            .Select((item, index) => (item, offset: index * TrackListLayout.Stride + item.TranslationY))
-            .ToDictionary(item => item.item, item => item.offset);
-        _scanRows.Children.Remove(row);
-        _scanRows.Children.Insert(_completedScans.Count, row);
-        _completedScans.Enqueue(row);
-        while (_completedScans.Count > CompletedHistoryLimit)
-        {
-            var old = _completedScans.Dequeue();
-            _scanMotions.Remove(old);
-            old.Bind(null);
-            _scanRows.Children.Remove(old);
-        }
-        for (int index = 0; index < _scanRows.Children.Count; index++)
-        {
-            if (_scanRows.Children[index] is LibraryTreeItem item && previous.TryGetValue(item, out double offset))
-                MoveScanRow(item, offset - index * TrackListLayout.Stride);
-        }
+        CaptureScanPositions();
+        _scanHistory.Complete(result);
+        RefreshScanHistory();
         UpdateScanAnimation(animated);
-        FollowScanTail();
+    }
+
+    private void CaptureScanPositions()
+    {
+        // Completion and replacement notifications can arrive before the
+        // native layout has caught up. Keep the earliest visual positions.
+        if (!CanFollowScan || _previousScanPositions.Count > 0) return;
+        foreach (var row in _scanScroll.RealizedRows)
+            if (row.ScanEntry is { } entry)
+                _previousScanPositions[entry] = (_scanScroll.GetRowTop(entry) + row.TranslationY - _scanScroll.ScrollY, row.IsActiveScan);
+    }
+
+    private void RefreshScanHistory()
+    {
+        _scanUpdating = true;
+        try
+        {
+            _scanScroll.SetItems(_scanHistory.Items);
+            // Keep the padding between completion and scheduling the next
+            // task even with parallelism=1. Removing it here would briefly
+            // clamp the native scroll position back into history.
+            _scanScroll.SetEndPadding(QueueViewport.EndPadding(_scanScroll.Height, TrackListLayout.RowHeight));
+        }
+        finally { _scanUpdating = false; }
+        if (CanFollowScan) FollowScanHead();
+        else _previousScanPositions.Clear();
     }
 
     private void MoveScanRow(LibraryTreeItem row, double offset)
@@ -240,35 +269,97 @@ public sealed partial class TrackLibraryPanel
         else _scanMotions[row] = new(offset);
     }
 
-    private void FollowScanTail()
+    private double ScanHeadOffset() => QueueViewport.TrackOffset(_scanHistory.CompletedCount,
+        TrackListLayout.Stride, TrackListLayout.RowHeight, _scanScroll.Height,
+        _scanScroll.ContentHeight, center: false);
+
+    private void FollowScanHead()
     {
-        // Follow incoming work only if the user is already near the end.
-        if (_scanFollowQueued || _scanScroll.ScrollY + _scanScroll.Height + TrackListLayout.Stride < _scanRows.Height) return;
+        if (_closed || _scanScroll is null || !_scanPanel.IsVisible || _scanHistory.ActiveCount == 0 ||
+            _scanScroll.Height <= 0 || _scanUpdating || _scanFollowQueued || _scanProgrammaticScroll ||
+            !CanFollowScan) return;
+        double padding = QueueViewport.EndPadding(_scanScroll.Height, TrackListLayout.RowHeight);
+        if (Math.Abs(_scanScroll.EndPadding - padding) > .1)
+        {
+            _scanUpdating = true;
+            try { _scanScroll.SetEndPadding(padding); }
+            finally { _scanUpdating = false; }
+        }
+        double offset = ScanHeadOffset();
+        if (Math.Abs(offset - _scanScroll.ScrollY) <= 1 && _previousScanPositions.Count == 0) return;
         _scanFollowQueued = true;
         int generation = _scanGeneration;
-        double previousScroll = _scanScroll.ScrollY;
-        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(16), () =>
+        if (!Dispatcher.Dispatch(() =>
         {
             if (generation != _scanGeneration) return;
             _scanFollowQueued = false;
-            if (_closed || !_scanPanel.IsVisible || _scanRows.Children.Count == 0 ||
-                _scanScroll.Height <= 0 || _scanScroll.ScrollY < previousScroll - TrackListLayout.Stride) return;
-            _ = _scanScroll.ScrollToAsync(0, Math.Max(0, TrackListLayout.RowsHeight(_scanRows.Children.Count) -
-                _scanScroll.Height), false);
-        });
+            _ = ApplyScanHeadAsync(generation);
+        })) _scanFollowQueued = false;
+    }
+
+    private async Task ApplyScanHeadAsync(int generation)
+    {
+        if (_closed || _scanHistory.ActiveCount == 0 || _scanProgrammaticScroll || !CanFollowScan) return;
+        double offset = ScanHeadOffset();
+        if (offset > 0 && _scanScroll.MeasuredContentHeight + 1 < offset + _scanScroll.Height) return;
+        _scanProgrammaticScroll = true;
+        _scanTarget = offset;
+        try
+        {
+            if (Math.Abs(offset - _scanScroll.ScrollY) > 1)
+                await _scanScroll.ScrollToAsync(0, offset, false);
+            if (generation != _scanGeneration || _closed) return;
+            _scanScroll.Refresh();
+            bool animated = NeedsScanFrames;
+            foreach (var row in _scanScroll.RealizedRows)
+            {
+                if (row.ScanEntry is not { } entry) continue;
+                double y = _scanScroll.GetRowTop(entry) - _scanScroll.ScrollY;
+                if (_previousScanPositions.TryGetValue(entry, out var previous))
+                {
+                    if (previous.Active)
+                        MoveScanRow(row, Math.Clamp(previous.Y - y, -2 * TrackListLayout.Stride,
+                            _scanScroll.Height + TrackListLayout.Stride));
+                }
+                else if (row.IsActiveScan && _previousScanPositions.Count > 0)
+                    MoveScanRow(row, Math.Max(TrackListLayout.Stride, _scanScroll.Height - y));
+            }
+            _previousScanPositions.Clear();
+            UpdateScanAnimation(animated);
+        }
+        catch (Exception ex) { Debug.WriteLine(ex); }
+        finally
+        {
+            if (generation == _scanGeneration)
+            {
+                _scanProgrammaticScroll = false;
+                _scanTarget = null;
+            }
+        }
     }
 
     private void ClearScanRows()
     {
         bool animated = NeedsScanFrames;
-        foreach (var row in _scanRows.Children.OfType<LibraryTreeItem>()) row.Bind(null);
-        _scanRows.Children.Clear();
-        _activeScans.Clear();
-        _completedScans.Clear();
+        _scanGeneration++;
+        _scanHistory.Clear();
         _scanMotions.Clear();
         _motionKeys.Clear();
-        _scanFollowQueued = false;
-        _scanGeneration++;
+        _previousScanPositions.Clear();
+        _lastScanInteraction = null;
+        _scanFollowQueued = _scanProgrammaticScroll = _scanUpdating = false;
+        _scanTarget = null;
+        _lastScanScrollY = 0;
+        if (_scanScroll is not null)
+        {
+            _scanUpdating = true;
+            try
+            {
+                _scanScroll.SetItems([]);
+                _scanScroll.SetEndPadding(0);
+            }
+            finally { _scanUpdating = false; }
+        }
         UpdateScanAnimation(animated);
     }
 

@@ -40,7 +40,7 @@ public sealed partial class TrackLibraryPanel
             _folderSizes = sizes;
             _localTrackSizes = readStorage is null ? null : measured;
             foreach (var view in _tree.RealizedRows) view.UpdateSize();
-            foreach (var view in _activeScans.Values) view.UpdateSize();
+            foreach (var view in _scanScroll.RealizedRows) view.UpdateSize();
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         finally

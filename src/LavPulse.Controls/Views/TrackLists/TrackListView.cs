@@ -47,6 +47,10 @@ internal sealed class TrackListView<TItem, TRow> : ScrollView where TItem : clas
 
     public TRow? FindRow(TItem item) => _realized.GetValueOrDefault(item);
 
+    // Layout bounds are current even before the native arrange pass.
+    public double GetRowTop(TItem item) => FindRow(item) is { } row
+        ? AbsoluteLayout.GetLayoutBounds(row).Y : 0;
+
     public bool IsInViewport(int index)
     {
         double top = (double)index * TrackListLayout.Stride;

@@ -26,7 +26,33 @@ internal static partial class Program
         Require(QueueViewport.TrackOffset(0, stride, rowHeight, viewport, rowHeight, center: true) == 0 &&
             QueueViewport.TrackOffset(9, stride, rowHeight, viewport, tenRows, center: true) == tenRows - viewport,
             "The queue editor scrolled beyond the available rows.");
-        Console.WriteLine("OK: queue follow interval, final-row alignment, and editor centering.");
+        Require(TrackScanHistory.CanFollow(null, last, 0) &&
+            !TrackScanHistory.CanFollow(last, last + 60 * Stopwatch.Frequency, 0) &&
+            !TrackScanHistory.CanFollow(last, last + 4 * Stopwatch.Frequency, 5) &&
+            TrackScanHistory.CanFollow(last, last + 5 * Stopwatch.Frequency, 5),
+            "Scan history did not respect its independent return interval.");
+        var history = new TrackScanHistory();
+        var files = Enumerable.Range(0, 2000).Select(i => TrackFile.FromPath($"scan-{i}.mp3")).ToArray();
+        history.AddActive(files[..3]);
+        for (int i = 0; i < files.Length; i++)
+        {
+            history.Complete(new(files[i], TrackScanOutcome.Scanned, 1000, 1200, TimeSpan.FromSeconds(1)));
+            if (i + 3 < files.Length) history.AddActive([files[i + 3]]);
+        }
+        Require(history.CompletedCount == 2000 && history.ActiveCount == 0 &&
+            history.Items.Select(entry => entry.File).SequenceEqual(files) &&
+            history.Items.All(entry => entry.Result is { BeforeBytes: 1000, AfterBytes: 1200 }),
+            "Completed scan history was truncated or lost its statistics.");
+        history.Clear();
+        history.AddActive(files[..3]);
+        history.Complete(new(files[1], TrackScanOutcome.Scanned, 1000, 1200, TimeSpan.Zero));
+        Require(history.Items.Select(entry => entry.File).SequenceEqual(new[] { files[1], files[0], files[2] }) &&
+            history.CompletedCount == 1 && history.ActiveCount == 2,
+            "Out-of-order completion did not move to the history prefix.");
+        double scanContent = TrackListLayout.RowsHeight(3) + QueueViewport.EndPadding(viewport, rowHeight);
+        Require(QueueViewport.TrackOffset(history.CompletedCount, stride, rowHeight, viewport, scanContent, false)
+            == stride, "The first active scan could not align with the viewport top.");
+        Console.WriteLine("OK: queue follow, independent scan idle interval, complete history and active alignment.");
     }
 
     private static void CheckTrackListLayout()

@@ -38,7 +38,8 @@ public sealed partial class TrackLibraryPanel : ContentView
         Func<TrackFile, bool, CancellationToken, Task<bool>> scanTrack, Func<TrackFile, bool> hasAnalysis,
         int analysisParallelism, Func<TrackLibrarySelection, Task<int>> remove,
         Action close, CancellationToken lifetime,
-        Func<TrackFile, CancellationToken, ValueTask<long?>>? readLocalStorageSize = null)
+        Func<TrackFile, CancellationToken, ValueTask<long?>>? readLocalStorageSize = null,
+        int scanReturnSeconds = PlayerSettings.DefaultScanReturnSeconds)
     {
         _pickFolder = pickFolder;
         _openLibrary = openLibrary;
@@ -49,6 +50,7 @@ public sealed partial class TrackLibraryPanel : ContentView
         _scanTrack = scanTrack;
         _hasAnalysis = hasAnalysis;
         _analysisParallelism = PlayerSettings.ResolveAnalysisParallelism(analysisParallelism);
+        _scanReturnSeconds = Math.Clamp(scanReturnSeconds, 0, PlayerSettings.MaximumScanReturnSeconds);
         _remove = remove;
         _session = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
         _token = _session.Token;
