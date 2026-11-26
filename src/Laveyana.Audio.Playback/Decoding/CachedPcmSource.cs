@@ -16,19 +16,21 @@ internal sealed class CachedPcmSource(string path, DeckCursor cursor) : IPcmSour
     /// <summary>Returns the number of output frames remaining at the chosen speed.</summary>
     public long RemainingAtRate(double rate)
     {
+        if (!double.IsFinite(rate) || rate < .75 || rate > 1.25)
+            throw new ArgumentOutOfRangeException(nameof(rate));
         ApplyPendingSeek();
         return (long)Math.Ceiling((cursor.Length - _position - _fraction) / rate);
     }
 
     /// <summary>Reads the PCM cache at its original rate.</summary>
     public int Read(Span<float> destination) =>
-        ReadAtRate(destination[..Math.Min(destination.Length, PlaybackFormat.BlockFrames * PlaybackFormat.Channels)], 1);
+        ReadAtRate(destination, 1);
 
     /// <summary>Reads stereo samples at the requested speed, keeping the cursor in source frames.</summary>
     public int ReadAtRate(Span<float> destination, double rate)
     {
         const int channels = PlaybackFormat.Channels;
-        int frames = (int)Math.Min(destination.Length / channels, RemainingAtRate(rate));
+        int frames = (int)Math.Min(Math.Min(destination.Length / channels, PlaybackFormat.BlockFrames), RemainingAtRate(rate));
         if (frames == 0)
         {
             LastReadFrames = 0;

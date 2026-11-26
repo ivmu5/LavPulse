@@ -16,6 +16,7 @@ internal static class RhythmTempoFamily
         var periodicAverage = new float[candidates];
         for (int c = 0; c < candidates; c++)
         {
+            token.ThrowIfCancellationRequested();
             for (int w = 0; w < windows; w++)
             {
                 average[c] += raw[w, c] / windows;
@@ -69,6 +70,7 @@ internal static class RhythmTempoFamily
                 global[c] >= .86f * global[twice] && globalPeriodic[c] >= .90f * globalPeriodic[twice] &&
                 globalPeriodic[c] >= .12f;
             bool preferBeatOverBar = bpm >= 115 && bpm <= 165 && Valid(quarter) &&
+                global[quarter] >= .16f && globalPeriodic[quarter] >= .085f &&
                 global[c] >= .72f * global[quarter] && globalPeriodic[c] >= .55f * globalPeriodic[quarter];
 
             for (int w = 0; w < windows; w++)

@@ -95,6 +95,15 @@ internal static partial class Program
         progressFailure.Finish();
         Require(ready && progressFailure.Update([file], true, 1, 0) is null,
             "A failing progress observer abandoned the active preparation.");
+        bool pcmReady=false;
+        int scanAttempts=0;
+        var separate=new QueueTrackAnalysis(_=>pcmReady,_=>{pcmReady=true;return Task.CompletedTask;},
+            ()=>{},stop.Token,_=>false,_=>{scanAttempts++;return Task.FromException(new IOException("compact failure"));});
+        await separate.Update([file],true,0,1)!.WaitAsync(stop.Token);
+        separate.Finish();
+        await separate.Update([file],true,1,1)!.WaitAsync(stop.Token);
+        separate.Finish();
+        Require(pcmReady&&scanAttempts==1,"A failed compact scan blocked PCM preparation.");
         Console.WriteLine("OK: background analysis retries, bounded cancellation, missing results and progress isolation.");
     }
 

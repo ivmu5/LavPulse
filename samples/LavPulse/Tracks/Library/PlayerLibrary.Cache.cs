@@ -9,8 +9,12 @@ internal sealed partial class PlayerLibrary
         IReadOnlyCollection<TrackFile> upcoming, CachedTrack? presentedCurrent = null,
         CachedTrack? presentedIncoming = null, CachedTrack? shownCurrent = null, CachedTrack? shownIncoming = null)
     {
-        lock (_cacheGate) TrimCache(current, incoming, selected, armed, upcoming,
-            presentedCurrent, presentedIncoming, shownCurrent, shownIncoming);
+        lock (_cacheGate)
+        {
+            if (_closing) return;
+            TrimCache(current, incoming, selected, armed, upcoming,
+                presentedCurrent, presentedIncoming, shownCurrent, shownIncoming);
+        }
     }
 
     private void TrimCache(CachedTrack? current, CachedTrack? incoming, TrackFile? selected, TrackFile? armed,
@@ -28,11 +32,18 @@ internal sealed partial class PlayerLibrary
         // The lookahead is a retention policy, not just a preparation hint.
         // Remove completed PCM outside it even below the former byte budget.
         // Pending work is allowed to finish; its completion triggers another trim.
+        var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        // Pending aliases might already be opening a manifest referring to this PCM.
+        // Defer eviction until their work has published a result.
+        var pendingPaths = new HashSet<string>(comparer);
+        foreach (var (file, entry) in _prepared)
+            if (!entry.Work.IsCompleted && file.LocalPath is { } path) pendingPaths.Add(path);
         var evicted = new List<(TrackFile File, string Pcm)>();
         foreach (var (file, entry) in _prepared.ToArray())
         {
             if (!entry.Work.IsCompletedSuccessfully || file == selected || file == armed ||
                 upcoming.Contains(file)) continue;
+            if (file.LocalPath is { } source && pendingPaths.Contains(source)) continue;
             var track = entry.Work.Result;
             if (ReferenceEquals(track, current) || ReferenceEquals(track, incoming) ||
                 ReferenceEquals(track, presentedCurrent) || ReferenceEquals(track, presentedIncoming) ||
@@ -46,7 +57,18 @@ internal sealed partial class PlayerLibrary
         if (selected is not null) retained.Add(selected);
         if (armed is not null) retained.Add(armed);
         evicted.AddRange(store.TakeUnclaimedPcm(retained));
-        if (evicted.Count != 0) _cacheCleanup = DeleteAsync(_cacheCleanup, evicted);
+        if (evicted.Count != 0)
+        {
+            var retainedPcm = new HashSet<string>(comparer);
+            foreach (var entry in _prepared.Values)
+                if (entry.Work.IsCompletedSuccessfully) retainedPcm.Add(entry.Work.Result.Path);
+            foreach (var track in new[] { current, incoming, presentedCurrent, presentedIncoming, shownCurrent, shownIncoming })
+                if (track is not null) retainedPcm.Add(track.Path);
+            // Retired aliases can refer to exactly the same decoded file.
+            // Never delete a retained path, and delete each obsolete path once.
+            evicted.RemoveAll(entry => !retainedPcm.Add(entry.Pcm));
+            if (evicted.Count != 0) _cacheCleanup = DeleteAsync(_cacheCleanup, evicted);
+        }
 
         TrimArtwork(_metadata, _tagAccess, ArtworkBudgetBytes);
         TrimArtwork(_queueMetadata, _thumbnailAccess, ThumbnailBudgetBytes);
@@ -58,7 +80,9 @@ internal sealed partial class PlayerLibrary
         // Queue rows are virtualized. Keep a generous recent-entry limit even when
         // tracks have no artwork, without evicting in-flight requests.
         const int entryBudget = 1024;
-        long total = metadata.Values.Where(task => task.IsCompletedSuccessfully).Sum(task => (long)task.Result.Artwork.Length);
+        long total = 0;
+        foreach (var task in metadata.Values)
+            if (task.IsCompletedSuccessfully) total += task.Result.Artwork.Length;
         if (total <= budget && metadata.Count <= entryBudget) return;
 
         foreach (var file in metadata.Keys.OrderBy(file => access.GetValueOrDefault(file)).ToArray())
@@ -77,7 +101,8 @@ internal sealed partial class PlayerLibrary
 
     private Task DeleteAsync(Task previous, List<(TrackFile File, string Pcm)> tracks) => Task.Run(async () =>
     {
-        await previous.ConfigureAwait(false);
+        try { await previous.ConfigureAwait(false); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }
         foreach (var (file, pcm) in tracks)
         {
             try { store.EvictPcm(file, pcm); }

@@ -13,8 +13,9 @@ internal sealed partial class PlayerLibrary
     {
         lock (_cacheGate)
         {
+            ThrowIfClosing();
             _thumbnailAccess[file] = ++_access;
-            if (!_queueMetadata.TryGetValue(file, out var task))
+            if (!_queueMetadata.TryGetValue(file, out var task) || task.IsFaulted || task.IsCanceled)
                 _queueMetadata[file] = task = BuildQueueMetadataAsync(ReadMetadataAsync(file));
             return task;
         }
@@ -47,6 +48,7 @@ internal sealed partial class PlayerLibrary
     {
         lock (_cacheGate)
         {
+            ThrowIfClosing();
             _tagAccess[file] = ++_access;
             if (!_metadata.TryGetValue(file, out var task) || task.IsFaulted || task.IsCanceled)
             {
@@ -74,10 +76,13 @@ internal sealed partial class PlayerLibrary
     }
 
     public Task<TrackMetadata> ReadLibraryMetadataAsync(TrackFile file, CancellationToken token) =>
-        TrackLibraryWork(ReadLibraryThumbnailAsync(file, token));
+        TrackLibraryWork(() => ReadLibraryThumbnailAsync(file, token));
 
-    private async Task<TrackMetadata> ReadLibraryThumbnailAsync(TrackFile file, CancellationToken token) =>
-        await CreateThumbnailAsync(await ReadTagsAsync(file, token).ConfigureAwait(false), token).ConfigureAwait(false);
+    private async Task<TrackMetadata> ReadLibraryThumbnailAsync(TrackFile file, CancellationToken token)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, lifetime);
+        return await CreateThumbnailAsync(await ReadTagsAsync(file, linked.Token).ConfigureAwait(false), linked.Token).ConfigureAwait(false);
+    }
 
     private Task<TrackMetadata> ReadTagsAsync(TrackFile file) => ReadTagsAsync(file, lifetime);
 

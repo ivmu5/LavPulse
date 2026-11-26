@@ -10,6 +10,7 @@ internal sealed class RhythmBandEvidence
     private readonly double[] _energyPrefix;
     private readonly double[][] _fluxPrefix;
     private readonly double _openingReference;
+    private readonly double[] _pulse;
 
     public RhythmBandEvidence(IReadOnlyList<RhythmEnergy> energy, double hopsPerSecond, CancellationToken token)
     {
@@ -42,6 +43,21 @@ internal sealed class RhythmBandEvidence
                 _fluxPrefix[band][i + 1] = _fluxPrefix[band][i] + _flux[band][i];
             }
         }
+        // Every candidate phase reuses this immutable normalized pulse field.
+        // Previously each FindPulse recalculated three local means per probe.
+        _pulse = new double[count];
+        int span = Math.Max(2, (int)Math.Round(_hopsPerSecond * 2 / _bin));
+        for (int i = 0; i < count; i++)
+        {
+            if ((i & 4095) == 0) token.ThrowIfCancellationRequested();
+            for (int b = 0; b < 3; b++)
+            {
+                double mean = Mean(_fluxPrefix[b], i - span, i + span + 1);
+                double flux = _flux[b][i];
+                double normalized = flux / (flux + 3 * mean + 1e-9);
+                _pulse[i] += normalized * (b == 0 ? .27 : b == 1 ? .35 : .38);
+            }
+        }
         // Reference is a median of later two-second low/mid flux means.
         // Relative gating preserves consistently quiet music.
         int block = Math.Max(1, (int)Math.Round(2 * hopsPerSecond / _bin));
@@ -66,7 +82,7 @@ internal sealed class RhythmBandEvidence
     private static float Rise(float current, float previous) =>
         Math.Max(0, MathF.Sqrt(Math.Max(0, current)) - MathF.Sqrt(Math.Max(0, previous)));
 
-    public Periodicity Measure(int firstHop, int endHop)
+    public Periodicity Measure(int firstHop, int endHop, CancellationToken token = default)
     {
         int start = Math.Clamp(firstHop / _bin, 0, _flux[0].Length);
         int end = Math.Clamp((int)Math.Ceiling(endHop / (double)_bin), start, _flux[0].Length);
@@ -89,6 +105,7 @@ internal sealed class RhythmBandEvidence
             if (norm <= 1e-12) continue;
             for (int lag = 1; lag <= maxLag; lag++)
             {
+                token.ThrowIfCancellationRequested();
                 double dot = 0;
                 for (int i = start; i < end - lag; i++)
                     dot += (band[i] - mean) * (band[i + lag] - mean);
@@ -107,22 +124,6 @@ internal sealed class RhythmBandEvidence
 
     // Independent, locally normalized multiband pulse evidence. The high band
     // participates in ambiguous half-time selection, not in visual kick detection.
-    private double PulseAt(double hop)
-    {
-        int index = (int)Math.Round(hop / _bin);
-        if (index < 0 || index >= _flux[0].Length) return 0;
-        int span = Math.Max(2, (int)Math.Round(_hopsPerSecond * 2 / _bin));
-        double value = 0;
-        for (int b = 0; b < 3; b++)
-        {
-            double mean = Mean(_fluxPrefix[b], index - span, index + span + 1);
-            double flux = _flux[b][index];
-            double normalized = flux / (flux + 3 * mean + 1e-9);
-            value += normalized * (b == 0 ? .27 : b == 1 ? .35 : .38);
-        }
-        return value;
-    }
-
     public (double Hop, double Score) FindPulse(double hop, double radius)
     {
         int start = Math.Max(0, (int)Math.Ceiling((hop - radius) / _bin));
@@ -131,7 +132,7 @@ internal sealed class RhythmBandEvidence
         for (int i = start; i <= end; i++)
         {
             double candidate = i * _bin;
-            double score = PulseAt(candidate) * (1 - .35 * Math.Abs(candidate - hop) / Math.Max(1, radius));
+            double score = _pulse[i] * (1 - .35 * Math.Abs(candidate - hop) / Math.Max(1, radius));
             if (score > best) { best = score; selected = candidate; }
         }
         return (selected, best);
@@ -156,11 +157,11 @@ internal sealed class RhythmBandEvidence
     }
 
     public PhaseChoice ChoosePhase(double phase, double period, double bpm, double start,
-        double end, bool strongAnchor)
+        double end, bool strongAnchor, CancellationToken token = default)
     {
         if (end - start < 4 * period || bpm > 120 || strongAnchor)
             return new(phase, phase, 0, 0, false, false);
-        var evidence = Measure((int)Math.Floor(start), (int)Math.Ceiling(end));
+        var evidence = Measure((int)Math.Floor(start), (int)Math.Ceiling(end), token);
         double normal = evidence.AtBpm(bpm), doubled = evidence.AtBpm(bpm * 2);
         if (normal < .075 || doubled < .10 || doubled < .65 * normal)
             return new(phase, phase, 0, 0, false, false);

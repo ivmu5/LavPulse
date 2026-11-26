@@ -67,10 +67,10 @@ internal sealed class TrackListView<TItem, TRow> : ScrollView where TItem : clas
     public void SetItems(IReadOnlyList<TItem> items, string? emptyText = null)
     {
         _items = items;
-        _empty.Text = emptyText;
+        if (_empty.Text != emptyText) _empty.Text = emptyText;
         bool showEmpty = items.Count == 0 && !string.IsNullOrEmpty(emptyText);
         if (showEmpty && !_content.Children.Contains(_empty)) _content.Children.Add(_empty);
-        else if (!showEmpty) _content.Children.Remove(_empty);
+        else if (!showEmpty && _content.Children.Contains(_empty)) _content.Children.Remove(_empty);
         UpdateContentHeight();
         Refresh(force: true);
     }
@@ -100,7 +100,11 @@ internal sealed class TrackListView<TItem, TRow> : ScrollView where TItem : clas
         }
     }
 
-    private void UpdateContentHeight() => _content.HeightRequest = TrackListLayout.RowsHeight(_items.Count) + _endPadding;
+    private void UpdateContentHeight()
+    {
+        double height = TrackListLayout.RowsHeight(_items.Count) + _endPadding;
+        if (_content.HeightRequest != height) _content.HeightRequest = height;
+    }
 
     private void RefreshCore(bool force)
     {
