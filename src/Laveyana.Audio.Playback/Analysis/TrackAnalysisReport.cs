@@ -32,6 +32,30 @@ public static class TrackAnalysisReport
         if (waveform.MusicalKey is { IsValid: true } key)
             Add($"Musical key: {key.Name} ({key.Camelot}); confidence={Number(key.Confidence)}; correlation={Number(key.Correlation)}; margin={Number(key.Margin)}; tonal windows={key.TonalWindows}/{key.TotalWindows}");
         else Add("Musical key: unknown or insufficient tonal evidence");
+        if (waveform.MusicProfile is { } profile)
+        {
+            if (profile.Loudness is { } loudness)
+            {
+                string Optional(float? value) => value is float v ? Number(v) : "unknown";
+                Add($"Loudness: integrated={Optional(loudness.IntegratedLufs)} LUFS; sample peak={Optional(loudness.SamplePeakDbfs)} dBFS (not true peak); LRA={Optional(loudness.LoudnessRange)} LU; suggested gain={Optional(loudness.RecommendedGainDb())} dB");
+                foreach (var point in Sample(loudness.ShortTerm, 400))
+                    Add($"Short-term {Time(point.EndFrame)}: {Number(point.Lufs)} LUFS");
+            }
+            Add("LOCAL KEY SECTIONS (estimated, unknown allowed)");
+            foreach (var section in Sample(profile.LocalKeys, 400))
+                Add($"{Time(section.StartFrame)}..{Time(section.EndFrame)} | {section.Key?.Name ?? "unknown"} | {section.Key?.Camelot ?? "—"} | confidence={Number(section.Key?.Confidence ?? 0)}");
+            Add("METER HYPOTHESES (pulses per bar, not verified time signature)");
+            foreach (var section in Sample(profile.Meter, 400))
+                Add($"{Time(section.StartFrame)}..{Time(section.EndFrame)} | {section.PulsesPerBar} | confidence={Number(section.Confidence)} | downbeats={FormatTimes(section.Downbeats, 64)}");
+            Add("STRUCTURE (heuristic intensity regions, not semantic chorus/verse)");
+            foreach (var section in Sample(profile.Structure, 400))
+                Add($"{Time(section.StartFrame)}..{Time(section.EndFrame)} | {section.Kind} | energy={Number(section.Energy)}");
+            Add("ENERGY (relative to this track)");
+            foreach (var point in Sample(profile.Energy, 400))
+                Add($"{Time(point.StartFrame)}..{Time(point.EndFrame)} | {Number(point.Energy)} | bass={Number(point.BassShare)} | attacks/s={Number(point.AttacksPerSecond)}");
+        }
+        if (waveform.Timing is { } timing)
+            Add($"Analysis wall time ms: decode/features={Number(timing.DecodeAndFeaturesMs)}; rhythm={Number(timing.RhythmMs)}; finalize={Number(timing.FinalizeMs)}; total={Number(timing.TotalMs)}");
         if (rhythm is null)
         {
             Add("Rhythm: no saved result. Rescan the track.");

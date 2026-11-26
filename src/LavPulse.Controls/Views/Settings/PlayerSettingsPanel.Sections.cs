@@ -47,6 +47,10 @@ public sealed partial class PlayerSettingsPanel
         var crossfade = Number("Длительность перехода", "мс", new(0, 12000, defaults.CrossfadeMilliseconds, 100),
             _settings.CrossfadeMilliseconds, value => _settings = _settings with { CrossfadeMilliseconds = value });
         var autoMix = Toggle("Автомикс", _settings.AutoMix, value => _settings = _settings with { AutoMix = value });
+        var normalize = Toggle("Выравнивать громкость треков (LUFS)", _settings.NormalizeLoudness,
+            value => _settings = _settings with { NormalizeLoudness = value });
+        var loudnessHint = MixerStyle.Label("Цель −14 LUFS, усиление не более 6 дБ. " +
+            "Треки без измерения остаются без коррекции. Это не лимитер и не гарантия true peak.", 11, MixerColor.Muted);
         var visualDelay = Number("Задержка визуализации", "мс", new(0, 1500, defaults.VisualDelayMilliseconds, 10),
             _settings.VisualDelayMilliseconds, value => _settings = _settings with { VisualDelayMilliseconds = value });
         var delayHint = MixerStyle.Label("Дополнительная задержка волн и спектра для синхронизации со звуком, в том числе через Bluetooth. " +
@@ -58,6 +62,7 @@ public sealed partial class PlayerSettingsPanel
             {
                 Section("Плавное воспроизведение", Pair(fadeIn.Row, fadeOut.Row)),
                 Section("Переход между треками", autoMix, crossfade.Row),
+                Section("Громкость", normalize, loudnessHint),
                 Section("Синхронизация со звуком", visualDelay.Row, delayHint)
             }
         };

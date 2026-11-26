@@ -15,6 +15,9 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
     /// <summary>Estimated musical rhythm and detected transients, produced by the analysis pass.</summary>
     public TrackBeatGrid? Rhythm { get; init; }
     public TrackMusicalKey? MusicalKey { get; init; }
+    public TrackMusicProfile? MusicProfile { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public TrackAnalysisTiming? Timing { get; init; }
 
     /// <summary>Reads PCM in blocks and reduces it to a bounded set of display points.</summary>
     public static TrackWaveform Analyze(IPcmSource source, CancellationToken token) =>
@@ -61,6 +64,9 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         var rhythmEnergy = new List<RhythmEnergy>();
         long totalFrames = 0;
         var key = pipeline is null ? new MusicalKeyAnalyzer(source.SampleRate) : null;
+        var loudness = pipeline is null && source.SampleRate == PlaybackFormat.SampleRate
+            ? new TrackLoudnessAnalyzer() : null;
+        var watch = System.Diagnostics.Stopwatch.StartNew();
 
         while (true)
         {
@@ -74,6 +80,12 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
             if ((uint)frames > (uint)(pcm.Length / channels))
                 throw new InvalidDataException("Аудиоисточник вернул некорректное количество кадров.");
             totalFrames += frames;
+            // Custom PCM sources can bypass decoder validation. Prevent one
+            // nonfinite sample from poisoning both recursive band filters.
+            var block = pcm.AsSpan(0, frames * channels);
+            for (int i=0;i<block.Length;i++)
+                if (!float.IsFinite(block[i])) block[i]=0;
+            loudness?.Add(block);
             if (pipeline is null) key!.Add(pcm.AsSpan(0, frames * channels), token);
             else pipeline.Submit(pcm.AsSpan(0, frames * channels));
             int offset = 0;
@@ -132,11 +144,31 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         }
 
         pipeline?.CompleteInput();
+        double readMs = watch.Elapsed.TotalMilliseconds;
         var waveform = new TrackWaveform(points.AsReadOnly(), totalFrames, framesPerPoint);
         var rhythm = TrackRhythmAnalyzer.AnalyzeEnergy(rhythmEnergy, rhythmHopFrames, totalFrames, token, trace);
+        double rhythmMs = watch.Elapsed.TotalMilliseconds - readMs;
         var musicalKey = pipeline is null ? key!.Finish() : pipeline.Join();
+        var localKeys = pipeline is null ? key!.FinishLocal() : pipeline.LocalKeys;
+        // The incomplete final FFT window has no local tonal evidence.
+        // Represent it explicitly rather than borrowing the global estimate.
+        long keyEnd = localKeys.Length == 0 ? 0 : localKeys[^1].EndFrame;
+        if (keyEnd < totalFrames && localKeys.Length < 8192)
+            localKeys = [..localKeys, new TrackKeySection(keyEnd,totalFrames,null)];
+        var measuredLoudness = pipeline is null ? loudness?.Finish() : pipeline.Loudness;
+        var profile = new TrackMusicProfile
+        {
+            LocalKeyVersion = TrackMusicProfile.CurrentLocalKeyVersion,
+            LocalKeys = localKeys,
+            LoudnessVersion = measuredLoudness is null ? 0 : TrackLoudness.Version,
+            Loudness = measuredLoudness
+        };
+        waveform = waveform with { Rhythm = rhythm, MusicalKey = musicalKey };
+        profile = TrackMusicProfileAnalyzer.Derive(waveform, profile, token);
         token.ThrowIfCancellationRequested();
-        return waveform with { Rhythm = rhythm, MusicalKey = musicalKey };
+        double totalMs = watch.Elapsed.TotalMilliseconds;
+        return waveform with { MusicProfile = profile, Timing = new(readMs, rhythmMs,
+            totalMs - readMs - rhythmMs, totalMs) };
     }
 
     private static WaveformPoint ToPoint(Vector4 peak) => new(peak.X, peak.Y, peak.Z, peak.W);

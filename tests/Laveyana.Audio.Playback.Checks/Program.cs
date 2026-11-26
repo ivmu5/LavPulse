@@ -28,6 +28,7 @@ internal static partial class Program
             await CheckQueueAnalysisLookahead();
             await CheckCompactAnalysisPassAsync();
             CheckMp3AudioInfo();
+            MusicProfileChecks.Run();
             await TrackPreparationChecks.RunAsync(directory);
             await LocalTrackStoreChecks.RunAsync(directory);
             await CheckTrackReportBundleAsync(directory);
@@ -35,6 +36,7 @@ internal static partial class Program
             Console.WriteLine("OK: MP3 stream properties.");
             CachedTrack first = MakeTrack(directory, "first", left: 8192, right: 0);
             CachedTrack second = MakeTrack(directory, "second", left: 0, right: 8192);
+            MusicProfileChecks.CheckNormalization(first, second);
             await CheckPlaybackSessionFailureCleanup(first);
             CheckMp3ArtworkSelection();
             CheckSingleInputMixer();

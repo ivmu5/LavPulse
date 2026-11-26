@@ -38,6 +38,9 @@ public sealed class QueuePlaybackSession : IDisposable
     /// <summary>Configures whether to mix into the next track at the end of the current one.</summary>
     public void SetAutoMix(bool enabled) => _queue.SetAutoMix(enabled);
 
+    /// <summary>Applies the measured per-deck gain, with a short render-owned ramp on changes.</summary>
+    public void SetLoudnessNormalization(bool enabled) => _queue.SetLoudnessNormalization(enabled);
+
     /// <summary>Repeats the current track at its end while allowing a manual track change.</summary>
     public void SetRepeatOne(bool enabled) => _queue.SetRepeatOne(enabled);
 

@@ -163,6 +163,7 @@ public sealed partial class MainPage
         _appearanceDraft = null;
         _settings = value;
         _playback.SetAutoMix(value.AutoMix);
+        _playback.SetLoudnessNormalization(value.NormalizeLoudness);
         _playback.SetCrossfadeDuration(value.CrossfadeMilliseconds);
         _playback.SetVisualDelay(value.VisualDelayMilliseconds);
         _library.SetAnalysisParallelism(value.AnalysisParallelism);

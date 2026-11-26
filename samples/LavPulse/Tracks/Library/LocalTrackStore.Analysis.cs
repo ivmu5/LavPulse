@@ -14,9 +14,20 @@ internal sealed partial class LocalTrackStore
         if (analysis is { TotalFrames: > 0, FramesPerPoint: > 0, Points.Length: > 0 and <= 8192 } &&
             analysis.TotalFrames <= long.MaxValue / PlaybackFormat.Pcm16FrameBytes &&
             (analysis.TotalFrames - 1) / analysis.FramesPerPoint + 1 == analysis.Points.LongLength &&
+            analysis.Points.All(p => float.IsFinite(p.Peak) && p.Peak >= 0 &&
+                float.IsFinite(p.Low) && p.Low >= 0 && float.IsFinite(p.Mid) && p.Mid >= 0 &&
+                float.IsFinite(p.High) && p.High >= 0) &&
             analysis.Rhythm is { } rhythm && TrackRhythmAnalyzer.IsValid(rhythm, analysis.TotalFrames) &&
             (analysis.MusicalKey is null || analysis.MusicalKey.IsValid))
         {
+            // An invalid optional profile must not invalidate a usable beat grid or PCM.
+            if (analysis.MusicProfile is { } profile && !profile.IsValid(analysis.TotalFrames))
+                analysis = analysis with { MusicProfile = null };
+            // Derive once on the asynchronous cache-read path, not every
+            // time a caller requests the waveform. Preserve the original PCM.
+            if (analysis.MusicProfile is not { HasCurrentDerived: true })
+                analysis = analysis with { MusicProfile = TrackMusicProfileAnalyzer.Derive(
+                    analysis.Waveform, analysis.MusicProfile, token) };
             _analyzed[file.LocalPath!] = 0;
             return analysis;
         }
@@ -95,6 +106,10 @@ internal sealed partial class LocalTrackStore
     public async Task SaveAnalysisAsync(TrackFile file, TrackWaveform waveform, TrackAudioInfo? info,
         string? pcm, CancellationToken token, bool replaceAnalysis = false)
     {
+        token.ThrowIfCancellationRequested();
+        if (pcm is null && !replaceAnalysis && HasAnalysis(file)) return;
+        var rhythm = waveform.Rhythm ?? TrackRhythmAnalyzer.Analyze(waveform);
+        var profile = TrackMusicProfileAnalyzer.Derive(waveform with { Rhythm = rhythm }, waveform.MusicProfile, token);
         await _analysisWrites.WaitAsync(token).ConfigureAwait(false);
         try
         {
@@ -110,8 +125,9 @@ internal sealed partial class LocalTrackStore
             var analysis = new StoredAnalysis(waveform.TotalFrames, waveform.FramesPerPoint, waveform.Points.ToArray(),
                 info, Path.GetFileName(pcm))
             {
-                Rhythm = waveform.Rhythm ?? TrackRhythmAnalyzer.Analyze(waveform),
-                MusicalKey = waveform.MusicalKey
+                Rhythm = rhythm,
+                MusicalKey = waveform.MusicalKey,
+                MusicProfile = profile
             };
             await WriteAsync(AnalysisPath(file), analysis, TrackStoreJson.Default.StoredAnalysis, token).ConfigureAwait(false);
             _analyzed[file.LocalPath!] = 0;

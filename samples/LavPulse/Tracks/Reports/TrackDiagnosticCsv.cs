@@ -33,6 +33,22 @@ internal static class TrackDiagnosticCsv
         await Write(zip, prefix + "waveform.csv",
             Rows("frame,peak,low,mid,high", waveform.Points.Select((p, i) =>
                 FormattableString.Invariant($"{(long)i * waveform.FramesPerPoint},{p.Peak:R},{p.Low:R},{p.Mid:R},{p.High:R}"))), token).ConfigureAwait(false);
+        if (waveform.MusicProfile is { } profile)
+        {
+            await Write(zip, prefix + "music-energy.csv", Rows("start_frame,end_frame_exclusive,relative_energy,bass_share,attacks_per_second",
+                profile.Energy.Select(e => FormattableString.Invariant($"{e.StartFrame},{e.EndFrame},{e.Energy:R},{e.BassShare:R},{e.AttacksPerSecond:R}"))), token).ConfigureAwait(false);
+            await Write(zip, prefix + "music-structure.csv", Rows("start_frame,end_frame_exclusive,kind,relative_energy",
+                profile.Structure.Select(s => FormattableString.Invariant($"{s.StartFrame},{s.EndFrame},{s.Kind},{s.Energy:R}"))), token).ConfigureAwait(false);
+            await Write(zip, prefix + "local-keys.csv", Rows("start_frame,end_frame_exclusive,tonic,mode,confidence,correlation,margin",
+                profile.LocalKeys.Select(k => k.Key is { } key ?
+                    FormattableString.Invariant($"{k.StartFrame},{k.EndFrame},{key.Tonic},{key.Mode},{key.Confidence:R},{key.Correlation:R},{key.Margin:R}") :
+                    FormattableString.Invariant($"{k.StartFrame},{k.EndFrame},,,,,"))), token).ConfigureAwait(false);
+            await Write(zip, prefix + "downbeats.csv", Rows("frame,pulses_per_bar,confidence",
+                profile.Meter.SelectMany(m => m.Downbeats.Select(f => FormattableString.Invariant($"{f},{m.PulsesPerBar},{m.Confidence:R}")))), token).ConfigureAwait(false);
+            if (profile.Loudness is { } loudness)
+                await Write(zip, prefix + "loudness.csv", Rows("end_frame,short_term_lufs",
+                    loudness.ShortTerm.Select(s => FormattableString.Invariant($"{s.EndFrame},{s.Lufs:R}"))), token).ConfigureAwait(false);
+        }
         if (grid is not null)
         {
             await Write(zip, prefix + "beats.csv", Rows("frame",

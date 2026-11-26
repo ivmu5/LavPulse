@@ -53,13 +53,29 @@ internal static class LocalTrackStoreChecks
             ReferenceEquals(current, tracks[1]), "Queue order or current track changed after reopening.");
         Require(reopened.HasAnalysis(tracks[0]), "Compact analysis was not indexed after reopening.");
         var cached = await reopened.ReadAnalysisAsync(tracks[1], default);
-        Require(cached is not null && cached.Rhythm is not null && reopened.FindPcm(cached) == ready.Path,
+        Require(cached is not null && cached.Rhythm is not null && reopened.FindPcm(cached) == ready.Path &&
+            cached.MusicProfile is { HasCurrentDerived: true, LoudnessVersion: 1, LocalKeyVersion: 1 } &&
+            cached.MusicProfile.IsValid(cached.TotalFrames),
             "Completed PCM was lost or replaced by a compact scan.");
         Require(await reopened.ReadTrackStorageSizeAsync(tracks[0], default) ==
                 tracks[0].SizeBytes + AnalysisBytes(tracks[0]) &&
             await reopened.ReadTrackStorageSizeAsync(tracks[1], default) ==
                 mediaBytes + AnalysisBytes(tracks[1]) + new FileInfo(ready.Path).Length,
             "Track storage did not include exactly the cache files that exist after reopening.");
+
+        // Simulate a v13 manifest written before the optional music profile.
+        // Reading it must reconstruct only derived features and keep PCM.
+        string manifestPath = Path.Combine(root, "analysis-v13",
+            Path.GetFileNameWithoutExtension(tracks[1].LocalPath) + ".json");
+        string currentJson = await File.ReadAllTextAsync(manifestPath);
+        var legacy = System.Text.Json.Nodes.JsonNode.Parse(currentJson)!.AsObject();
+        legacy.Remove("MusicProfile");
+        await File.WriteAllTextAsync(manifestPath, legacy.ToJsonString());
+        var migrated = await reopened.ReadAnalysisAsync(tracks[1], default);
+        Require(migrated?.MusicProfile is { HasCurrentDerived:true, LoudnessVersion:0, LocalKeyVersion:0 } &&
+            migrated.MusicProfile.Loudness is null && reopened.FindPcm(migrated)==ready.Path,
+            "Legacy analysis was discarded or invented audio-derived features.");
+        await File.WriteAllTextAsync(manifestPath,currentJson);
 
         var points = ready.Waveform.Points.ToArray();
         points[0] = points[0] with { Peak = 0.193f };
@@ -70,7 +86,8 @@ internal static class LocalTrackStoreChecks
         await reopened.SaveAnalysisAsync(tracks[1], rescanned, ready.AudioInfo, null, default, replaceAnalysis: true);
         cached = await reopened.ReadAnalysisAsync(tracks[1], default);
         Require(cached is not null && cached.Points[0] == points[0] && reopened.FindPcm(cached) == ready.Path &&
-            cached.Waveform.MusicalKey == rescanned.MusicalKey,
+            cached.Waveform.MusicalKey == rescanned.MusicalKey &&
+            ReferenceEquals(cached.Waveform.MusicProfile, cached.Waveform.MusicProfile),
             "Forced analysis did not replace the waveform while keeping compatible PCM.");
 
         // After PCM eviction the saved waveform remains usable when rebuilding the playback cache.
