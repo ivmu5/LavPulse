@@ -133,11 +133,10 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
 
         pipeline?.CompleteInput();
         var waveform = new TrackWaveform(points.AsReadOnly(), totalFrames, framesPerPoint);
-        return waveform with
-        {
-            Rhythm = TrackRhythmAnalyzer.AnalyzeEnergy(rhythmEnergy, rhythmHopFrames, totalFrames, token, trace),
-            MusicalKey = pipeline is null ? key!.Finish() : pipeline.Join()
-        };
+        var rhythm = TrackRhythmAnalyzer.AnalyzeEnergy(rhythmEnergy, rhythmHopFrames, totalFrames, token, trace);
+        var musicalKey = pipeline is null ? key!.Finish() : pipeline.Join();
+        token.ThrowIfCancellationRequested();
+        return waveform with { Rhythm = rhythm, MusicalKey = musicalKey };
     }
 
     private static WaveformPoint ToPoint(Vector4 peak) => new(peak.X, peak.Y, peak.Z, peak.W);

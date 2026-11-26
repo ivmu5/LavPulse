@@ -64,6 +64,12 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
         return default;
     }
 
+    private void NotifyProgress()
+    {
+        try { progress(); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"LavPulse analysis progress: {ex}"); }
+    }
+
     private async Task RunAsync()
     {
         while (!lifetime.IsCancellationRequested)
@@ -75,7 +81,7 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
             try
             {
                 var work = next.PreparePcm ? prepare(file) : analyze!(file);
-                if (!work.IsCompleted) progress();
+                if (!work.IsCompleted) NotifyProgress();
                 await work.ConfigureAwait(false);
                 lock (_gate)
                 {
@@ -113,7 +119,7 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
                 }
                 System.Diagnostics.Debug.WriteLine($"LavPulse background analysis: {file.Name}: {ex}");
             }
-            progress();
+            NotifyProgress();
             try
             {
                 // Leave time for playback and other work between decodes.

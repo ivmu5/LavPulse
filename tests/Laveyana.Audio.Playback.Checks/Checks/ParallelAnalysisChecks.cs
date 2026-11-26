@@ -1,4 +1,6 @@
+using Laveyana.Audio;
 using Laveyana.Audio.Playback;
+using Laveyana.LavPulse.Tracks;
 
 internal static class ParallelAnalysisChecks
 {
@@ -31,6 +33,7 @@ internal static class ParallelAnalysisChecks
         // and disposal must wait for the consumer before returning pooled PCM.
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
         using var entered = new ManualResetEventSlim();
+        using var full = new ManualResetEventSlim();
         using var pipeline2 = new ParallelKeyAnalysis((_, _, token) =>
         {
             entered.Set();
@@ -41,14 +44,25 @@ internal static class ParallelAnalysisChecks
         {
             try
             {
-                for (int i = 0; i < 32; i++) pipeline2.Submit(new float[32]);
+                for (int i = 0; i < 32; i++)
+                {
+                    pipeline2.Submit(new float[32]);
+                    if (i == ParallelKeyAnalysis.Capacity) full.Set();
+                }
                 throw new InvalidOperationException("A full buffer ignored cancellation.");
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
         });
-        Require(entered.Wait(TimeSpan.FromSeconds(5)), "The key worker did not start.");
-        cancellation.Cancel();
-        await producer.WaitAsync(timeout.Token);
+        try
+        {
+            Require(entered.Wait(TimeSpan.FromSeconds(5)), "The key worker did not start.");
+            Require(full.Wait(TimeSpan.FromSeconds(5)), "The bounded buffer did not fill.");
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await producer;
+        }
         try { pipeline2.Join(); throw new InvalidOperationException("The consumer ignored cancellation."); }
         catch (OperationCanceledException) { }
 
@@ -62,7 +76,32 @@ internal static class ParallelAnalysisChecks
             }
             catch (IOException ex) when (ex.Message == "decoder fault") { }
         }).WaitAsync(timeout.Token);
-        Console.WriteLine("OK: two-lane analysis equivalence, bounded buffer, consumer and producer failures, cancellation.");
+        await CheckTrackGatesAsync(timeout.Token);
+        Console.WriteLine("OK: two-lane analysis equivalence, bounded buffer, consumer and producer failures, cancellation and track identity.");
+    }
+
+    private static async Task CheckTrackGatesAsync(CancellationToken token)
+    {
+        var gates = new TrackOperationGates();
+        var first = TrackFile.FromPath("same-track.mp3");
+        var second = TrackFile.FromPath(Path.GetFullPath("same-track.mp3"));
+        var other = TrackFile.FromPath("other-track.mp3");
+        using (var lease = await gates.AcquireAsync(first, token))
+        {
+            using var independent = await gates.AcquireAsync(other, token);
+            using var cancelled = CancellationTokenSource.CreateLinkedTokenSource(token);
+            var waiting = gates.AcquireAsync(second, cancelled.Token).AsTask();
+            Require(!waiting.IsCompleted, "Different TrackFile instances for the same path did not serialize.");
+            cancelled.Cancel();
+            try
+            {
+                using var unexpected = await waiting;
+                throw new InvalidOperationException("Cancelled track-gate wait succeeded.");
+            }
+            catch (OperationCanceledException) when (cancelled.IsCancellationRequested) { }
+        }
+        using (var next = await gates.AcquireAsync(second, token)) { }
+        Require(gates.ActiveKeys == 0, "Track-gate entries leaked after cancellation or release.");
     }
 
     private sealed class ToneSource(bool fail = false) : IPcmSource

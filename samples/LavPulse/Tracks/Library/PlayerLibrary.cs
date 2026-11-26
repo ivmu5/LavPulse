@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using Laveyana.Audio.Playback;
 using Laveyana.LavPulse.Controls;
 using System.Collections.Concurrent;
@@ -26,7 +25,7 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
     private readonly Dictionary<TrackFile, Task<TrackMetadata>> _metadata = new();
     private readonly Dictionary<TrackFile, Task<TrackMetadata>> _queueMetadata = new();
     private readonly SemaphoreSlim _thumbnailSlots = new(2);
-    private readonly ConditionalWeakTable<TrackFile, SemaphoreSlim> _trackGates = new();
+    private readonly TrackOperationGates _trackGates = new();
     private readonly TrackAnalysisSlots _analysisSlots = new(
         PlayerSettings.ResolveAnalysisParallelism(PlayerSettings.DefaultAnalysisParallelism));
     private readonly SemaphoreSlim _metadataSlots = new(3);
@@ -142,8 +141,7 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, lifetime);
         token = linked.Token;
-        var gate = _trackGates.GetValue(file, static _ => new SemaphoreSlim(1));
-        await gate.WaitAsync(token).ConfigureAwait(false);
+        using var gate = await _trackGates.AcquireAsync(file, token).ConfigureAwait(false);
         bool slot = false, helper = false, scanning = false;
         try
         {
@@ -170,7 +168,6 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
             }
             if (helper) _analysisSlots.ReleaseHelper();
             if (slot) _analysisSlots.Release(scan: true);
-            gate.Release();
         }
     }
 
@@ -202,48 +199,43 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
             System.Diagnostics.Debug.WriteLine(ex);
         }
 
-        var gate = _trackGates.GetValue(file, static _ => new SemaphoreSlim(1));
-        await gate.WaitAsync(token).ConfigureAwait(false);
+        using var gate = await _trackGates.AcquireAsync(file, token).ConfigureAwait(false);
+        var analysis = await store.ReadAnalysisAsync(file, token).ConfigureAwait(false);
+        if (analysis is not null && store.FindPcm(analysis) is { } pcm)
+        {
+            tags ??= await preparation.ReadMetadataAsync(file, token).ConfigureAwait(false);
+            var cached = new CachedTrack(file.Name, pcm, analysis.Waveform, tags, analysis.AudioInfo);
+            _decodedFiles[cached] = file;
+            store.ClaimRestoredPcm(file);
+            return cached;
+        }
+
+        // Only a cache miss competes with background work for a decoder.
+        await _analysisSlots.AcquireAsync(scan: false, token).ConfigureAwait(false);
+        bool helper = false;
         try
         {
-            var analysis = await store.ReadAnalysisAsync(file, token).ConfigureAwait(false);
-            if (analysis is not null && store.FindPcm(analysis) is { } pcm)
-            {
-                tags ??= await preparation.ReadMetadataAsync(file, token).ConfigureAwait(false);
-                var cached = new CachedTrack(file.Name, pcm, analysis.Waveform, tags, analysis.AudioInfo);
-                _decodedFiles[cached] = file;
-                store.ClaimRestoredPcm(file);
-                return cached;
-            }
-
-            // Only a cache miss competes with background work for a decoder.
-            await _analysisSlots.AcquireAsync(scan: false, token).ConfigureAwait(false);
-            bool helper = false;
+            helper = analysis is null && _analysisSlots.TryAcquireHelper(Environment.ProcessorCount);
+            var track = await preparation.ImportAsync(file, tags,
+                analysis is null ? null : (analysis.Waveform, analysis.AudioInfo), token, parallelKey: helper).ConfigureAwait(false);
             try
             {
-                helper = analysis is null && _analysisSlots.TryAcquireHelper(Environment.ProcessorCount);
-                var track = await preparation.ImportAsync(file, tags,
-                    analysis is null ? null : (analysis.Waveform, analysis.AudioInfo), token, parallelKey: helper).ConfigureAwait(false);
-                try
-                {
-                    await store.SaveAnalysisAsync(file, track.Waveform, track.AudioInfo, track.Path, token).ConfigureAwait(false);
-                }
-                catch
-                {
-                    track.Delete();
-                    throw;
-                }
-                _decodedFiles[track] = file;
-                store.ClaimRestoredPcm(file);
-                return track;
+                await store.SaveAnalysisAsync(file, track.Waveform, track.AudioInfo, track.Path, token).ConfigureAwait(false);
             }
-            finally
+            catch
             {
-                if (helper) _analysisSlots.ReleaseHelper();
-                _analysisSlots.Release(scan: false);
+                track.Delete();
+                throw;
             }
+            _decodedFiles[track] = file;
+            store.ClaimRestoredPcm(file);
+            return track;
         }
-        finally { gate.Release(); }
+        finally
+        {
+            if (helper) _analysisSlots.ReleaseHelper();
+            _analysisSlots.Release(scan: false);
+        }
     }
 
     /// <summary>Waits for pending imports and leaves complete PCM caches available for the next launch.</summary>

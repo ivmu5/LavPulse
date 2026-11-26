@@ -84,7 +84,18 @@ internal static partial class Program
         missing.Finish();
         Require(missing.Update([file], true, 1, 0) is null,
             "A missing published preparation caused unbounded retry.");
-        Console.WriteLine("OK: background analysis retries, bounded cancellation and missing result isolation.");
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool ready = false;
+        var progressFailure = new QueueTrackAnalysis(_ => ready, async _ =>
+        {
+            await completed.Task.ConfigureAwait(false);
+            ready = true;
+        }, () => { completed.TrySetResult(); throw new InvalidOperationException("progress callback fault"); }, stop.Token);
+        await progressFailure.Update([file], true, 1, 0)!.WaitAsync(stop.Token);
+        progressFailure.Finish();
+        Require(ready && progressFailure.Update([file], true, 1, 0) is null,
+            "A failing progress observer abandoned the active preparation.");
+        Console.WriteLine("OK: background analysis retries, bounded cancellation, missing results and progress isolation.");
     }
 
     private static async Task CheckQueueAnalysisLookahead()
