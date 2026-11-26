@@ -106,3 +106,18 @@ Added regression checks for sampled diagnostics, reused meter scratch and muted-
 60. Flush migration copies to disk and check cancellation immediately before publishing each verified file. Source remains intact until preferences are committed; this is not a multi-file transaction or directory-fsync guarantee.
 
 Added storage recovery checks for cancellation, truncated originals, corrupt/empty queue pruning, out-of-root deletion, malformed PCM lengths, observer faults and folder snapshot isolation. No cache schema change, blanket media deletion, release or merge. Build and device validation pending.
+
+## Tenth batch (passes 61–70)
+
+61. Reject nonfinite, negative display timestamps and negative FPS limits without mutating scheduling state.
+62. Automatic refresh ignores and clears an obsolete fixed-rate deadline, including transitions without an explicit clock reset.
+63. Clear old master spectrum levels once when the published audio source disappears; notify the active queue background as well.
+64. Sanitize nonfinite/out-of-range spectrum values before smoothing; avoid interpolation for unchanged band values.
+65. Defer waveform dynamics until a mesh is actually drawn, and downbeat arrays until a detailed grid needs them. Progress-bar-only and hidden views do not eagerly build these data.
+66. Use double intermediates for onset-marker pixel coordinates, matching beat grid and manual-marker precision.
+67. Cache the formatted track duration instead of repeatedly formatting it during playback.
+68. Do not reset playhead interpolation when its enabled state is unchanged. Explicit seek and track-change snapping remain intact.
+69. Cache measured total marquee width with text fragments; release recycled row text fragments and stale state on unbind.
+70. Keep cover transitions in their stable layout when unloaded or animations are suspended instead of leaving an entrance pose or incomplete handoff.
+
+Added clock regressions for invalid timestamps and automatic/fixed-rate transitions. Existing long-run cadence and waveform tests remain relevant. MAUI/native rendering and actual Android long-session FPS have not been measured. No visual design, cache format, release or merge. This is a focused UI source audit, not a confirmed fix for all Android degradation.

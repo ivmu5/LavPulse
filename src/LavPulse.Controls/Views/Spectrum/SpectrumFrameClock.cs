@@ -10,8 +10,10 @@ internal struct SpectrumFrameClock
     public bool TryAdvance(double timestamp, int framesPerSecond, out float elapsed)
     {
         elapsed = 0;
+        // A bad native timestamp must not poison all future deadlines.
+        if (!double.IsFinite(timestamp) || timestamp < 0 || framesPerSecond < 0) return false;
         if ((_lastDraw is double last && timestamp <= last) ||
-            (_nextDraw is double next && timestamp + EarlyToleranceSeconds < next))
+            (framesPerSecond > 0 && _nextDraw is double next && timestamp + EarlyToleranceSeconds < next))
         {
             return false;
         }
@@ -28,6 +30,7 @@ internal struct SpectrumFrameClock
             var scheduled = _nextDraw ?? timestamp;
             _nextDraw = (timestamp - scheduled >= interval ? timestamp : scheduled) + interval;
         }
+        else _nextDraw = null;
         return true;
     }
 }

@@ -71,6 +71,12 @@ internal sealed class QueueTrackRow : TrackListRow
     {
         File = null;
         _shown = null;
+        _current = _played = _loading = false;
+        _spectrum.IsVisible = false;
+        _text.ResetWidths();
+        _text.Title = "";
+        _text.Artist = _text.Status = null;
+        _text.Seconds = 0;
         SetArtwork(null);
         Scale = 1;
         SetDeleteReveal(0);
@@ -158,7 +164,7 @@ internal sealed class QueueTrackRow : TrackListRow
         public bool IsOverflowing { get; private set; }
         public event Action? OverflowChanged;
         private readonly record struct Fragment(string Text, float Width);
-        private readonly Dictionary<(string Text, Font Font, float Size), Fragment[]> _fragments = new();
+        private readonly Dictionary<(string Text, Font Font, float Size), (Fragment[] Pieces, float Width)> _fragments = new();
 
         public void ResetWidths()
         {
@@ -204,20 +210,20 @@ internal sealed class QueueTrackRow : TrackListRow
         private void DrawLine(ICanvas canvas, RectF bounds, string value, Font font, float size, Color color)
         {
             var key = (value, font, size);
-            if (!_fragments.TryGetValue(key, out var pieces))
+            if (!_fragments.TryGetValue(key, out var layout))
             {
                 // Never hand a whole long title to a platform renderer. Some native
                 // text backends wrap it even with the baseline DrawString overload.
                 // Short, grapheme-safe spans prevent a second line from appearing.
-                pieces = QueueTextFragments.Split(value)
+                var pieces = QueueTextFragments.Split(value)
                     .Select(part => new Fragment(part,
                         Math.Max(0, canvas.GetStringSize(part, font, size).Width)))
                     .ToArray();
-                _fragments[key] = pieces;
+                float total = 0;
+                foreach (var piece in pieces) total += piece.Width;
+                _fragments[key] = layout = (pieces,total);
             }
-            float total = 0;
-            foreach (var piece in pieces) total += piece.Width;
-            float overflow = Math.Max(0, total - bounds.Width);
+            float overflow = Math.Max(0, layout.Width - bounds.Width);
             IsOverflowing |= overflow > 0;
             float offset = QueueMarqueeMotion.Offset(overflow, Seconds);
             float baseline = QueueMarqueeMotion.Baseline(bounds.Center.Y, size);
@@ -227,7 +233,7 @@ internal sealed class QueueTrackRow : TrackListRow
             canvas.SaveState();
             canvas.ClipRectangle(bounds);
             float x = bounds.Left - offset;
-            foreach (var part in pieces)
+            foreach (var part in layout.Pieces)
             {
                 if (x + part.Width >= bounds.Left && x <= bounds.Right)
                     canvas.DrawString(part.Text, x, baseline, HorizontalAlignment.Left);

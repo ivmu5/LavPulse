@@ -124,8 +124,15 @@ public sealed partial class MasterSpectrumView : ContentView
     {
         if (!_frameClock.TryAdvance(time, _framesPerSecond, out float elapsed)) return;
         _drawUi?.Invoke(time);
-        if (!IsVisible || _getSource?.Invoke() is not { } mix)
+        if (!IsVisible) return;
+        if (_getSource?.Invoke() is not { } mix)
         {
+            if (_lastSource is not null)
+            {
+                ResetLevels();
+                _graphics.Invalidate();
+                VisualizationChanged?.Invoke();
+            }
             return;
         }
 

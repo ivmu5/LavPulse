@@ -44,14 +44,13 @@ internal sealed class WaveformDrawable : IDrawable
         {
             if (ReferenceEquals(_waveform, value)) return;
             _waveform = value;
-            _downbeats = value?.MusicProfile?.Meter.Where(m => m.Confidence >= .35f)
-                .SelectMany(m => m.Downbeats).Distinct().Order().ToArray() ?? [];
-            _dynamics = value is { Points.Count: > 0 } ? new WaveformDynamics(value.Points) : null;
+            _downbeats = null;
+            _dynamics = null;
             ReleaseBands();
         }
     }
     private TrackWaveform? _waveform;
-    private long[] _downbeats = [];
+    private long[]? _downbeats;
     private WaveformDynamics? _dynamics;
     public bool Detailed { get; init; }
     public int DetailWindowSeconds { get; set; } = PlayerSettings.DefaultWaveformDetailSeconds;
@@ -131,7 +130,8 @@ internal sealed class WaveformDrawable : IDrawable
             ReleaseBands();
             // Two adjacent detail windows cover the viewport until the playhead crosses the next chunk.
             int meshWindows = Detailed ? 2 : 1;
-            _bands = BuildBands(waveform, _dynamics!, meshStart, length * meshWindows, columns * meshWindows,
+            _dynamics ??= new WaveformDynamics(waveform.Points);
+            _bands = BuildBands(waveform, _dynamics, meshStart, length * meshWindows, columns * meshWindows,
                 x, spacing, middle, bounds.Height / 2 - 4);
             _cachedBounds = bounds;
             _cachedStart = meshStart;
@@ -221,16 +221,19 @@ internal sealed class WaveformDrawable : IDrawable
     private void DrawDownbeats(ICanvas canvas, RectF bounds, long start,
         long length, float x, float width)
     {
-        if (_downbeats.Length == 0) return;
-        int first = Array.BinarySearch(_downbeats, start);
+        // Only the detailed beat-grid view needs these markers.
+        var downbeats = _downbeats ??= Waveform?.MusicProfile?.Meter.Where(m => m.Confidence >= .35f)
+            .SelectMany(m => m.Downbeats).Distinct().Order().ToArray() ?? [];
+        if (downbeats.Length == 0) return;
+        int first = Array.BinarySearch(downbeats, start);
         if (first < 0) first = ~first;
         canvas.SaveState();
         canvas.ClipRectangle(x, bounds.Top, width, bounds.Height);
         canvas.StrokeColor = Colors.Accent;
         canvas.StrokeSize = 2.5f;
-        for (int i=first; i<_downbeats.Length && _downbeats[i]<=start+length; i++)
+        for (int i=first; i<downbeats.Length && downbeats[i]<=start+length; i++)
         {
-            float px=x+(float)((_downbeats[i]-start)*(double)width/length);
+            float px=x+(float)((downbeats[i]-start)*(double)width/length);
             canvas.DrawLine(px,bounds.Top+3,px,bounds.Bottom-3);
         }
         canvas.RestoreState();
@@ -248,7 +251,7 @@ internal sealed class WaveformDrawable : IDrawable
         canvas.StrokeSize = 1.5f;
         for (int i = first; i < onsets.Length && onsets[i] <= start + length; i++)
         {
-            float px = x + (float)((onsets[i] - start) * width / length);
+            float px = x + (float)((onsets[i] - start) * (double)width / length);
             canvas.DrawLine(px, bounds.Top + 1, px, bounds.Top + 7);
         }
         canvas.RestoreState();
