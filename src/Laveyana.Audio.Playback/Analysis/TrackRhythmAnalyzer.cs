@@ -65,10 +65,10 @@ public sealed record TrackBeatGrid(double Bpm, long FirstBeatFrame, float Confid
         {
             if (lo == Sections.Length || position < Sections[lo].StartFrame) return 0;
             var section = Sections[lo];
-            int first = BeatIndex(section.StartFrame), end = BeatIndex(section.EndFrame);
-            if (end - first < 4) return section.Bpm;
-            int center = Math.Clamp(BeatIndex(position), first, end - 1);
-            int from = Math.Clamp(center - 4, first, Math.Max(first, end - 9));
+            int sectionFirst = BeatIndex(section.StartFrame), end = BeatIndex(section.EndFrame);
+            if (end - sectionFirst < 4) return section.Bpm;
+            int center = Math.Clamp(BeatIndex(position), sectionFirst, end - 1);
+            int from = Math.Clamp(center - 4, sectionFirst, Math.Max(sectionFirst, end - 9));
             int to = Math.Min(end - 1, from + 8);
             Span<long> intervals = stackalloc long[8];
             int count = 0;
