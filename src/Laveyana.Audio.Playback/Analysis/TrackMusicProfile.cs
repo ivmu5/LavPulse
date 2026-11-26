@@ -30,7 +30,10 @@ public sealed record TrackMusicProfile
     public bool HasCurrentDerived => MeterVersion == CurrentMeterVersion &&
         EnergyVersion == CurrentEnergyVersion && StructureVersion == CurrentStructureVersion;
 
-    public TrackMusicalKey? KeyAt(long frame)
+    public TrackMusicalKey? KeyAt(long frame) =>
+        TryGetLocalKey(frame, out var key) ? key : null;
+
+    public bool TryGetLocalKey(long frame, out TrackMusicalKey? key)
     {
         int lo = 0, hi = LocalKeys.Length;
         while (lo < hi)
@@ -39,7 +42,13 @@ public sealed record TrackMusicProfile
             if (LocalKeys[mid].EndFrame <= frame) lo = mid + 1;
             else hi = mid;
         }
-        return lo < LocalKeys.Length && LocalKeys[lo].StartFrame <= frame ? LocalKeys[lo].Key : null;
+        if (lo < LocalKeys.Length && LocalKeys[lo].StartFrame <= frame)
+        {
+            key = LocalKeys[lo].Key;
+            return true;
+        }
+        key = null;
+        return false;
     }
 
     public bool IsValid(long total)
@@ -215,11 +224,14 @@ public static class MixCompatibilityAnalyzer
 {
     public static MixCompatibility Compare(TrackWaveform outgoing,long outFrame,TrackWaveform incoming,long inFrame)
     {
-        double a=outgoing.Rhythm?.BpmAt(outFrame)??0,b=incoming.Rhythm?.BpmAt(inFrame)??0;
+        double a=outgoing.Rhythm is {HasBeatGrid:true} ar?ar.BpmAt(outFrame):0;
+        double b=incoming.Rhythm is {HasBeatGrid:true} br?br.BpmAt(inFrame):0;
         float? tempo=a>0&&b>0?(float)Math.Clamp(1-Math.Min(Math.Abs(Math.Log2(a/b)),
             Math.Min(Math.Abs(Math.Log2(2*a/b)),Math.Abs(Math.Log2(a/(2*b)))))*5,0,1):null;
-        var ka=outgoing.MusicProfile?.KeyAt(outFrame)??outgoing.MusicalKey;
-        var kb=incoming.MusicProfile?.KeyAt(inFrame)??incoming.MusicalKey;
+        // Do not turn an explicitly uncertain local section into a confident
+        // harmonic match by borrowing the global key.
+        var ka=KeyForMix(outgoing,outFrame);
+        var kb=KeyForMix(incoming,inFrame);
         float? harmony=null;
         if(ka is {IsValid:true,Confidence:>=.15f}&&kb is {IsValid:true,Confidence:>=.15f})
         {
@@ -236,5 +248,11 @@ public static class MixCompatibilityAnalyzer
         void Add(float? score,float w){if(score is float s){sum+=s*w;weight+=w;}}
         Add(tempo,.45f);Add(harmony,.35f);Add(energy,.2f);
         return new(weight>0?sum/weight:null,weight,tempo,harmony,energy);
+    }
+
+    private static TrackMusicalKey? KeyForMix(TrackWaveform waveform,long frame)
+    {
+        if(waveform.MusicProfile is { } profile && profile.TryGetLocalKey(frame,out var key)) return key;
+        return waveform.MusicalKey;
     }
 }

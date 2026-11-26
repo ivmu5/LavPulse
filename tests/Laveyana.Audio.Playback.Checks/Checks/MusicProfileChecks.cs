@@ -19,7 +19,7 @@ internal static class MusicProfileChecks
             loud.Add(block);quiet.Add(half);silence.Add(new float[9600]);
         }
         var a=loud.Finish();var b=quiet.Finish();
-        Require(a.IntegratedLufs is float al&&b.IntegratedLufs is float bl&&Math.Abs(al-bl-6.0206)<.01,
+        Require(a.IntegratedLufs is float al&&b.IntegratedLufs is float bl&&Math.Abs(al-bl-6.0206)<.01 && Math.Abs(al+12.0345)<.03,
             "Loudness did not scale by 6 dB.");
         Require(a.SamplePeakDbfs is float peak&&Math.Abs(peak+12.0412)<.01&&
             a.ShortTerm.Length==4&&a.IsValid(288000)&&silence.Finish().IntegratedLufs is null,
@@ -46,6 +46,9 @@ internal static class MusicProfileChecks
         var withKey=waveform with{MusicalKey=key,MusicProfile=profile with{LocalKeys=[new(0,10000,key)]}};
         var match=MixCompatibilityAnalyzer.Compare(withKey,0,withKey,0);
         Require(match.Score is float score&&score>.99f&&match.Evidence>.99f,"Identical tracks were not compatible.");
+        var uncertain=withKey with{MusicProfile=profile with{LocalKeys=[new(0,10000,null)]}};
+        Require(MixCompatibilityAnalyzer.Compare(withKey,0,uncertain,0).Harmony is null,
+            "An uncertain local key was incorrectly replaced by a global harmony match.");
         var metrics=RhythmReportReplay.Metrics([0,48000,96000,200000],[0,48000,96000],4800);
         Require(metrics.F1==1&&metrics.MaeMs==0,"Unannotated tail biased regression metrics.");
         Console.WriteLine("OK: loudness, conservative meter, derived cache, compatibility and excerpt metrics.");

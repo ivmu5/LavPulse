@@ -44,11 +44,14 @@ internal sealed class WaveformDrawable : IDrawable
         {
             if (ReferenceEquals(_waveform, value)) return;
             _waveform = value;
+            _downbeats = value?.MusicProfile?.Meter.Where(m => m.Confidence >= .35f)
+                .SelectMany(m => m.Downbeats).Distinct().Order().ToArray() ?? [];
             _dynamics = value is { Points.Count: > 0 } ? new WaveformDynamics(value.Points) : null;
             ReleaseBands();
         }
     }
     private TrackWaveform? _waveform;
+    private long[] _downbeats = [];
     private WaveformDynamics? _dynamics;
     public bool Detailed { get; init; }
     public int DetailWindowSeconds { get; set; } = PlayerSettings.DefaultWaveformDetailSeconds;
@@ -149,7 +152,10 @@ internal sealed class WaveformDrawable : IDrawable
         // Overlay the grid and accents after the colored waveform: previously the bars
         // obscured the faint grid and made valid beat positions nearly invisible.
         if (Mode != DeckWaveformMode.Color && waveform.Rhythm is { HasBeatGrid: true } rhythm)
+        {
             DrawBeatGrid(canvas, bounds, rhythm, start, length, x, width);
+            if (Detailed) DrawDownbeats(canvas, bounds, start, length, x, width);
+        }
         if (Mode == DeckWaveformMode.Transients && Detailed && waveform.Rhythm is { } transients)
             DrawOnsetMarks(canvas, bounds, transients.TransientFrames, start, length, x, width);
         DrawManualBeatMarks(canvas, bounds, start, length, x, width);
@@ -208,6 +214,24 @@ internal sealed class WaveformDrawable : IDrawable
             // BeatFrames includes local tempo corrections; never reconstruct a constant-period grid.
             float px = x + (float)((beats[index] - start) * (double)width / length);
             canvas.DrawLine(px, bounds.Top + 3, px, bounds.Bottom - 3);
+        }
+        canvas.RestoreState();
+    }
+
+    private void DrawDownbeats(ICanvas canvas, RectF bounds, long start,
+        long length, float x, float width)
+    {
+        if (_downbeats.Length == 0) return;
+        int first = Array.BinarySearch(_downbeats, start);
+        if (first < 0) first = ~first;
+        canvas.SaveState();
+        canvas.ClipRectangle(x, bounds.Top, width, bounds.Height);
+        canvas.StrokeColor = Colors.Accent;
+        canvas.StrokeSize = 2.5f;
+        for (int i=first; i<_downbeats.Length && _downbeats[i]<=start+length; i++)
+        {
+            float px=x+(float)((_downbeats[i]-start)*(double)width/length);
+            canvas.DrawLine(px,bounds.Top+3,px,bounds.Bottom-3);
         }
         canvas.RestoreState();
     }
