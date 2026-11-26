@@ -136,13 +136,12 @@ public static partial class TrackRhythmAnalyzer
         var onsets = DetectOnsets(energy, hopsPerSecond, cancellationToken);
         // Without reliable rhythm, show only exceptionally strong isolated accents.
         // Relax the visual threshold only after the grid is independently validated.
-        long[] transients = StoreTransients(onsets, framesPerHop, totalFrames, .85f);
         TrackOnsetDiagnostic[] onsetDebug = SampleCandidates(onsets, framesPerHop, totalFrames);
         if (trace is not null)
             trace.Onsets = onsets.Select(hit => new TrackOnsetDiagnostic(
                 Math.Min(totalFrames - 1, (long)hit.Index * framesPerHop), hit.Strength, hit.Accent)).ToArray();
         if (onsets.Count < 8)
-            return Empty(transients) with
+            return Empty(StoreTransients(onsets, framesPerHop, totalFrames, .85f)) with
             {
                 CandidateOnsets = onsets.Count,
                 OnsetDiagnostics = onsetDebug,
@@ -160,9 +159,17 @@ public static partial class TrackRhythmAnalyzer
 
         // Periodic phase-coherence evidence every two seconds, measured in 9-second windows.
         // Windowing prevents a tempo change in the middle of a song from cancelling the score.
-        var indices = onsets.Select(o => o.Index).ToArray();
-        var strengths = onsets.Select(o => o.Strength).ToArray();
-        var accents = onsets.Select(BeatWeight).ToArray();
+        var indices = new int[onsets.Count];
+        var strengths = new float[onsets.Count];
+        var accents = new double[onsets.Count];
+        for (int i = 0; i < onsets.Count; i++)
+        {
+            if ((i & 4095) == 0) cancellationToken.ThrowIfCancellationRequested();
+            var onset = onsets[i];
+            indices[i] = onset.Index;
+            strengths[i] = onset.Strength;
+            accents[i] = BeatWeight(onset);
+        }
         var firstHits = new int[slices];
         var lastHits = new int[slices];
         var weights = new double[slices];
@@ -310,26 +317,27 @@ public static partial class TrackRhythmAnalyzer
             framesPerHop, cancellationToken, trace);
         ExtendSupportedTails(sections, beats, predicted, onsets, bands, hopsPerSecond,
             framesPerHop, totalFrames, cancellationToken);
+        Span<int> subdivisionCounts = stackalloc int[5];
         for (int i = 0; i < sections.Count; i++)
         {
             var section = sections[i];
             double windowFrames = (double)stride * framesPerHop;
             int first = Math.Clamp((int)Math.Ceiling(section.StartFrame / windowFrames), 0, slices - 1);
             int end = Math.Clamp((int)Math.Floor((section.EndFrame - 1) / windowFrames), first, slices - 1);
-            int[] counts = new int[5];
+            subdivisionCounts.Clear();
             for (int w = first; w <= end; w++)
             {
                 if (!windows[w].Accepted || Math.Abs(windows[w].Bpm - section.Bpm) > section.Bpm * .04) continue;
-                counts[windows[w].SubdivisionFactor]++;
+                subdivisionCounts[windows[w].SubdivisionFactor]++;
             }
             int best = 1;
             for (int factor = 2; factor <= 4; factor++)
-                if (counts[factor] > counts[best] && counts[factor] >= 2) best = factor;
+                if (subdivisionCounts[factor] > subdivisionCounts[best] && subdivisionCounts[factor] >= 2) best = factor;
             sections[i] = section with { SubdivisionFactor = best };
         }
 
         if (beats.Count == 0)
-            return Empty(transients) with
+            return Empty(StoreTransients(onsets, framesPerHop, totalFrames, .85f)) with
             {
                 Windows = windows,
                 PredictedBeatFrames = predicted.Select(estimate => estimate.Frame).ToArray(),

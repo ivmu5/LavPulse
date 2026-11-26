@@ -620,6 +620,9 @@ internal static class TrackPreparationChecks
         }
         var trace = new TrackRhythmTrace();
         var grid = TrackRhythmAnalyzer.AnalyzeEnergy(energy, hop, (long)energy.Length * hop, trace: trace);
+        int sampleStep = Math.Max(1,(int)Math.Ceiling(trace.Onsets.Length / 8192d));
+        Require(grid.OnsetDiagnostics.SequenceEqual(trace.Onsets.Where((_,i)=>i%sampleStep==0)),
+            "Direct diagnostic sampling changed onset order or count.");
         Require(TrackRhythmAnalyzer.IsValid(grid, (long)energy.Length * hop) &&
             grid.HasBeatGrid && !grid.BeatFrames.Any(f => f >= 42L * PlaybackFormat.SampleRate &&
                 f < 47L * PlaybackFormat.SampleRate),

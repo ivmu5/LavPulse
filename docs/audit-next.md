@@ -76,3 +76,18 @@ Resume the original thematic roadmap. Passes 31–34 included rhythm/profile wor
 40. Publish the visual delay and spectrum settings under the same startup lock to eliminate lost setting updates during output creation.
 
 Regression checks cover slot cancellation/accounting, mutable scheduler arrays, empty and disposed analysis workers, cancelled/failed playback and visual delay across restart. Static source review only; CI and native-device checks pending. No cache version or settings changes. No merge or release.
+
+## Eighth batch (passes 41–50)
+
+41. Allocate the exact bounded onset diagnostic array and fill it directly, avoiding a growing list and final copy.
+42. Fill the exact transient output array directly after accent selection, replacing indexed LINQ and its intermediate machinery.
+43. Compute strict fallback transients only for unsuccessful rhythm analysis; successful analysis no longer builds and discards a second transient array.
+44. Extract onset indices, strengths and weighted accents together in one pass into exact arrays, preserving the existing weight formula.
+45. Reuse a five-element stack counter for section subdivisions rather than allocating one array per section.
+46. Size tonal power scratch to the highest inspected FFT bin (1502 doubles at 48 kHz instead of 4096; FFT resolution unchanged).
+47. Hold intermediate energy values as value tuples and construct only the final normalized energy records; sort one exact float array in place.
+48. Reuse meter accent scratch across sections, processing only the populated span and summing in input order.
+49. Read tempo evidence matrices in row-major order for global averages, preserving each candidate's accumulation order and arithmetic.
+50. Skip scalar/SIMD mixing work on exactly zero-gain decks after reading them; clear a muted single-input output. Source advancement and other decks remain intact; signed zero may become positive zero, with no audible difference.
+
+Added regression checks for sampled diagnostics, reused meter scratch and muted-deck advancement/isolation. Existing synthetic rhythm, tonal, profile and PCM checks remain applicable. No thresholds, cache schema or settings changed. Static inspection only; no allocation benchmark, GC trace, device run or verified build for this batch yet.

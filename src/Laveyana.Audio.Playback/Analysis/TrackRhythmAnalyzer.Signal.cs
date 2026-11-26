@@ -123,22 +123,27 @@ public static partial class TrackRhythmAnalyzer
             else accents.Add(onset);
         }
         int stride = Math.Max(1, (int)Math.Ceiling(accents.Count / (double)MaximumStoredTransients));
-        return accents.Where((_, index) => index % stride == 0)
-            .Select(hit => Math.Min(totalFrames - 1, (long)hit.Index * hopFrames)).ToArray();
+        if (accents.Count == 0) return [];
+        var result = new long[(accents.Count - 1) / stride + 1];
+        for (int i = 0; i < result.Length; i++)
+            result[i] = Math.Min(totalFrames - 1, (long)accents[i * stride].Index * hopFrames);
+        return result;
     }
 
     private static TrackOnsetDiagnostic[] SampleCandidates(IReadOnlyList<Onset> onsets,
         int framesPerHop, long totalFrames)
     {
         int step = Math.Max(1, (int)Math.Ceiling(onsets.Count / (double)MaximumStoredTransients));
-        var result = new List<TrackOnsetDiagnostic>();
-        for (int i = 0; i < onsets.Count; i += step)
+        int count = onsets.Count == 0 ? 0 : (onsets.Count - 1) / step + 1;
+        if (count == 0) return [];
+        var result = new TrackOnsetDiagnostic[count];
+        for (int i = 0; i < count; i++)
         {
-            var hit = onsets[i];
-            result.Add(new(Math.Min(totalFrames - 1, (long)hit.Index * framesPerHop),
-                hit.Strength, hit.Accent));
+            var hit = onsets[i * step];
+            result[i] = new(Math.Min(totalFrames - 1, (long)hit.Index * framesPerHop),
+                hit.Strength, hit.Accent);
         }
-        return result.ToArray();
+        return result;
     }
 
     private static TrackBeatGrid Empty(long[]? transients = null) => new(0, 0, 0, transients ?? []);

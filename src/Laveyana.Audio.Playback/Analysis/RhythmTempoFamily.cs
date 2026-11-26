@@ -14,10 +14,13 @@ internal static class RhythmTempoFamily
         var confidence = (float[,])raw.Clone();
         var average = new float[candidates];
         var periodicAverage = new float[candidates];
-        for (int c = 0; c < candidates; c++)
+        token.ThrowIfCancellationRequested();
+        // Rectangular arrays are row-major. Each candidate still sums its
+        // windows in the original order, but adjacent reads are contiguous.
+        for (int w = 0; w < windows; w++)
         {
             token.ThrowIfCancellationRequested();
-            for (int w = 0; w < windows; w++)
+            for (int c = 0; c < candidates; c++)
             {
                 average[c] += raw[w, c] / windows;
                 periodicAverage[c] += periodicity[w, c] / windows;

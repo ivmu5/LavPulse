@@ -78,6 +78,22 @@ internal static class MusicProfileChecks
         var invalidMeter = waveform with { Rhythm = rhythm with { Sections = [rhythm.Sections[0] with { Bpm = double.NaN }] } };
         Require(TrackMusicProfileAnalyzer.Derive(invalidMeter).Meter.Length == 0,
             "A nonfinite tempo produced a meter hypothesis.");
+        // Repeated and smaller sections must not read stale accent scratch.
+        var longBeats = Enumerable.Range(0,72).Select(i => (long)i*beatHop*hop).ToArray();
+        var longPoints = Enumerable.Repeat(new WaveformPoint(.6f,.2f,.2f,.1f),880).ToArray();
+        for (int i=0;i<longBeats.Length;i++)
+            longPoints[i*beatHop] = new(.7f,i%4==0?.7f:.18f,.2f,.1f);
+        var longWave = new TrackWaveform(longPoints,880L*hop,hop)
+        {
+            Rhythm = rhythm with { BeatFrames=longBeats, TransientFrames=longBeats, Sections=[
+                new(0,28L*beatHop*hop,125,.8f,28,28),
+                new(28L*beatHop*hop,52L*beatHop*hop,125,.8f,24,24),
+                new(52L*beatHop*hop,880L*hop,125,.8f,20,20)] }
+        };
+        var longProfile = TrackMusicProfileAnalyzer.Derive(longWave);
+        Require(longProfile.IsValid(longWave.TotalFrames) && longProfile.Meter.Length==3 &&
+            longProfile.Meter.SelectMany(m=>m.Downbeats).SequenceEqual(longBeats.Where((_,i)=>i%4==0)),
+            "Reused accent scratch changed section downbeats.");
         var flat=waveform with{Points=points.Select(_=>new WaveformPoint(.6f,.3f,.2f,.1f)).ToArray()};
         Require(TrackMusicProfileAnalyzer.Derive(flat).Meter.Length==0,"Uniform accents invented a bar.");
         var gapBeats=beats.Where((_,i)=>i!=10).ToArray();

@@ -29,7 +29,7 @@ public static class TrackMusicProfileAnalyzer
     {
         if (w.Points.Count == 0 || w.FramesPerPoint <= 0 || w.TotalFrames <= 0) return [];
         int stride = Math.Max(1, (int)Math.Ceiling(4d * PlaybackFormat.SampleRate / w.FramesPerPoint));
-        var result = new List<TrackEnergyPoint>();
+        var rawPoints = new List<(long Start, long End, float Energy, float Bass, float Density)>();
         var attacks = w.Rhythm?.TransientFrames ?? [];
         int hit = 0;
         for (int i = 0; i < w.Points.Count; i += stride)
@@ -57,12 +57,20 @@ public static class TrackMusicProfileAnalyzer
             float density = (float)((hit-first) * (double)PlaybackFormat.SampleRate / (endFrame-startFrame));
             double amplitude = Math.Sqrt(Math.Max(0, power/Math.Max(1,representedFrames)));
             float raw = (float)Math.Clamp(amplitude * (.8 + .2*Math.Min(1,density/5)), 0, 1);
-            result.Add(new(startFrame, endFrame, raw, (float)Math.Clamp(bass/Math.Max(1e-12,bands),0,1), density));
+            rawPoints.Add((startFrame, endFrame, raw, (float)Math.Clamp(bass/Math.Max(1e-12,bands),0,1), density));
         }
-        var sorted = result.Select(x=>x.Energy).Order().ToArray();
-        if (sorted.Length == 0) return [];
+        if (rawPoints.Count == 0) return [];
+        var sorted = new float[rawPoints.Count];
+        for (int i = 0; i < sorted.Length; i++) sorted[i] = rawPoints[i].Energy;
+        Array.Sort(sorted);
         float reference = Math.Max(.025f, sorted[(int)((sorted.Length-1)*.9)]);
-        return result.Select(e=>e with {Energy=Math.Clamp(e.Energy/reference,0,1)}).ToArray();
+        var result = new TrackEnergyPoint[rawPoints.Count];
+        for (int i = 0; i < result.Length; i++)
+        {
+            var p = rawPoints[i];
+            result[i] = new(p.Start,p.End,Math.Clamp(p.Energy/reference,0,1),p.Bass,p.Density);
+        }
+        return result;
     }
 
     private static TrackMusicSection[] BuildStructure(TrackEnergyPoint[] energy)
@@ -106,6 +114,7 @@ public static class TrackMusicProfileAnalyzer
         int cursor=0;
         Span<double> sums=stackalloc double[4];
         Span<int> counts=stackalloc int[4], positives=stackalloc int[4];
+        double[] strengthBuffer = [];
         foreach(var section in rhythm.Sections)
         {
             token.ThrowIfCancellationRequested();
@@ -127,7 +136,9 @@ public static class TrackMusicProfileAnalyzer
                 { discontinuous=true; break; }
             }
             if(discontinuous)continue;
-            var strength=new double[count];
+            if (strengthBuffer.Length < count) strengthBuffer = new double[count];
+            var strength = strengthBuffer.AsSpan(0,count);
+            double totalStrength = 0;
             for(int i=0;i<count;i++)
             {
                 if((i&4095)==0)token.ThrowIfCancellationRequested();
@@ -139,8 +150,8 @@ public static class TrackMusicProfileAnalyzer
                     peak=Math.Max(peak,.7*p.Low+.3*p.Mid);
                 }
                 strength[i]=peak;
+                totalStrength += peak;
             }
-            double totalStrength=strength.Sum();
             double mean=totalStrength/count;
             if(mean<.015)continue;
             // Compare repeated accents, requiring multiple complete bars.
