@@ -92,6 +92,13 @@ internal static class MusicProfileChecks
         Require(large.SetNext(next)&&large.RequestMix(),"Large-block mix was not armed.");
         Require(large.Read(oversized)==oversized.Length/PlaybackFormat.Channels &&
             oversized.All(float.IsFinite),"Oversized mix exceeded the PCM scratch buffer.");
+        using var reader = new CachedPcmSource(track.Path,new DeckCursor(track.Waveform.TotalFrames,0));
+        Array.Fill(oversized, -2f);
+        Require(reader.ReadAtRate(oversized,1.25)==PlaybackFormat.BlockFrames &&
+            oversized[PlaybackFormat.BlockFrames*PlaybackFormat.Channels]==-2f,
+            "A direct oversized rate read exceeded the PCM buffer or wrote its unused tail.");
+        try { reader.ReadAtRate(oversized,double.NaN); throw new InvalidOperationException("Invalid rate accepted."); }
+        catch (ArgumentOutOfRangeException) { }
         Console.WriteLine("OK: optional deck loudness gain, smooth bypass and bounded large reads.");
     }
 

@@ -8,8 +8,8 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
     Func<TrackFile, bool>? isAnalyzed = null, Func<TrackFile, Task>? analyze = null)
 {
     private readonly object _gate = new();
-    private readonly HashSet<TrackFile> _failed = [];
-    private readonly Dictionary<TrackFile, int> _cancelled = [];
+    private readonly HashSet<(TrackFile File, bool PreparePcm)> _failed = [];
+    private readonly Dictionary<(TrackFile File, bool PreparePcm), int> _cancelled = [];
     private TrackFile[] _upcoming = [];
     private int _pcmLookahead;
     private int _analysisLookahead;
@@ -25,6 +25,8 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
     {
         lock (_gate)
         {
+            pcmLookahead = Math.Max(0, pcmLookahead);
+            analysisLookahead = Math.Max(0, analysisLookahead);
             bool changed = !_upcoming.SequenceEqual(upcoming) ||
                 _pcmLookahead != pcmLookahead || _analysisLookahead != analysisLookahead;
             _upcoming = upcoming;
@@ -32,9 +34,9 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
             _analysisLookahead = Math.Max(0, analysisLookahead);
             if (changed)
             {
-                _failed.RemoveWhere(file => !upcoming.Contains(file));
-                foreach (var file in _cancelled.Keys.Where(file => !upcoming.Contains(file)).ToArray())
-                    _cancelled.Remove(file);
+                _failed.RemoveWhere(key => !upcoming.Contains(key.File));
+                foreach (var key in _cancelled.Keys.Where(key => !upcoming.Contains(key.File)).ToArray())
+                    _cancelled.Remove(key);
             }
             _allowed = allowed;
             if (_running || lifetime.IsCancellationRequested || FindNext().File is null) return null;
@@ -52,15 +54,19 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
     private (TrackFile? File, bool PreparePcm) FindNext()
     {
         if (!_allowed) return default;
-        foreach (var file in _upcoming.Take(_pcmLookahead))
+        for (int i=0; i<Math.Min(_pcmLookahead,_upcoming.Length);i++)
         {
-            if (!_failed.Contains(file) && !isPrepared(file)) return (file, true);
+            var file=_upcoming[i];
+            if (!_failed.Contains((file,true)) && !isPrepared(file)) return (file, true);
         }
-        // Scan the wider lookahead without materializing decoded audio.
+        // A failed compact scan must not block a later playable preparation, or vice versa.
         if (isAnalyzed is not null && analyze is not null)
-            foreach (var file in _upcoming.Take(_analysisLookahead))
-                if (!_failed.Contains(file) && !isPrepared(file) && !isAnalyzed(file))
+            for (int i=0;i<Math.Min(_analysisLookahead,_upcoming.Length);i++)
+            {
+                var file=_upcoming[i];
+                if (!_failed.Contains((file,false)) && !isPrepared(file) && !isAnalyzed(file))
                     return (file, false);
+            }
         return default;
     }
 
@@ -77,6 +83,7 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
             (TrackFile? File, bool PreparePcm) next;
             lock (_gate) next = FindNext();
             if (next.File is not { } file) return;
+            var key = (File: file, PreparePcm: next.PreparePcm);
 
             try
             {
@@ -85,12 +92,12 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
                 await work.ConfigureAwait(false);
                 lock (_gate)
                 {
-                    _cancelled.Remove(file);
+                    _cancelled.Remove(key);
                     // A completed task must publish its result before returning.
                     // Otherwise the same queue item would spin forever.
                     if (_upcoming.Take(next.PreparePcm ? _pcmLookahead : _analysisLookahead).Contains(file) &&
                         !(next.PreparePcm ? isPrepared(file) : isAnalyzed!(file)))
-                        _failed.Add(file);
+                        _failed.Add(key);
                 }
             }
             catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
@@ -105,9 +112,9 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
                 {
                     if (_upcoming.Contains(file))
                     {
-                        int count = _cancelled.GetValueOrDefault(file) + 1;
-                        _cancelled[file] = count;
-                        if (count >= 3) _failed.Add(file);
+                        int count = _cancelled.GetValueOrDefault(key) + 1;
+                        _cancelled[key] = count;
+                        if (count >= 3) _failed.Add(key);
                     }
                 }
             }
@@ -115,7 +122,7 @@ internal sealed class QueueTrackAnalysis(Func<TrackFile, bool> isPrepared, Func<
             {
                 lock (_gate)
                 {
-                    if (_upcoming.Contains(file)) _failed.Add(file);
+                    if (_upcoming.Contains(file)) _failed.Add(key);
                 }
                 System.Diagnostics.Debug.WriteLine($"LavPulse background analysis: {file.Name}: {ex}");
             }

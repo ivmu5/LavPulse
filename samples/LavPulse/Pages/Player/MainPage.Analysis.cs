@@ -28,10 +28,10 @@ public sealed partial class MainPage
         allowed &= !_analysisBackgroundExpired || _worker is not null;
 #endif
         var work = _queueAnalysis.Update(upcoming, allowed, pcmLookahead, analysisLookahead);
-        if (!IsLoadingFirst && _queue.Current is not null)
+        var snapshot = _playback.Snapshot;
+        if (!IsLoadingFirst && (_queue.Current is not null || snapshot.Current is not null))
         {
             _playback.ReleaseRetiredReaders();
-            var snapshot = _playback.Snapshot;
             var presented = _playback.PresentedSnapshot;
             _library.Trim(snapshot.Current?.Track, snapshot.Incoming?.Track, _selected, _armed,
                 upcoming.Take(pcmLookahead).ToArray(),

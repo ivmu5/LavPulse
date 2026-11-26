@@ -10,6 +10,8 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
     private const long ArtworkBudgetBytes = 32L * 1024 * 1024;
     private const long ThumbnailBudgetBytes = 24L * 1024 * 1024;
     private readonly object _cacheGate = new();
+    private bool _closing;
+    private Task? _closeTask;
     private readonly Dictionary<string, TrackFile> _paths = new(OperatingSystem.IsWindows()
         ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     private readonly HashSet<TrackFile> _files = [];
@@ -63,7 +65,7 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
     {
         lock (_cacheGate)
         {
-            lifetime.ThrowIfCancellationRequested();
+            ThrowIfClosing();
             selection.ThrowIfCancellationRequested();
             if (!_prepared.TryGetValue(file, out var pending) ||
                 (!pending.Work.IsCompletedSuccessfully &&
@@ -108,22 +110,41 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
         _analysisSlots.SetParallelism(PlayerSettings.ResolveAnalysisParallelism(parallelism));
 
     public Task AnalyzeAsync(TrackFile file) =>
-        TrackLibraryWork(ScanAsync(file, replaceAnalysis: false, lifetime, preferParallel: true));
+        TrackLibraryWork(() => ScanAsync(file, replaceAnalysis: false, lifetime, preferParallel: true));
 
     internal Task<TrackDiagnosticSnapshot> AnalyzeDiagnosticAsync(string path, CancellationToken token) =>
-        TrackLibraryWork(preparation.AnalyzeDiagnosticAsync(path, token));
+        TrackLibraryWork(() => AnalyzeDiagnosticCoreAsync(path, token));
+
+    private async Task<TrackDiagnosticSnapshot> AnalyzeDiagnosticCoreAsync(string path, CancellationToken token)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, lifetime);
+        await _analysisSlots.AcquireAsync(scan: true, linked.Token).ConfigureAwait(false);
+        try { return await preparation.AnalyzeDiagnosticAsync(path, linked.Token).ConfigureAwait(false); }
+        finally { _analysisSlots.Release(scan: true); }
+    }
 
     public Task<bool> ScanLibraryTrackAsync(TrackFile file, bool replaceAnalysis, CancellationToken token) =>
-        TrackLibraryWork(ScanAsync(file, replaceAnalysis, token));
+        TrackLibraryWork(() => ScanAsync(file, replaceAnalysis, token));
 
-    private T TrackLibraryWork<T>(T work) where T : Task
+    private void ThrowIfClosing()
     {
-        if (!work.IsCompleted)
+        lifetime.ThrowIfCancellationRequested();
+        ObjectDisposedException.ThrowIf(_closing, this);
+    }
+
+    private T TrackLibraryWork<T>(Func<T> start) where T : Task
+    {
+        lock (_cacheGate)
         {
-            lock (_cacheGate) _libraryWork.Add(work);
-            _ = ForgetLibraryWorkAsync(work);
+            ThrowIfClosing();
+            T work = start();
+            if (!work.IsCompleted)
+            {
+                _libraryWork.Add(work);
+                _ = ForgetLibraryWorkAsync(work);
+            }
+            return work;
         }
-        return work;
     }
 
     private async Task ForgetLibraryWorkAsync(Task work)
@@ -239,14 +260,20 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
     }
 
     /// <summary>Waits for pending imports and leaves complete PCM caches available for the next launch.</summary>
-    public async Task CloseAsync()
+    public Task CloseAsync()
     {
-        Task[] tasks;
         lock (_cacheGate)
         {
-            tasks = _prepared.Values.Select(entry => (Task)entry.Work).Concat(_metadata.Values)
+            if (_closeTask is not null) return _closeTask;
+            _closing = true;
+            var tasks = _prepared.Values.Select(entry => (Task)entry.Work).Concat(_metadata.Values)
                 .Concat(_queueMetadata.Values).Concat(_libraryWork).Append(_cacheCleanup).ToArray();
+            return _closeTask = CloseCoreAsync(tasks);
         }
+    }
+
+    private async Task CloseCoreAsync(Task[] tasks)
+    {
         try
         {
             await Task.WhenAll(tasks);
