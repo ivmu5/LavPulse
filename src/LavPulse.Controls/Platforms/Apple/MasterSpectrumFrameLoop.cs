@@ -9,6 +9,7 @@ public sealed partial class MasterSpectrumView
 
     partial void StartFrameLoop()
     {
+        if (_displayLink is not null) return;
         var link = CADisplayLink.Create(() =>
         {
             if (_displayLink is { } active) DrawFrame(active.Timestamp);

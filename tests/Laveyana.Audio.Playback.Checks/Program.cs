@@ -6,6 +6,23 @@ internal static partial class Program
     private const int PauseFrames = Rate * 300 / 1000;
     private const int BlockSize = PlaybackFormat.BlockFrames;
 
+    private static void CheckNativeOutputCounter()
+    {
+        NativeOutputCounter counter = default;
+        Require(counter.Observe(100, 200) == 100 &&
+            counter.Observe(0, 200) == 100 &&
+            counter.Observe(50, 200) == 150 &&
+            counter.Observe(500, 200) == 150 &&
+            counter.Observe(510, 200) == 160,
+            "Native counter reset or impossible progress corrupted the audible position.");
+        NativeOutputCounter wrap = default;
+        Require(wrap.Observe(0x70000000) == 0x70000000L &&
+            wrap.Observe(0xE0000000) == 0xE0000000L &&
+            wrap.Observe(0xFFFFFFF0) == 0xFFFFFFF0L &&
+            wrap.Observe(0x10) == 0x100000010L,
+            "Genuine unsigned counter wrap was lost.");
+    }
+
     private static async Task Main(string[] args)
     {
         if (args.Length >= 2 && args[0] == "--rhythm-report")
@@ -16,6 +33,7 @@ internal static partial class Program
         string directory = Directory.CreateTempSubdirectory("lavpulse-checks-").FullName;
         try
         {
+            CheckNativeOutputCounter();
             CheckSystemAudioFileNames();
             CheckQueuePreservesOrderOnDirectSelection();
             CheckQueueChangesDuringPreparation();

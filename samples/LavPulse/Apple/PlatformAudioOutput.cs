@@ -72,6 +72,8 @@ internal sealed class PlatformAudioOutput : IAudioOutput
                 AVAudioPcmBuffer buffer = await TakeBufferAsync(available.Reader, token).ConfigureAwait(false);
                 if (started) ReportOutputPosition(player, source);
                 int frames = source.Render(block);
+                if ((uint)frames > PlaybackFormat.BlockFrames)
+                    throw new InvalidDataException("Invalid audio render frame count.");
                 IntPtr channels = buffer.FloatChannelData;
                 if (frames == 0)
                 {
@@ -112,12 +114,16 @@ internal sealed class PlatformAudioOutput : IAudioOutput
         }
         finally
         {
-            player.Stop();
-            engine.Stop();
-            available.Writer.TryComplete();
-            foreach (AVAudioPcmBuffer buffer in buffers)
+            try { player.Stop(); }
+            finally
             {
-                buffer.Dispose();
+                try { engine.Stop(); }
+                finally
+                {
+                    available.Writer.TryComplete();
+                    foreach (AVAudioPcmBuffer buffer in buffers)
+                        buffer.Dispose();
+                }
             }
         }
     }
@@ -141,6 +147,12 @@ internal sealed class PlatformAudioOutput : IAudioOutput
             return buffer;
         }
 
-        return await pool.ReadAsync(token).AsTask().WaitAsync(TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        try { return await pool.ReadAsync(timeout.Token).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested && timeout.IsCancellationRequested)
+        {
+            throw new TimeoutException("Apple audio output stopped returning buffers.");
+        }
     }
 }

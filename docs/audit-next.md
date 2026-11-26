@@ -121,3 +121,18 @@ Added storage recovery checks for cancellation, truncated originals, corrupt/emp
 70. Keep cover transitions in their stable layout when unloaded or animations are suspended instead of leaving an entrance pose or incomplete handoff.
 
 Added clock regressions for invalid timestamps and automatic/fixed-rate transitions. Existing long-run cadence and waveform tests remain relevant. MAUI/native rendering and actual Android long-session FPS have not been measured. No visual design, cache format, release or merge. This is a focused UI source audit, not a confirmed fix for all Android degradation.
+
+## Eleventh batch (passes 71–80)
+
+71. Share unsigned native output counter handling across Android and Windows; reject backward/reset-sized deltas and, on Android, progress beyond submitted frames. Genuine 32-bit wraps remain supported. A rejected observation rebases the counter; this is a conservative heuristic, not device-specific reset detection.
+72. Android final drain timeout now measures consecutive lack of progress, not total drain duration.
+73. Android validates render counts, avoids zero-length priming writes, and observes cancellation immediately after native Play.
+74. Android decoder respects cancellation during buffered reads, preserves complete stereo frames, and makes native cleanup idempotent.
+75. Windows WaveOut provider validates render counts before encoding or slicing native output buffers.
+76. Windows Media Foundation decoder checks cancellation before and after reads, avoids empty native calls and guards disposal.
+77. Windows SMTC releases previous cover streams when switching to artwork-free or different tracks, after clearing the display updater.
+78. Shared iOS/Mac Catalyst audio output cancels the underlying channel read on timeout instead of leaving a pending reader.
+79. Apple audio output validates rendered frames and runs engine/buffer cleanup even if stopping the player throws.
+80. Android and Apple display clocks reject duplicate native callback registration.
+
+Added deterministic native counter reset, impossible advance and wrap checks in Playback.Checks. Source-only review: no Android, Windows, iOS or Mac Catalyst device runs, no audio routing/interruption certification, no verified native build yet. Platform APIs reused; no new dependencies, settings, cache version, merge or release.

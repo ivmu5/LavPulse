@@ -47,6 +47,7 @@ public sealed partial class MasterSpectrumView
     /// <summary>Registers an Android display callback at the system-selected refresh rate.</summary>
     partial void StartFrameLoop()
     {
+        if (_displayCallback is not null) return;
         var choreographer = Choreographer.Instance;
         if (choreographer is null)
         {
