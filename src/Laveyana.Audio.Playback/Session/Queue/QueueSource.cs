@@ -22,7 +22,7 @@ internal sealed class QueueSource : IPcmSource, IDisposable
     {
         public Voice? Current, Next;
         public int FadeLength, FadePosition, CrossfadeFrames;
-        public bool Manual, AutoMix, RepeatOne, QueueEnabled, Disposed;
+        public bool Manual, AutoMix, RepeatOne, QueueEnabled, Disposed, NormalizeLoudness;
         public double Speed;
         public long? SeekFrame;
     }
@@ -158,6 +158,7 @@ internal sealed class QueueSource : IPcmSource, IDisposable
         return state;
     });
 
+    public void SetLoudnessNormalization(bool enabled) => Edit(state => { state.NormalizeLoudness = enabled; return state; });
     public void SetAutoMix(bool enabled) => Edit(state => { state.AutoMix = enabled; return state; });
     public void SetRepeatOne(bool enabled) => Edit(state => { state.RepeatOne = enabled; return state; });
     public void SetQueueEnabled(bool enabled) => Edit(state =>
@@ -259,7 +260,7 @@ internal sealed class QueueSource : IPcmSource, IDisposable
                 if (state.FadeLength > 0)
                 {
                     int frames = Math.Min(requested, state.FadeLength - state.FadePosition);
-                    MixFade(current, next, output[..(frames * PlaybackFormat.Channels)], state.Speed, state.FadePosition, state.FadeLength);
+                    MixFade(current, next, output[..(frames * PlaybackFormat.Channels)], state.Speed, state.FadePosition, state.FadeLength, state.NormalizeLoudness);
                     written += frames;
                     state.FadePosition += frames;
                     if (state.FadePosition == state.FadeLength)
@@ -281,6 +282,7 @@ internal sealed class QueueSource : IPcmSource, IDisposable
                 continue;
             }
             int read = current.Source.ReadAtRate(output[..(requested * PlaybackFormat.Channels)], state.Speed);
+            current.ApplyGain(output[..(read * PlaybackFormat.Channels)], state.NormalizeLoudness);
             written += read;
             if (read == 0)
             {
@@ -292,11 +294,15 @@ internal sealed class QueueSource : IPcmSource, IDisposable
     }
 
     /// <summary>Applies a mirrored hyperbolic gain curve, normalized to keep the combined gain power constant.</summary>
-    private void MixFade(Voice outgoing, Voice incoming, Span<float> buffer, double speed, int fadePosition, int fadeLength)
+    private void MixFade(Voice outgoing, Voice incoming, Span<float> buffer, double speed, int fadePosition, int fadeLength, bool normalize)
     {
         var second = _other.AsSpan(0, buffer.Length);
-        outgoing.Source.ReadAtRate(buffer, speed);
-        incoming.Source.ReadAtRate(second, 1);
+        int outFrames = outgoing.Source.ReadAtRate(buffer, speed);
+        int inFrames = incoming.Source.ReadAtRate(second, 1);
+        buffer[(outFrames * PlaybackFormat.Channels)..].Clear();
+        second[(inFrames * PlaybackFormat.Channels)..].Clear();
+        outgoing.ApplyGain(buffer, normalize);
+        incoming.ApplyGain(second, normalize);
         for (int frame = 0; frame < buffer.Length / PlaybackFormat.Channels; frame++)
         {
             float progress = (float)(fadePosition + frame) / (fadeLength - 1);
@@ -349,7 +355,30 @@ internal sealed class QueueSource : IPcmSource, IDisposable
             Deck = deck;
             Cursor = new DeckCursor(track.Waveform.TotalFrames, 0);
             Source = new CachedPcmSource(track.Path, Cursor);
+            float? db = track.Waveform.MusicProfile?.Loudness?.RecommendedGainDb();
+            _normalizedGain = db is float v && float.IsFinite(v) ? MathF.Pow(10, Math.Clamp(v,-60,6)/20) : 1;
         }
+        private readonly float _normalizedGain;
+        private float _gain = 1;
+        private bool _hasRendered;
+
+        // Only the render owner mutates the ramp. No allocations or gain
+        // conversion during reading. Newly audible decks start at target gain.
+        public void ApplyGain(Span<float> samples, bool enabled)
+        {
+            if (samples.IsEmpty) return;
+            float target = enabled ? _normalizedGain : 1;
+            if (!_hasRendered) { _gain = target; _hasRendered = true; }
+            if (_gain == 1 && target == 1) return;
+            for (int i=0;i<samples.Length;i+=2)
+            {
+                _gain += (target-_gain)*.001f;
+                if (Math.Abs(target-_gain)<.00001f) _gain=target;
+                samples[i]*=_gain;
+                samples[i+1]*=_gain;
+            }
+        }
+
         public CachedTrack Track { get; }
         public Deck Deck { get; set; }
         public DeckCursor Cursor { get; }

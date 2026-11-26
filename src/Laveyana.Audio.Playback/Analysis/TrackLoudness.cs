@@ -12,7 +12,7 @@ public sealed record TrackLoudness(float? IntegratedLufs, float? SamplePeakDbfs,
     public float? RecommendedGainDb(float targetLufs = -14)
     {
         if (IntegratedLufs is not float integrated || SamplePeakDbfs is not float peak ||
-            !float.IsFinite(targetLufs)) return null;
+            !float.IsFinite(integrated) || !float.IsFinite(peak) || !float.IsFinite(targetLufs)) return null;
         // At most 6 dB boost and 3 dB sample-peak headroom. Not a limiter
         // or an inter-sample peak guarantee; never applied automatically.
         return Math.Min(Math.Clamp(targetLufs - integrated, -30, 6), -3 - peak);

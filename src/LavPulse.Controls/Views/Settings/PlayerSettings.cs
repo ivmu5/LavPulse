@@ -64,6 +64,7 @@ public sealed record PlayerSettings
     /// <summary>Extra UI presentation delay for Bluetooth and output-device buffering (audio is unaffected).</summary>
     public int VisualDelayMilliseconds { get; init; } = 0;
     public bool AutoMix { get; init; } = true;
+    public bool NormalizeLoudness { get; init; }
     /// <summary>Zero selects a limit automatically based on the processors available to the app.</summary>
     public int AnalysisParallelism { get; init; } = DefaultAnalysisParallelism;
     public const int DefaultQueueAnalysisLookahead = 10;

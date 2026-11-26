@@ -51,6 +51,25 @@ internal static class MusicProfileChecks
         Console.WriteLine("OK: loudness, conservative meter, derived cache, compatibility and excerpt metrics.");
     }
 
+    public static void CheckNormalization(CachedTrack track)
+    {
+        var normalized = new CachedTrack(track.Name, track.Path, track.Waveform with
+        {
+            MusicProfile = new TrackMusicProfile { Loudness = new TrackLoudness(-8,-6,0,[]) }
+        });
+        using var queue = new QueueSource();
+        queue.SetRepeatOne(true);
+        queue.SetLoudnessNormalization(true);
+        queue.SetFirst(normalized);
+        float[] block = new float[PlaybackFormat.BlockFrames * PlaybackFormat.Channels];
+        Require(queue.Read(block)>0&&Math.Abs(block[0]-.25*Math.Pow(10,-6d/20))<.0002,
+            "Measured gain was not applied to the current deck.");
+        queue.SetLoudnessNormalization(false);
+        for(int i=0;i<30;i++)Require(queue.Read(block)>0,"Normalization interrupted playback.");
+        Require(Math.Abs(block[0]-.25)<.0002,"Disabling normalization did not restore unity gain.");
+        Console.WriteLine("OK: optional deck loudness gain and smooth bypass.");
+    }
+
     private static void Require(bool value,string message)
     {if(!value)throw new InvalidOperationException(message);}
 }
