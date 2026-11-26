@@ -17,22 +17,12 @@ internal static class AndroidTrackActivation
         }
         else if (uri.Scheme == "content" && Android.App.Application.Context.ContentResolver is { } resolver)
         {
-            string? extension = intent.Type switch
-            {
-                "audio/mpeg" or "audio/mp3" or "audio/x-mp3" => ".mp3",
-                "audio/wav" or "audio/x-wav" or "audio/wave" => ".wav",
-                "audio/ogg" or "application/ogg" => ".ogg",
-                "audio/flac" or "audio/x-flac" => ".flac",
-                "audio/aac" or "audio/aacp" => ".aac",
-                "audio/mp4" or "audio/x-m4a" => ".m4a",
-                "audio/opus" => ".opus",
-                _ => null
-            };
-            _ = Task.Run(() => OpenContent(resolver, uri, extension));
+            string? mime = intent.Type;
+            _ = Task.Run(() => OpenContent(resolver, uri, mime));
         }
     }
 
-    private static void OpenContent(ContentResolver resolver, AndroidUri uri, string? extension)
+    private static void OpenContent(ContentResolver resolver, AndroidUri uri, string? mime)
     {
         string name = string.Empty;
         try
@@ -45,14 +35,14 @@ internal static class AndroidTrackActivation
             System.Diagnostics.Debug.WriteLine($"LavPulse document name: {ex.Message}");
         }
 
-        if (string.IsNullOrWhiteSpace(name)) name = uri.LastPathSegment ?? "Трек";
-        if (!TrackFile.IsSupportedAudio(name))
-        {
-            if (extension is null || Path.HasExtension(name)) return;
-            name += extension;
-        }
+        string? providerMime = null;
+        try { providerMime = resolver.GetType(uri); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"LavPulse document MIME: {ex.Message}"); }
 
-        SystemTrackRequests.Open([TrackFile.FromStream(name, () => Task.FromResult(
-            resolver.OpenInputStream(uri) ?? throw new IOException($"Android не открыл {name}.")))]);
+        string? resolved = SystemAudioFileName.Resolve(name, uri.LastPathSegment, mime, providerMime);
+        if (resolved is null || !TrackFile.IsSupportedAudio(resolved)) return;
+
+        SystemTrackRequests.Open([TrackFile.FromStream(resolved, () => Task.FromResult(
+            resolver.OpenInputStream(uri) ?? throw new IOException($"Android не открыл {resolved}.")))]);
     }
 }

@@ -16,6 +16,7 @@ internal static partial class Program
         string directory = Directory.CreateTempSubdirectory("lavpulse-checks-").FullName;
         try
         {
+            CheckSystemAudioFileNames();
             CheckQueuePreservesOrderOnDirectSelection();
             CheckQueueChangesDuringPreparation();
             CheckQueueClear();

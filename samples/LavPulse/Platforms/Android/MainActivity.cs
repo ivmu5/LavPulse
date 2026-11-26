@@ -15,7 +15,9 @@ namespace Laveyana.LavPulse;
 [IntentFilter([Intent.ActionView], Categories = [Intent.CategoryDefault], DataSchemes = ["content", "file"],
     DataMimeTypes = ["audio/mpeg", "audio/mp3", "audio/x-mp3", "audio/wav", "audio/x-wav",
         "audio/wave", "audio/ogg", "application/ogg", "audio/flac", "audio/x-flac", "audio/aac",
-        "audio/aacp", "audio/mp4", "audio/x-m4a", "audio/opus"])]
+        "audio/aacp", "audio/mp4", "audio/x-m4a", "audio/opus", "audio/mpeg3", "audio/x-mpeg",
+        "audio/vnd.wave", "audio/x-pn-wav", "audio/x-ogg", "audio/vorbis", "audio/x-vorbis",
+        "audio/x-aac", "audio/m4a", "audio/x-opus"])]
 public class MainActivity : MauiAppCompatActivity
 {
     private ActivityResultLauncher? _folderLauncher;
