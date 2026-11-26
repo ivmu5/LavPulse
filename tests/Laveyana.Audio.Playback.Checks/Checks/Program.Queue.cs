@@ -67,7 +67,7 @@ internal static partial class Program
             return Task.CompletedTask;
         }, () => { }, stop.Token);
 
-        await analysis.Update([file], allowed: true)!.WaitAsync(stop.Token);
+        await analysis.Update([file], allowed: true, pcmLookahead: 1, analysisLookahead: 0)!.WaitAsync(stop.Token);
         Require(prepared && attempts == 2, "A superseded foreground decode prevented the background retry.");
         Console.WriteLine("OK: background analysis retries after a selection is superseded.");
     }
@@ -97,26 +97,26 @@ internal static partial class Program
             prepared[file] = true;
         }, () => { }, stop.Token);
 
-        var first = analysis.Update(queue.GetUpcoming(10), allowed: true)!;
+        var first = analysis.Update(queue.GetUpcoming(10), allowed: true, pcmLookahead: 10, analysisLookahead: 0)!;
         await started.Task.WaitAsync(stop.Token);
         Require(queue.TryRemove(files[2], _ => true), "Could not remove a pending track.");
-        Require(analysis.Update(queue.GetUpcoming(10), allowed: false) is null, "A second worker started.");
+        Require(analysis.Update(queue.GetUpcoming(10), allowed: false, pcmLookahead: 10, analysisLookahead: 0) is null, "A second worker started.");
         release.SetResult();
         await first.WaitAsync(stop.Token);
         analysis.Finish();
         Require(order.SequenceEqual(files[1..2]), "A new decode started after the background execution window expired.");
 
-        var resumed = analysis.Update(queue.GetUpcoming(10), allowed: true)!;
+        var resumed = analysis.Update(queue.GetUpcoming(10), allowed: true, pcmLookahead: 10, analysisLookahead: 0)!;
         await resumed.WaitAsync(stop.Token);
         analysis.Finish();
         Require(order.SequenceEqual(new[] { files[1] }.Concat(files[3..12])),
             "Lookahead ignored a removal, skipped viable tracks after an error, or exceeded ten positions.");
-        Require(analysis.Update(queue.GetUpcoming(10), allowed: true) is null, "Prepared or failed tracks were scheduled again.");
+        Require(analysis.Update(queue.GetUpcoming(10), allowed: true, pcmLookahead: 10, analysisLookahead: 0) is null, "Prepared or failed tracks were scheduled again.");
 
         queue.SetCurrent(files[3]);
         Require(queue.TryRemove(files[3], _ => true), "Could not remove the playing row.");
         Require(queue.GetUpcoming(10).SequenceEqual(files[4..14]), "Lookahead lost the detached playback boundary.");
-        await analysis.Update(queue.GetUpcoming(10), allowed: true)!.WaitAsync(stop.Token);
+        await analysis.Update(queue.GetUpcoming(10), allowed: true, pcmLookahead: 10, analysisLookahead: 0)!.WaitAsync(stop.Token);
         analysis.Finish();
         Require(order.TakeLast(2).SequenceEqual(files[12..14]) && !prepared.ContainsKey(files[14]),
             "Advancing the queue did not refill only the new lookahead positions.");
@@ -151,31 +151,22 @@ internal static partial class Program
         var analyzed = queue[..512].ToHashSet();
         var order = new List<TrackFile>();
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        int checks = 0;
         var analysis = new QueueTrackAnalysis(_ => false, _ => Task.CompletedTask, () => { }, stop.Token,
-            file =>
-            {
-                checks++;
-                return analyzed.Contains(file);
-            },
-            file =>
-            {
-                order.Add(file);
-                analyzed.Add(file);
-                return Task.CompletedTask;
-            });
+            analyzed.Contains, file => { order.Add(file); analyzed.Add(file); return Task.CompletedTask; });
 
-        await analysis.Update([], allowed: true, queue)!.WaitAsync(stop.Token);
+        Require(analysis.Update(queue[..100], true, 0, 100) is null,
+            "Compact analysis escaped its configured horizon.");
+        await analysis.Update(queue[510..], true, 0, 3)!.WaitAsync(stop.Token);
         analysis.Finish();
-        int firstPassChecks = checks;
-        Require(order.SequenceEqual(queue[^3..]) && firstPassChecks <= queue.Length + 10,
-            "The compact scan repeatedly traversed the already analyzed tracks.");
-
-        // A saved file can be stale or removed after the previous pass.
-        analyzed.Remove(queue[0]);
-        await analysis.Update([], allowed: true, queue)!.WaitAsync(stop.Token);
+        Require(order.SequenceEqual(new[] { queue[512] }) && !analyzed.Contains(queue[513]),
+            "Compact analysis did not stop at the horizon.");
+        await analysis.Update(queue[510..], true, 0, 5)!.WaitAsync(stop.Token);
         analysis.Finish();
-        Require(ReferenceEquals(order[^1], queue[0]), "A fresh pass skipped invalidated analysis.");
-        Console.WriteLine($"OK: compact analysis ({firstPassChecks} status checks across {queue.Length} tracks).");
+        Require(order.SequenceEqual(queue[^3..]), "Expanding the horizon did not resume analysis.");
+        analyzed.Remove(queue[510]);
+        await analysis.Update(queue[510..], true, 0, 3)!.WaitAsync(stop.Token);
+        analysis.Finish();
+        Require(ReferenceEquals(order[^1], queue[510]), "A fresh pass skipped invalidated analysis.");
+        Console.WriteLine("OK: bounded compact analysis, horizon changes and invalidation.");
     }
 }
