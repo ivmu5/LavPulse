@@ -47,7 +47,49 @@ public sealed partial class PlayerSettingsPanel
             value => _settings = _settings with { ShowOnLockScreen = value });
         sections.Add(Section("Экран блокировки", lockScreen));
 #endif
+        sections.Add(CreateFileAssociationSection());
         return sections;
+    }
+
+    private View CreateFileAssociationSection()
+    {
+#if WINDOWS
+        const string instructions = "Выбери LavPulse для нужных музыкальных форматов в параметрах Windows. " +
+            "Также можно нажать правой кнопкой на файл → Открыть с помощью → Выбрать другое приложение.";
+#elif ANDROID
+        const string instructions = "Открой музыкальный файл в файловом менеджере, выбери LavPulse и нажми «Всегда», " +
+            "если Android предлагает этот вариант. При необходимости сбрось прежнее приложение по умолчанию.";
+#elif MACCATALYST
+        const string instructions = "В Finder открой свойства музыкального файла (⌘I), выбери LavPulse в «Открывать в программе» " +
+            "и нажми «Изменить все» для этого формата.";
+#else
+        const string instructions = "В приложении «Файлы» удерживай музыкальный файл и выбери «Открыть с помощью» → LavPulse. " +
+            "Если доступен выбор «Всегда открывать в», его можно изменить в свойствах файла.";
+#endif
+        var status = MixerStyle.Label(instructions, 11, MixerColor.Muted);
+        var content = new VerticalStackLayout { Spacing = 8, Children = { status } };
+        if (_openDefaultApps is not null)
+        {
+            var open = MixerStyle.Button("Назначить плеером по умолчанию");
+            open.HorizontalOptions = LayoutOptions.Fill;
+            open.Clicked += async (_, _) =>
+            {
+                open.IsEnabled = false;
+                try
+                {
+                    string? error = await _openDefaultApps();
+                    status.Text = error ?? instructions;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(ex);
+                    status.Text = "Не удалось открыть настройки ОС. " + instructions;
+                }
+                finally { open.IsEnabled = true; }
+            };
+            content.Add(open);
+        }
+        return Section("Открытие музыкальных файлов", content);
     }
 
     private View CreateDeckSection()

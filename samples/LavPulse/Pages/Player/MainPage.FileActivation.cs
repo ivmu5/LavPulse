@@ -6,6 +6,7 @@ public sealed partial class MainPage
 {
     private bool _canOpenSystemTracks;
     private bool _openingSystemTracks;
+    private Laveyana.Audio.Playback.TrackFile? _restoredActivationFallback;
 
     internal void ActivateSystemTrackRequests()
     {
@@ -40,9 +41,13 @@ public sealed partial class MainPage
 
                     var first = requested[0];
                     if (_playback.Snapshot.Current is not { } current)
-                        await LoadFirstAsync(first, autoPlay: true);
+                        await LoadFirstAsync(first, autoPlay: true, fallbackToQueue: false);
                     else if (ReferenceEquals(_library.Find(current.Track), first))
+                    {
+                        // An explicit file open restarts that file rather than doing nothing.
+                        Seek(current.Track, 0);
                         _ = PlayAsync();
+                    }
                     else if (TrySetSelection(first, byUser: true))
                         await StartMixAsync(waitForPlayback: false);
                     else
@@ -61,6 +66,13 @@ public sealed partial class MainPage
         finally
         {
             _openingSystemTracks = false;
+            if (!_closed && !SystemTrackRequests.HasPending)
+            {
+                var fallback = _restoredActivationFallback;
+                _restoredActivationFallback = null;
+                if (fallback is not null && _playback.Snapshot.Current is null && !IsLoadingFirst)
+                    _ = LoadFirstAsync(fallback);
+            }
         }
     }
 }

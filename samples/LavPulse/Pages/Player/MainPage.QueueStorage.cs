@@ -19,7 +19,11 @@ public sealed partial class MainPage
             _analysisQueue = _queue.Tracks.ToArray();
             _localQueueReady = true;
             UpdateQueue();
-            if (_queue.Tracks.Count > 0) _ = LoadFirstAsync(restored.Current);
+            // A file activation on cold startup takes precedence over restoring a paused deck.
+            if (SystemTrackRequests.HasPending)
+                _restoredActivationFallback = restored.Current ?? _queue.Tracks.FirstOrDefault();
+            else if (_queue.Tracks.Count > 0)
+                _ = LoadFirstAsync(restored.Current);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex)

@@ -189,7 +189,7 @@ public sealed partial class MainPage
     }
 
     /// <summary>Attempts the first playable file and keeps later candidates available.</summary>
-    private async Task LoadFirstAsync(TrackFile? preferred = null, bool autoPlay = false)
+    private async Task LoadFirstAsync(TrackFile? preferred = null, bool autoPlay = false, bool fallbackToQueue = true)
     {
         var file = preferred ?? _queue.Tracks.FirstOrDefault();
         if (IsLoadingFirst && file is not null && ReferenceEquals(file, _firstLoadFile))
@@ -227,7 +227,7 @@ public sealed partial class MainPage
                     }
                     failed.Add(file);
                 }
-                file = _queue.Tracks.FirstOrDefault(candidate => !failed.Contains(candidate));
+                file = fallbackToQueue ? _queue.Tracks.FirstOrDefault(candidate => !failed.Contains(candidate)) : null;
             }
         }
         finally

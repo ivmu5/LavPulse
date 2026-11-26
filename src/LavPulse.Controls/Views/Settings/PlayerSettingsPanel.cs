@@ -12,6 +12,7 @@ public sealed partial class PlayerSettingsPanel : ContentView
     private readonly Func<Task<string?>>? _exportReportZip;
     private readonly Func<Task<string>>? _reportSummary;
     private readonly Func<Task<string>>? _clearReports;
+    private readonly Func<Task<string?>>? _openDefaultApps;
     private readonly List<NumericSettingInput> _visibleNumbers = [];
     private readonly Grid _settingsLayout;
     private readonly ContentView _paletteEditorHost = new() { IsVisible = false };
@@ -27,13 +28,15 @@ public sealed partial class PlayerSettingsPanel : ContentView
         Func<Task<string?>>? exportReportZip = null,
         Func<Task<string>>? reportSummary = null,
         Func<Task<string>>? clearReports = null,
-        string? appVersion = null)
+        string? appVersion = null,
+        Func<Task<string?>>? openDefaultApps = null)
     {
         _settings = settings;
         _copyReport = copyReport;
         _exportReportZip = exportReportZip;
         _reportSummary = reportSummary;
         _clearReports = clearReports;
+        _openDefaultApps = openDefaultApps;
         _storageOptions = storageOptions ?? [];
         _pickStorageFolder = pickStorageFolder;
         _previewAppearance = previewAppearance;

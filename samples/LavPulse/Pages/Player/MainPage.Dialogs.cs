@@ -45,7 +45,11 @@ public sealed partial class MainPage
             new PlayerSettingsPanel(_settings, value => ApplySettings(value), ClosePanel, PreviewAppearance,
                 GetStorageOptions(), PickStorageFolderAsync,
                 CopyReportTextAsync, ExportReportZipAsync, ReportSummaryAsync, ClearReportsAsync,
-                typeof(MainPage).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion));
+                typeof(MainPage).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+#if WINDOWS
+                , openDefaultApps: WinUI.WindowsFileAssociation.OpenDefaultAppsAsync
+#endif
+                ));
         if (settings is null) return false;
         settings.PaletteEditingChanged += editing =>
         {
