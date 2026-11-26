@@ -106,6 +106,7 @@ internal static partial class Program
         var thirdStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var finishFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var completed = new List<TrackFile>();
+        var results = new List<TrackScanResult>();
         var pass = skip.RunAsync(files, async (file, token) =>
         {
             if (file == files[0]) await finishFirst.Task.WaitAsync(token);
@@ -116,7 +117,9 @@ internal static partial class Program
                 throw new InvalidDataException("Simulated scan error.");
             }
             return file != files[3]; // Its analysis became available between listing and execution.
-        }, (active, _, _) => activeTracks.TrySetResult(active), completed.Add);
+        }, (active, _, _) => activeTracks.TrySetResult(active), completed.Add,
+            (file, _) => ValueTask.FromResult<long?>(file == files[0] && finishFirst.Task.IsCompleted ? 1600 : 1000),
+            results.Add);
         Require((await activeTracks.Task.WaitAsync(timeout)).SequenceEqual(files[..2]) && !thirdStarted.Task.IsCompleted,
             "The scan did not show both active tracks or started a third track too early.");
         skip.Skip(files[1]);
@@ -124,6 +127,13 @@ internal static partial class Program
         finishFirst.SetResult();
         Require(await pass.WaitAsync(timeout) == (1, 2, 1) && completed.SequenceEqual([files[0]]),
             "Skipping the second row interrupted another active scan or reported already analyzed work as new.");
+        var success = results.Single(result => ReferenceEquals(result.File, files[0]));
+        Require(results.Count == 4 && success.Outcome == TrackScanOutcome.Scanned &&
+            success.BeforeBytes == 1000 && success.AfterBytes == 1600 &&
+            success.Elapsed >= TimeSpan.Zero &&
+            results.Count(result => result.Outcome == TrackScanOutcome.Skipped) == 2 &&
+            results.Count(result => result.Outcome == TrackScanOutcome.Failed) == 1,
+            "Scan results lost per-track sizes, elapsed time or completion status.");
 
         using var stop = new TrackScanBatch(3, default);
         int work = 0;
