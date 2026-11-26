@@ -78,11 +78,16 @@ public sealed partial class MainPage
         finally
         {
             _systemPlayback.CommandReceived -= OnSystemPlaybackCommand;
-            _systemPlayback.Stop();
-            _systemPlayback.Dispose();
-            _playback.Dispose();
-            await _library.CloseAsync();
-            _lifetime.Dispose();
+            try { _systemPlayback.Dispose(); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }
+            // All implementations Dispose by stopping their integration.
+            // Always release the independent audio/library resources as well.
+            try { _playback.Dispose(); }
+            finally
+            {
+                try { await _library.CloseAsync(); }
+                finally { _lifetime.Dispose(); }
+            }
         }
     }
 }

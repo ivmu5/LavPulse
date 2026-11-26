@@ -44,7 +44,9 @@ internal sealed class PlatformAudioOutput : IAudioOutput
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
             device.Stop();
-            await ended.Task.ConfigureAwait(false);
+            // A broken driver may never raise PlaybackStopped. Do not wait
+            // indefinitely and strand the queue/session during shutdown.
+            await ended.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
             throw;
         }
     }
