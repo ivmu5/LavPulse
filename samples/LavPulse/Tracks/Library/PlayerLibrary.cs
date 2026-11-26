@@ -90,14 +90,8 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
         }
     }
 
-    public TrackFile? Find(CachedTrack track)
-    {
-        lock (_cacheGate)
-        {
-            if (!_decodedFiles.TryGetValue(track, out var file)) return null;
-            return file;
-        }
-    }
+    public TrackFile? Find(CachedTrack track) =>
+        _decodedFiles.TryGetValue(track, out var file) ? file : null;
 
     public bool IsPreparing(TrackFile file)
     {

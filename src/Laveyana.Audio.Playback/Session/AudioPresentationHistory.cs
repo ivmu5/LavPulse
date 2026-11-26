@@ -59,14 +59,20 @@ internal sealed class AudioPresentationHistory
         lock (_gate)
         {
             long target = PresentedFrameUnsafe();
+            int oldest = (_next + Capacity - _count) % Capacity;
             int newest = (_next + Capacity - 1) % Capacity;
-            for (int i = 0; i < _count; i++)
+            if (target >= _entries[newest].Frame) return _entries[newest].Snapshot;
+            if (target <= _entries[oldest].Frame) return _entries[oldest].Snapshot;
+            // Search the logical order of the ring even after it wraps.
+            // Keep the render-side monitor held for at most log2(Capacity) probes.
+            int low = 0, high = _count - 1;
+            while (low < high)
             {
-                int index = (newest - i + Capacity) % Capacity;
-                if (_entries[index].Frame <= target || i == _count - 1)
-                    return _entries[index].Snapshot;
+                int mid = low + (high - low + 1) / 2;
+                if (_entries[(oldest + mid) % Capacity].Frame <= target) low = mid;
+                else high = mid - 1;
             }
-            return default;
+            return _entries[(oldest + low) % Capacity].Snapshot;
         }
     }
 }
