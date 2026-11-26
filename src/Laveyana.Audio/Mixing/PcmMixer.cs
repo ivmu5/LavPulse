@@ -1,3 +1,5 @@
+using System.Numerics;
+
 namespace Laveyana.Audio;
 
 /// <summary>Renders a stereo Master from sources with a shared sample rate.</summary>
@@ -76,17 +78,7 @@ public sealed class PcmMixer
             float gain = input.Gain;
             int samples = ReadSamples(input.Source, block);
             var signal = block[..samples];
-            if (gain == 1)
-            {
-                Clamp(signal);
-            }
-            else
-            {
-                for (int i = 0; i < signal.Length; i++)
-                {
-                    signal[i] = Math.Clamp(signal[i] * gain, -1f, 1f);
-                }
-            }
+            ScaleAndClamp(signal, gain);
             block[samples..].Clear();
             return;
         }
@@ -97,12 +89,9 @@ public sealed class PcmMixer
         {
             float gain = input.Gain;
             int samplesRead = ReadSamples(input.Source, sourceBuffer);
-            for (int sample = 0; sample < samplesRead; sample++)
-            {
-                block[sample] += sourceBuffer[sample] * gain;
-            }
+            Accumulate(block[..samplesRead], sourceBuffer[..samplesRead], gain);
         }
-        Clamp(block);
+        ScaleAndClamp(block, 1f);
     }
 
     private static int ReadSamples(IPcmSource source, Span<float> buffer)
@@ -115,11 +104,43 @@ public sealed class PcmMixer
         return frames * ChannelCount;
     }
 
-    private static void Clamp(Span<float> samples)
+    private static Vector<float> Finite(Vector<float> value) =>
+        Vector.ConditionalSelect(Vector.LessThanOrEqual(Vector.Abs(value), new Vector<float>(float.MaxValue)),
+            value, Vector<float>.Zero);
+
+    private static void Accumulate(Span<float> master, ReadOnlySpan<float> input, float gain)
     {
-        for (int i = 0; i < samples.Length; i++)
+        int i = 0;
+        if (Vector.IsHardwareAccelerated)
         {
-            samples[i] = Math.Clamp(samples[i], -1f, 1f);
+            int width = Vector<float>.Count;
+            var scale = new Vector<float>(gain);
+            for (; i <= input.Length - width; i += width)
+            {
+                var value = Finite(new Vector<float>(input[i..]));
+                (new Vector<float>(master[i..]) + value * scale).CopyTo(master[i..]);
+            }
         }
+        for (; i < input.Length; i++)
+            if (float.IsFinite(input[i])) master[i] += input[i] * gain;
+    }
+
+    private static void ScaleAndClamp(Span<float> samples, float gain)
+    {
+        int i = 0;
+        if (Vector.IsHardwareAccelerated)
+        {
+            int width = Vector<float>.Count;
+            var scale = new Vector<float>(gain);
+            var min = new Vector<float>(-1);
+            var max = Vector<float>.One;
+            for (; i <= samples.Length - width; i += width)
+            {
+                var value = Finite(new Vector<float>(samples[i..])) * scale;
+                Vector.Min(max, Vector.Max(min, value)).CopyTo(samples[i..]);
+            }
+        }
+        for (; i < samples.Length; i++)
+            samples[i] = float.IsFinite(samples[i]) ? Math.Clamp(samples[i] * gain, -1f, 1f) : 0;
     }
 }

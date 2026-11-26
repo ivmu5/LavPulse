@@ -31,8 +31,7 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         var right = new BandFilter();
         var pcm = new float[4096 * channels];
         var points = new List<WaveformPoint>();
-        Vector4 leftPeak = Vector4.Zero;
-        Vector4 rightPeak = Vector4.Zero;
+        Vector4 peak = Vector4.Zero;
         int framesInPoint = 0;
         // Rhythm uses 10 ms energy windows even when the 25 Hz display waveform is reduced.
         // Keep this envelope only during analysis; the persisted result contains beat/onset positions.
@@ -63,9 +62,9 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
                 {
                     var leftBands = left.Process(pcm[sample], bass, treble);
                     var rightBands = right.Process(pcm[sample + 1], bass, treble);
-                    leftPeak = Vector4.Max(leftPeak, leftBands);
-                    rightPeak = Vector4.Max(rightPeak, rightBands);
-                    rhythmSum += Vector4.Max(leftBands, rightBands);
+                    var bands = Vector4.Max(leftBands, rightBands);
+                    peak = Vector4.Max(peak, bands);
+                    rhythmSum += bands;
                     if (++framesInRhythmHop == rhythmHopFrames)
                     {
                         float inverse = 1f / framesInRhythmHop;
@@ -79,8 +78,8 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
                 framesInPoint += count;
                 if (framesInPoint != framesPerPoint) continue;
 
-                points.Add(ToPoint(Vector4.Max(leftPeak, rightPeak)));
-                leftPeak = rightPeak = Vector4.Zero;
+                points.Add(ToPoint(peak));
+                peak = Vector4.Zero;
                 framesInPoint = 0;
                 if (points.Count != maxPoints) continue;
 
@@ -95,7 +94,7 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
 
         if (framesInPoint > 0)
         {
-            points.Add(ToPoint(Vector4.Max(leftPeak, rightPeak)));
+            points.Add(ToPoint(peak));
         }
         if (framesInRhythmHop > 0)
         {
