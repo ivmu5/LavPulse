@@ -43,12 +43,16 @@ internal static class RhythmTempoFamily
             globalPeriodic[slow] >= .65f * globalPeriodic[fast] &&
             global[slow] >= .42f * global[fast];
 
+        Span<int> relatives = stackalloc int[4];
+        Span<int> relatedRatios = stackalloc int[2];
         for (int c = 0; c < candidates; c++)
         {
             token.ThrowIfCancellationRequested();
             double bpm = Bpm(c);
             int half = Index(bpm / 2), twice = Index(bpm * 2), quarter = Index(bpm / 4);
-            int[] relatives = [quarter, half, twice, Index(bpm * 4)];
+            relatives[0] = quarter; relatives[1] = half;
+            relatives[2] = twice; relatives[3] = Index(bpm * 4);
+            relatedRatios[0] = Index(bpm * 1.5); relatedRatios[1] = Index(bpm * (2d / 3));
             float family = global[c];
             bool barAlias = false;
             foreach (int j in relatives)
@@ -76,9 +80,8 @@ internal static class RhythmTempoFamily
                 // A 3:2 relationship may represent triplets, not a new tempo.
                 // Penalize only the weaker candidate when the other pulse has
                 // both better local periodicity and better original evidence.
-                foreach (double ratio in new[] { 1.5, 2d / 3 })
+                foreach (int related in relatedRatios)
                 {
-                    int related = Index(bpm * ratio);
                     if (!Valid(related)) continue;
                     float relatedPeriodic = Max(periodicity, w, related, 2);
                     float relatedRaw = Max(raw, w, related, 2);

@@ -98,12 +98,12 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
             if (_channels == 2)
             {
                 for (int i = 0; i < output.Length; i++)
-                    output[i] = Math.Clamp(samples[i], -1f, 1f);
+                    output[i] = Normalize(samples[i]);
             }
             else
             {
                 for (int i = 0; i < count; i++)
-                    output[i * 2] = output[i * 2 + 1] = Math.Clamp(samples[i], -1f, 1f);
+                    output[i * 2] = output[i * 2 + 1] = Normalize(samples[i]);
             }
             _offset += samples.Length;
             frames += count;
@@ -120,12 +120,14 @@ internal sealed class Mp3PcmSource : IPcmSource, IDisposable
             return false;
         }
 
-        float left = Math.Clamp(_samples[_offset], -1f, 1f);
-        float right = Math.Clamp(_samples[_offset + _channels - 1], -1f, 1f);
+        float left = Normalize(_samples[_offset]);
+        float right = Normalize(_samples[_offset + _channels - 1]);
         _offset += _channels;
         frame = _downsample is null ? new StereoFrame(left, right) : _downsample.Process(left, right);
         return true;
     }
+
+    private static float Normalize(float value) => float.IsFinite(value) ? Math.Clamp(value, -1f, 1f) : 0;
 
     private bool RefillSamples()
     {

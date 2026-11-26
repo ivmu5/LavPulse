@@ -97,7 +97,17 @@ internal static partial class Program
         timeline.SetDelay(0);
         Require(timeline.Read().Current?.Track == second,
             "Resetting visual compensation did not restore the latest audible deck.");
-        Console.WriteLine("OK: device-head synchronized deck states and optional Bluetooth latency compensation.");
+        var wrapped = new AudioPresentationHistory(start);
+        for (int block = 1; block <= 750; block++)
+            wrapped.Append(100, new QueueSnapshot(new PlayingTrack(first, block * 100, Deck.A), null));
+        foreach (long frame in new long[] { 0, 23900, 24001, 36099, 70000, 74999, 75000, 80000 })
+        {
+            wrapped.ReportOutputPosition(frame);
+            long expected = Math.Clamp(frame / 100 * 100, 23900, 75000);
+            Require(wrapped.Read().Current?.Position == expected,
+                "The wrapped presentation ring did not return the preceding snapshot.");
+        }
+        Console.WriteLine("OK: device-head synchronized deck states, wrapped history and optional Bluetooth latency compensation.");
     }
 
     private static async Task CheckAudibleQueueSnapshot(CachedTrack first, CachedTrack second)

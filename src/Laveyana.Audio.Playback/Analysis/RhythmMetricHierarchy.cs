@@ -13,11 +13,14 @@ internal static class RhythmMetricHierarchy
         var average = new float[candidates];
         var correlation = new float[candidates];
         for (int c = 0; c < candidates; c++)
+        {
+            token.ThrowIfCancellationRequested();
             for (int w = 0; w < windows; w++)
             {
                 average[c] += raw[w, c] / windows;
                 correlation[c] += periodicity[w, c] / windows;
             }
+        }
         int Index(double bpm) => (int)Math.Round((bpm - minimum) / resolution);
         bool Valid(int c) => c >= 0 && c < candidates;
         float Around(float[] data, int c, int radius = 2)

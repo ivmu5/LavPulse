@@ -18,6 +18,9 @@ internal static class TrackPreparationChecks
         CheckContinuityAcrossBreaks();
         CheckMetricHierarchy();
         CheckWeakOpeningEvidence();
+        CheckPhasePrefix();
+        CheckLocalTempoAndGridBounds();
+        CheckPcmSaturation();
         var input = TrackFile.FromStream("fixture.mp3", () => Task.FromResult<Stream>(CreateMp3()));
         var original = await new TrackPreparation(directory).ImportAsync(input, CancellationToken.None);
         byte[] expected = await File.ReadAllBytesAsync(original.Path);
@@ -654,6 +657,66 @@ internal static class TrackPreparationChecks
         Require(!Directory.EnumerateFiles(directory, "lavpulse-*").Any(),
             "Malformed WAV left a temporary PCM file.");
         Console.WriteLine("OK: PCM WAV import, mono, 24-bit, 96 kHz downsampling and malformed-file cleanup.");
+    }
+
+    private static void CheckPhasePrefix()
+    {
+        int[] indices = Enumerable.Range(0, 900).Select(i => i * 13 + i % 7).ToArray();
+        float[] strengths = indices.Select(i => .15f + (i % 91) / 100f).ToArray();
+        double[] accents = strengths.Select(s => Math.Pow(Math.Max(0, s - .8), 2)).ToArray();
+        var prefix = new RhythmPhasePrefix(indices.Length);
+        foreach (double bpm in new[] { 40d, 66.5, 120, 166.5, 240 })
+        {
+            double angle = Math.Tau * bpm / 6000;
+            prefix.Build(indices, strengths, accents, angle, default);
+            for (int first = 0; first < indices.Length - 70; first += 23)
+            {
+                int end = first + 70;
+                double r = 0, im = 0, ar = 0, ai = 0;
+                for (int k = first; k < end; k++)
+                {
+                    var (sin, cos) = Math.SinCos(indices[k] * angle);
+                    r += strengths[k] * cos; im += strengths[k] * sin;
+                    ar += accents[k] * cos; ai += accents[k] * sin;
+                }
+                var actual = prefix.Range(first, end);
+                Require(Math.Abs(actual.Real - r) < 1e-9 && Math.Abs(actual.Imaginary - im) < 1e-9 &&
+                    Math.Abs(actual.AccentReal - ar) < 1e-9 && Math.Abs(actual.AccentImaginary - ai) < 1e-9,
+                    "Reusable phase sums diverged from the direct estimator.");
+            }
+        }
+    }
+
+    private static void CheckLocalTempoAndGridBounds()
+    {
+        long[] beats = Enumerable.Range(0, 12).Select(i => i * 24000L)
+            .Concat(Enumerable.Range(0, 12).Select(i => 288000L + i * 22000L)).ToArray();
+        var section = new TrackTempoSection(0, 550000, 125, .8f, 24, 24);
+        var grid = new TrackBeatGrid(125, 0, .8f, []) { BeatFrames = beats, Sections = [section] };
+        Require(TrackRhythmAnalyzer.IsValid(grid, 600000) &&
+            Math.Abs(grid.BpmAt(96000) - 120) < .01 &&
+            Math.Abs(grid.BpmAt(450000) - 60d * PlaybackFormat.SampleRate / 22000) < .01 &&
+            grid.BpmAt(570000) == 0, "Local tempo used the section median or extrapolated across a gap.");
+        Require(!TrackRhythmAnalyzer.IsValid(grid with { Sections = [section with { StartFrame = 1 }] }, 600000),
+            "A beat outside its confirmed section was accepted.");
+        Require(!TrackRhythmAnalyzer.IsValid(grid with { Sections = [section, section] }, 600000),
+            "Overlapping sections were accepted.");
+    }
+
+    private static void CheckPcmSaturation()
+    {
+        float[] input = [2, -2, float.NaN, float.PositiveInfinity, float.NegativeInfinity, 1, -1, 0];
+        var repeated = Enumerable.Range(0, 8).SelectMany(_ => input).ToArray();
+        var encoded = new short[repeated.Length];
+        Pcm16.Encode(repeated, encoded);
+        short[] expected = [short.MaxValue, short.MinValue, 0, 0, 0, short.MaxValue, short.MinValue, 0];
+        Require(encoded.SequenceEqual(Enumerable.Range(0, 8).SelectMany(_ => expected)),
+            "PCM clipping overflowed or non-finite samples were preserved.");
+        using var decoder = new Mp3PcmSource(new BlockDecoder(2, [input]));
+        var output = new float[input.Length];
+        Require(decoder.Read(output) == 4 && output.SequenceEqual(new float[] { 1, -1, 0, 0, 0, 1, -1, 0 }),
+            "A non-finite sample reached the waveform or resampling filter.");
+        Console.WriteLine("OK: PCM saturation and finite decoder samples.");
     }
 
 }

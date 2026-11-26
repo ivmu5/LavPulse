@@ -24,7 +24,6 @@ internal sealed partial class PlayerLibrary
         {
             if (file == selected || file == armed || upcoming.Contains(file)) continue;
             _prepared.Remove(file);
-            _pcmAccess.Remove(file);
         }
         // The lookahead is a retention policy, not just a preparation hint.
         // Remove completed PCM outside it even below the former byte budget.
@@ -40,7 +39,6 @@ internal sealed partial class PlayerLibrary
                 ReferenceEquals(track, shownCurrent) || ReferenceEquals(track, shownIncoming)) continue;
 
             _prepared.Remove(file);
-            _pcmAccess.Remove(file);
             _decodedFiles.TryRemove(track, out _);
             evicted.Add((file, track.Path));
         }
