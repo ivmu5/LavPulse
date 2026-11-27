@@ -8,6 +8,7 @@ public sealed partial class PlayerView
 {
     private readonly ContentView _actionOverlayHost = new() { IsVisible = false, ZIndex = 100 };
     private TaskCompletionSource<string?>? _actionOverlayResult;
+    private OverlayRevealMotion? _overlayReveal;
     private bool _bodyWasEnabled, _panelWasEnabled, _bodyWasTransparent, _panelWasTransparent;
 
     /// <summary>Displays themed actions within the player window, without an OS dialog.</summary>
@@ -162,7 +163,8 @@ public sealed partial class PlayerView
         {
             HorizontalOptions = anchored ? LayoutOptions.Start : LayoutOptions.Center,
             VerticalOptions = anchored ? LayoutOptions.Start : LayoutOptions.Center,
-            Opacity = anchored ? 0 : 1
+            Opacity = anchored ? 0 : 1,
+            InputTransparent = anchored
         };
         MixerStyle.StyleCard(card, layout);
         if (compact) card.Padding = new Thickness(7, 6);
@@ -191,6 +193,8 @@ public sealed partial class PlayerView
             double bodyHeight = Math.Max(24, overlay.Height - (compact && anchored ? 84 : 160));
             if (scroll.MaximumHeightRequest != bodyHeight) scroll.MaximumHeightRequest = bodyHeight;
             if (!anchored || card.Width <= 0 || card.Height <= 0) return;
+            // Let the requested width arrange before starting the reveal.
+            if (Math.Abs(card.Width - width) > 1) return;
             var point = dropdown ? new Point(dropdownAnchor!.Value.X, dropdownAnchor.Value.Bottom) : anchor!.Value;
             var (x, y) = dropdown
                 ? TrackListLayout.DropdownPosition(dropdownAnchor!.Value.X, dropdownAnchor.Value.Y,
@@ -201,15 +205,11 @@ public sealed partial class PlayerView
             card.TranslationY = y;
             if (revealed) return;
             revealed = true;
-            card.AnchorX = Math.Clamp((point.X - x) / card.Width, 0, 1);
-            card.AnchorY = Math.Clamp((point.Y - y) / card.Height, 0, 1);
-            new Animation(v =>
-            {
-                if (!ReferenceEquals(_actionOverlayResult, result)) return;
-                card.Opacity = v;
-                card.Scale = .96 + .04 * v;
-            }, 0, 1)
-                .Commit(card, "ContextMenuOpen", 16, 160, Easing.CubicOut);
+            bool upward = dropdown ? y + card.Height <= dropdownAnchor!.Value.Top :
+                y + card.Height <= point.Y;
+            _overlayReveal = new OverlayRevealMotion(card, layout, upward);
+            if (_uiFramesSuspended) FinishOverlayReveal();
+            else SyncUiFrames();
         }
         overlay.SizeChanged += (_, _) => Place();
         card.SizeChanged += (_, _) => Place();
@@ -226,16 +226,82 @@ public sealed partial class PlayerView
         return result.Task;
     }
 
+    private void AdvanceOverlayReveal(double time)
+    {
+        if (_overlayReveal is not { } motion || !motion.Advance(time)) return;
+        _overlayReveal = null;
+        SyncUiFrames();
+    }
+
+    private void FinishOverlayReveal()
+    {
+        if (_overlayReveal is not { } motion) return;
+        _overlayReveal = null;
+        motion.Finish();
+    }
+
+    // Full-size layout throughout the animation: only the clip and inner
+    // translation change, so menu items do not remeasure or stretch per frame.
+    private sealed class OverlayRevealMotion
+    {
+        private readonly Border _card;
+        private readonly View _content;
+        private readonly bool _upward;
+        private readonly Microsoft.Maui.Controls.Shapes.RectangleGeometry _clip = new();
+        private double? _start;
+
+        public OverlayRevealMotion(Border card, View content, bool upward)
+        {
+            _card = card;
+            _content = content;
+            _upward = upward;
+            card.Clip = _clip;
+            Apply(0);
+        }
+
+        public bool Advance(double time)
+        {
+            _start ??= time;
+            double progress = PlayerMotion.OverlayReveal(time - _start.Value);
+            if (progress >= 1)
+            {
+                Finish();
+                return true;
+            }
+            Apply(progress);
+            return false;
+        }
+
+        private void Apply(double progress)
+        {
+            double height = Math.Max(0, _card.Height);
+            double visible = height * progress;
+            _clip.Rect = new Rect(0, _upward ? height - visible : 0, Math.Max(0, _card.Width), visible);
+            _content.TranslationY = (_upward ? 1 : -1) * Math.Min(16, height * .15) * (1 - progress);
+            _card.Opacity = Math.Min(1, progress * 2.5);
+        }
+
+        public void Finish()
+        {
+            _card.Clip = null;
+            _card.Opacity = 1;
+            _card.InputTransparent = false;
+            _content.TranslationY = 0;
+        }
+    }
+
     private void CompleteOverlay(TaskCompletionSource<string?> result, string? choice)
     {
         if (!ReferenceEquals(_actionOverlayResult, result)) return;
         _actionOverlayResult = null;
+        FinishOverlayReveal();
         _actionOverlayHost.IsVisible = false;
         _actionOverlayHost.Content = null;
         _body.InputTransparent = _bodyWasTransparent;
         _panelHost.InputTransparent = _panelWasTransparent;
         _body.IsEnabled = _bodyWasEnabled;
         _panelHost.IsEnabled = _panelWasEnabled;
+        SyncUiFrames();
         result.TrySetResult(choice);
     }
 }

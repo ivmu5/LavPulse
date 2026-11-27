@@ -133,6 +133,25 @@ internal static partial class Program
             IconContrast.DarkIcon(bright, "player_queue_add.png") &&
             !IconContrast.DarkText(dark) && IconContrast.DarkText(bright),
             "Swipe foreground did not change contrast as its tint became bright.");
+        Require(IconContrast.DarkIconWeight(dark, "player_queue_add.png") == 0 &&
+            IconContrast.DarkIconWeight(bright, "player_queue_add.png") == 1 &&
+            IconContrast.DarkTextWeight(dark) == 0 && IconContrast.DarkTextWeight(bright) == 1,
+            "Swipe crossfade endpoints were not fully light/dark.");
+        double previousWeight = 0;
+        bool intermediate = false;
+        for (int i = 0; i <= 1000; i++)
+        {
+            double weight = IconContrast.DarkIconWeight(i / 1000d, "player_queue_add.png");
+            Require(weight >= previousWeight && weight is >= 0 and <= 1,
+                "Swipe foreground interpolation was not continuous and monotonic.");
+            intermediate |= weight is > 0 and < 1;
+            previousWeight = weight;
+        }
+        Require(intermediate && PlayerMotion.SwipeTint(0, 200) == 0 &&
+            PlayerMotion.SwipeTint(50, 200) > 0 && PlayerMotion.SwipeTint(200, 200) == 1 &&
+            PlayerMotion.OverlayReveal(0) == 0 && PlayerMotion.OverlayReveal(.06) is > 0 and < 1 &&
+            PlayerMotion.OverlayReveal(.12) == 1,
+            "Gesture tint or menu reveal did not preserve its animation endpoints.");
         for (int channel=0; channel<=255; channel++)
         {
             double value=channel/255d;

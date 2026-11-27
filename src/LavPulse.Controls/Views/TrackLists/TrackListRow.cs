@@ -27,6 +27,7 @@ internal partial class TrackListRow : Border
     internal bool HasRevealedSwipe => _revealedItem is not null;
     private Button? _swipeActionButton;
     private ListSwipeAction? _swipeIconAction;
+    private SwipeForeground? _swipeForeground;
     private BoxView? _swipeTint;
     private object? _swipeItem;
     private object? _revealedItem;
@@ -81,6 +82,7 @@ internal partial class TrackListRow : Border
         button.RemoveDynamicResource(BackgroundColorProperty);
         button.BackgroundColor = Colors.Transparent;
         button.RemoveDynamicResource(Button.TextColorProperty);
+        button.Text = "";
         button.FontSize = 10;
         button.Padding = new Thickness(2);
         button.MinimumHeightRequest = 0;
@@ -202,9 +204,11 @@ internal partial class TrackListRow : Border
         tint.WidthRequest = button.WidthRequest = Math.Max(0,distance);
         Color actionColor = ListActionText.Tint(action, colors);
         tint.Color = actionColor;
-        double opacity = Math.Clamp((distance-first)/(second-first),0,1);
+        // The surface begins coloring as soon as the row moves, not only
+        // after the first action threshold.
+        double opacity = PlayerMotion.SwipeTint(distance, second);
         tint.Opacity = opacity;
-        tint.IsVisible = distance >= first;
+        tint.IsVisible = distance > 0;
         // The tint starts transparent, so the effective background is the
         // row's surface blended with the action color, not the theme mode.
         Color surface = BackgroundColor ?? MixerTheme.Default[MixerColor.Button];
@@ -217,9 +221,18 @@ internal partial class TrackListRow : Border
             actionColor.Red, actionColor.Green, actionColor.Blue, opacity * actionColor.Alpha);
         if (distance >= first)
         {
-            MixerStyle.SetContrastIcon(button, Button.ImageSourceProperty, ListActionText.Icon(action), luminance);
-            MixerStyle.SetContrastText(button, luminance);
+            if (_swipeForeground is null)
+            {
+                _swipeForeground = new SwipeForeground();
+                // Above the color layer, below the transparent click target.
+                Layers.Children.Insert(1, _swipeForeground);
+            }
+            _swipeForeground.HorizontalOptions = side;
+            _swipeForeground.WidthRequest = Math.Max(0, distance);
+            _swipeForeground.IsVisible = true;
+            _swipeForeground.Update(action, luminance, distance >= 130);
         }
+        else if (_swipeForeground is not null) _swipeForeground.IsVisible = false;
         if (_swipeIconAction != action)
         {
             _swipeIconAction = action;
@@ -228,8 +241,6 @@ internal partial class TrackListRow : Border
         }
         // At the first threshold show a clear icon even on narrow screens.
         // Longer reveals also have room for the caption.
-        string caption = distance >= 130 ? ListActionText.Label(action) : "";
-        if (button.Text != caption) button.Text = caption;
         button.IsVisible = distance >= first;
         button.InputTransparent = _revealedItem is null;
         Foreground.TranslationX = right ? distance : -distance;
@@ -241,6 +252,7 @@ internal partial class TrackListRow : Border
         _swipeDistance = 0;
         _horizontalSwipe = false;
         if (_swipeTint is not null) _swipeTint.IsVisible = false;
+        if (_swipeForeground is not null) _swipeForeground.IsVisible = false;
         if (_swipeActionButton is not null) _swipeActionButton.IsVisible = false;
         Foreground.TranslationX = 0;
     }
