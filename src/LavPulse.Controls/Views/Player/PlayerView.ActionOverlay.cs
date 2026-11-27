@@ -193,8 +193,6 @@ public sealed partial class PlayerView
             double bodyHeight = Math.Max(24, overlay.Height - (compact && anchored ? 84 : 160));
             if (scroll.MaximumHeightRequest != bodyHeight) scroll.MaximumHeightRequest = bodyHeight;
             if (!anchored || card.Width <= 0 || card.Height <= 0) return;
-            // Let the requested width arrange before starting the reveal.
-            if (Math.Abs(card.Width - width) > 1) return;
             var point = dropdown ? new Point(dropdownAnchor!.Value.X, dropdownAnchor.Value.Bottom) : anchor!.Value;
             var (x, y) = dropdown
                 ? TrackListLayout.DropdownPosition(dropdownAnchor!.Value.X, dropdownAnchor.Value.Y,

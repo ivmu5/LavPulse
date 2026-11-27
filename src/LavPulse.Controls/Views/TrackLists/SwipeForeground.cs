@@ -4,7 +4,7 @@ namespace Laveyana.LavPulse.Controls;
 internal sealed class SwipeForeground : Grid
 {
     private readonly Image _light = new() { Aspect = Aspect.AspectFit, WidthRequest = 24, HeightRequest = 24 };
-    private readonly Image _dark = new() { Aspect = Aspect.AspectFit, WidthRequest = 24, HeightRequest = 24 };
+    private readonly Image _dark = new() { Aspect = Aspect.AspectFit, WidthRequest = 24, HeightRequest = 24, Opacity = 0 };
     private readonly Label _caption = new() { FontSize = 10, VerticalOptions = LayoutOptions.Center,
         LineBreakMode = LineBreakMode.TailTruncation, IsVisible = false };
     private ListSwipeAction? _action;
@@ -15,6 +15,7 @@ internal sealed class SwipeForeground : Grid
     public SwipeForeground()
     {
         InputTransparent = true;
+        IsVisible = false;
         IsClippedToBounds = true;
         var icons = new Grid { WidthRequest = 24, HeightRequest = 24, Children = { _light, _dark } };
         Children.Add(new HorizontalStackLayout
