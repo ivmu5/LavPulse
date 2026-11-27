@@ -230,16 +230,19 @@ internal sealed class RhythmBandEvidence
         double end, bool strongAnchor, CancellationToken token = default)
     {
         token.ThrowIfCancellationRequested();
-        if (!double.IsFinite(period) || period <= 0 || end - start < 4 * period || bpm > 120 || strongAnchor)
+        if (!double.IsFinite(period) || period <= 0 || end - start < 4 * period || strongAnchor)
             return new(phase, phase, 0, 0, false, false);
         var (normal,doubled) = MeasurePair((int)Math.Floor(start), (int)Math.Ceiling(end), bpm, bpm*2, token);
-        if (normal < .075 || doubled < .10 || doubled < .65 * normal)
-            return new(phase, phase, 0, 0, false, false);
+        if (normal < .075) return new(phase, phase, 0, 0, false, false);
+        bool subdivision = bpm <= 120 && doubled >= .10 && doubled >= .65 * normal;
         double original = PhaseScore(phase, period, start, end);
         double best = original, selected = phase;
-        // Two parity families, with limited refinement around each.
-        for (int parity = 0; parity < 2; parity++)
-            for (int offset = -2; offset <= 2; offset++)
+        // Test nearby phase offsets at every tempo, including fast sections.
+        // The former implementation discarded even a better nearby phase
+        // unless it was roughly half a beat away.
+        int parities = subdivision ? 2 : 1;
+        for (int parity = 0; parity < parities; parity++)
+            for (int offset = -3; offset <= 3; offset++)
             {
                 double candidate = phase + (parity * .5 + offset * .0625) * period;
                 token.ThrowIfCancellationRequested();
@@ -247,9 +250,9 @@ internal sealed class RhythmBandEvidence
                 if (score > best) { best = score; selected = candidate; }
             }
         double difference = Math.Abs(selected - phase);
-        bool alternate = difference >= .30 * period && best >= original + .025 && best >= .25;
+        bool alternate = difference >= .04 * period && best >= original + .025 && best >= .25;
         return new(phase, alternate ? (selected % period + period) % period : phase,
-            original, best, true, alternate);
+            original, best, subdivision, alternate);
     }
 
     public double CorrectPhase(double position, double spacing, double start, double end)

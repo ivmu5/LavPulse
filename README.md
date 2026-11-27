@@ -262,3 +262,7 @@ Without secrets, the APK is signed with the runner's debug key and the release i
 Keep the keystore and passwords backed up outside GitHub; do not commit them. All four secrets must be configured together. Only master release builds receive them. The workflow does not publish to app stores.
 
 Manual releases: **Actions → Build and release → Run workflow → master → Run workflow**. The `publish_release` option is enabled by default; disable it to run a build without publication, including on another branch. A tagged published commit is not overwritten. If a delayed retry collides with another release tag, rerun all jobs to allocate a fresh number. The release job needs repository permission to create tags and releases. To retain immediate merging, leave required status checks disabled in the master branch rules. This does not bypass the release checks.
+
+### Rhythm analysis regression
+
+Tempo-family correction now requires independent band periodicity and sustained support before promoting a slow alias or reducing a very fast subdivision. Weak isolated windows are reconsidered only between compatible accepted neighbors and with their own measured evidence. Local phase refinement also considers faster tempos while preserving strong anchors. The private report replay prints before/after one-to-one tap matches at 100 and 180 ms and coverage; run `dotnet run --project tests/Laveyana.Audio.Playback.Checks -- --rhythm-report /path/to/report.zip`. Manual taps are approximate and are not fed into automatic analysis.
