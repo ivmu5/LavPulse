@@ -220,11 +220,6 @@ public sealed partial class PlayerView : Grid
         add => _queue.HistoryRequested += value;
         remove => _queue.HistoryRequested -= value;
     }
-    public event Action<TrackFile>? QueuePlayRequested
-    {
-        add => _queue.PlayRequested += value;
-        remove => _queue.PlayRequested -= value;
-    }
     public event Action? QueueClearRequested
     {
         add => _queue.ClearRequested += value;

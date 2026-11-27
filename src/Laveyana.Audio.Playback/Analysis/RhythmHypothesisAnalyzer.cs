@@ -35,9 +35,9 @@ internal static class RhythmHypothesisAnalyzer
                 for (int i = 0; i < length; i++)
                 {
                     int lo = Math.Max(0, i - 50), hi = Math.Min(length, i + 51);
-                    double local = (prefix[hi] - prefix[lo]) / (hi - lo);
+                    double localMean = (prefix[hi] - prefix[lo]) / (hi - lo);
                     double value = frames[start + i].Band(b);
-                    double normalized = value / (value + 2 * local + 1e-8);
+                    double normalized = value / (value + 2 * localMean + 1e-8);
                     bands[b,i] = normalized;
                     pulse[i] += Weights[b] * normalized;
                     mean += normalized / length;
@@ -146,15 +146,15 @@ internal static class RhythmHypothesisAnalyzer
         double phase = 0, bestPhase = double.NegativeInfinity;
         for (int p = 0; p < 24; p++)
         {
-            double candidate = p * period / 24, score = 0, off = 0;
+            double candidate = p * period / 24, phaseScore = 0, off = 0;
             int count = 0;
             for (double t = candidate; t < pulse.Length; t += period)
             {
-                score += Peak(t).Value;
+                phaseScore += Peak(t).Value;
                 off += Peak(t + period / 2).Value;
                 count++;
             }
-            double value = (score - .30 * off) / Math.Max(1, count);
+            double value = (phaseScore - .30 * off) / Math.Max(1, count);
             if (value > bestPhase) { bestPhase = value; phase = candidate; }
         }
         var beats = new List<long>();
@@ -172,15 +172,15 @@ internal static class RhythmHypothesisAnalyzer
                 double best = double.NegativeInfinity, selected = shift;
                 for (int j = -4; j <= 4; j++)
                 {
-                    double candidate = j * .05 * period, score = 0;
+                    double candidate = j * .05 * period, shiftScore = 0;
                     int n = 0;
                     for (int k = -3; k <= 3; k++)
                     {
                         double probe = t + k * period + candidate;
                         if (probe < 0 || probe >= pulse.Length) continue;
-                        score += Peak(probe).Value; n++;
+                        shiftScore += Peak(probe).Value; n++;
                     }
-                    if (n >= 4 && score / n > best) { best = score / n; selected = candidate; }
+                    if (n >= 4 && shiftScore / n > best) { best = shiftScore / n; selected = candidate; }
                 }
                 shift = Math.Clamp(selected, shift - .10 * period, shift + .10 * period);
                 nextCheck = t + 2 * Rate;
