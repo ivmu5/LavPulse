@@ -75,24 +75,28 @@ public sealed class MasterSpectrum
         double lowerHz = Math.Max(binWidth, Math.Min(32, upperHz / 2));
         double ratio = upperHz / lowerHz;
 
-        double startHz = lowerHz;
+        // Preserve logarithmic spacing where the FFT can resolve it.
+        // At the bottom of the range reserve a distinct bin for each bar
+        // rather than copying the same magnitude into neighboring bars.
+        // Include Nyquist only if every positive bin is requested.
+        int availableEnd = _windowFrames / 2 + (barCount == _windowFrames / 2 ? 1 : 0);
+        int endBin = Math.Clamp((int)Math.Ceiling(upperHz / binWidth), barCount + 1, availableEnd);
+        int firstBin = Math.Clamp((int)Math.Ceiling(lowerHz / binWidth), 1, endBin - barCount);
+        double startHz = Math.Min(lowerHz, firstBin * binWidth);
+
         for (int i = 0; i < barCount; i++)
         {
-            double endHz = i == barCount - 1
-                ? upperHz
-                : lowerHz * Math.Pow(ratio, (double)(i + 1) / barCount);
+            int remaining = barCount - i - 1;
+            double idealEndHz = lowerHz * Math.Pow(ratio, (double)(i + 1) / barCount);
+            int nextBin = remaining == 0 ? endBin :
+                Math.Clamp((int)Math.Ceiling(idealEndHz / binWidth), firstBin + 1, endBin - remaining);
+            // Report the actual contiguous frequency ranges used for analysis.
+            double endHz = remaining == 0
+                ? Math.Min(sampleRate / 2d, Math.Max(upperHz, (nextBin - 1) * binWidth + binWidth / 2))
+                : nextBin * binWidth;
             bands[i] = new FrequencyBand(startHz, endHz);
-
-            // Narrow low-frequency bands can share the nearest FFT bin.
-            int first = Math.Max(1, (int)Math.Ceiling(startHz / binWidth));
-            int end = Math.Min(_windowFrames / 2, (int)Math.Ceiling(endHz / binWidth));
-            if (end <= first)
-            {
-                first = Math.Clamp((int)Math.Round(Math.Sqrt(startHz * endHz) / binWidth), 1, _windowFrames / 2 - 1);
-                end = first + 1;
-            }
-
-            _bandBins[i] = (first, end);
+            _bandBins[i] = (firstBin, nextBin);
+            firstBin = nextBin;
             startHz = endHz;
         }
 
@@ -111,7 +115,7 @@ public sealed class MasterSpectrum
         while (Interlocked.CompareExchange(ref _requestedGeneration, unchecked(generation + 1), generation) != generation);
     }
 
-    /// <summary>Logarithmically spaced frequency bands, from lowest to highest.</summary>
+    /// <summary>Approximately logarithmic, non-overlapping frequency bands, constrained by FFT resolution.</summary>
     public IReadOnlyList<FrequencyBand> Bands { get; }
 
     /// <summary>
@@ -159,6 +163,8 @@ public sealed class MasterSpectrum
             {
                 // A packed real stereo FFT stores the sum of channel powers in paired, mirrored bins.
                 double power = (MagnitudeSquared(_stereo[bin]) + MagnitudeSquared(_stereo[_windowFrames - bin])) / 4;
+                // Nyquist is its own mirror; it has no negative-frequency partner.
+                if (bin == _windowFrames / 2) power *= .25;
                 peakPower = Math.Max(peakPower, power);
             }
 
