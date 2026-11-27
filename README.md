@@ -62,9 +62,11 @@ Opening a file from the OS gives it priority at cold start without clearing the 
 | Detailed-wave drag | Preview signed scrubbing; release inside to commit, drag above the waveform to cancel. Seeking is disabled during a transition. |
 | Queue | Played entries remain visible but muted; current, prepared, unprepared and analyzing states have distinct styling. |
 
-Tap the active Queue tab again to open the editor. Drag rows to reorder, tap a track to play it, or switch to Removal to reveal delete buttons. Swipe left on an ordinary row to expose its delete action. Clear asks for confirmation; it clears the queue, not the library. The currently playing track can finish, and an ongoing crossfade is allowed to complete. Done returns to the player.
+Tap the active Queue tab again to open the editor. Tick tracks to select them, then choose **Actions** for the selection; use the drag handle to reorder. Right-click a row on Windows or hold it on a phone to open the action sheet. Available actions depend on the list: play now/next, add/remove from the queue, clear analysis, clear and rescan, forget library membership, or reveal a file in Windows Explorer. In the library, deleting the managed copy is separate from forgetting membership and requires confirmation; original files outside LavPulse are not deleted. Active or prepared files are protected, and a copy still in the queue cannot be physically deleted. Virtual library folders reveal the managed media directory, not a nonexistent physical folder.
 
-The current track is brought to the top after a track change if the queue has been idle for ten seconds. In the editor it is centered where possible. Selecting another track changes the playback/history boundary, not the order of the list. On Windows, Back/Forward mouse buttons navigate between player panels; F11 toggles fullscreen with the custom window caption hidden until needed.
+Default swipes: left-to-right adds to the queue in the library and moves a queue track immediately after the current track; right-to-left removes from the queue or requests deletion of the managed library copy. Swipe to the first threshold to reveal a button; beyond it the palette tint increases until the second threshold. Release beyond the second threshold to run the action without tapping the button. Configure all four directions independently in Playback settings → List swipes. Unanalyzed local tracks have dimmed rows and an explicit marker. During a crossfade, the outgoing and incoming tracks carry finishing/starting playback labels. Clear asks for confirmation; it clears the queue, not the library. Done returns to the player.
+
+The current track is brought to the top after a track change if the queue has been idle for ten seconds. In the editor it is centered where possible. Selecting another track changes the playback/history boundary, not the order of the list. On Windows, Back/Forward mouse buttons navigate between player panels; F11 toggles fullscreen; the centered section title remains visible independently of the shared caption auto-hide.
 
 The Recommendations tab is reserved for future recommendations; it is not a working streaming or AI recommendation service.
 
@@ -93,7 +95,7 @@ Analysis is automatic when needed and can be refreshed manually in the library.
 
 | Feature | What you see or can use |
 |---|---|
-| Rhythm | Global and local BPM, confirmed variable-tempo beats, transient marks, rhythmic sections and subdivision evidence. Unsupported regions remain without confirmed beats. |
+| Rhythm | Global and local BPM, confirmed variable-tempo beats, transient marks, rhythmic sections and subdivision evidence. The deck displays a rounded section BPM to avoid interval-to-interval flicker; precise beat positions and diagnostic tempo estimates remain unchanged. Unsupported regions remain without confirmed beats. |
 | Meter | Estimated repeating three- or four-pulse cycles; sufficiently confident downbeats appear as thicker lines in beat-grid mode. These are not verified musical time signatures. |
 | Musical key | Major/minor estimate, Camelot notation, local tonal windows (~8.2 s at 48 kHz); Key ? means insufficient local evidence. |
 | Loudness | Integrated and short-term LUFS, estimated loudness range, sample peak and proposed normalization gain. Sample peak is not true peak. |

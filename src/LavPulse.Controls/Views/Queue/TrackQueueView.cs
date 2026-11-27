@@ -295,9 +295,9 @@ internal sealed partial class TrackQueueView : Grid
 
     public void InvalidateMasterSpectrum()
     {
-        if (_showRecommendations || _queue.Opacity == 0 || _currentTrack is not { } file ||
-            _queueScroll.FindRow(file) is not { } row) return;
-        if (_queueScroll.IsInViewport(row.Index)) row.InvalidateSpectrum();
+        if (_showRecommendations || _queue.Opacity == 0) return;
+        foreach(var row in _queueScroll.RealizedRows)
+            if(row.IsActivePlayback && _queueScroll.IsInViewport(row.Index)) row.InvalidateSpectrum();
     }
 
     internal bool OpenEditor()

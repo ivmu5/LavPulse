@@ -416,6 +416,7 @@ public sealed partial class PlayerView : Grid
     /// <summary>Reflects playback state and the availability of a prepared incoming track.</summary>
     public void SetTransport(bool canPlay, bool playing, bool canMix, bool canGoBack, bool automix)
     {
+        _queue.SetPlaybackState(playing);
         if (_playIconPlaying != playing)
         {
             _playIconPlaying = playing;

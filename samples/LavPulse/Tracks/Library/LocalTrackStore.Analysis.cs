@@ -17,8 +17,9 @@ internal sealed partial class LocalTrackStore
             var reference=await ReadAsync(manifest,TrackStoreJson.Default.StoredPcmReference,token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
             // Delete only managed PCM. A malformed manifest never authorizes arbitrary paths.
-            if(PcmPath(reference?.PcmFile) is { } pcm && File.Exists(pcm)) File.Delete(pcm);
-            if(File.Exists(manifest)) File.Delete(manifest);
+            if(PcmPath(reference?.PcmFile) is { } pcm)
+                try { File.Delete(pcm); } catch (DirectoryNotFoundException) { }
+            try { File.Delete(manifest); } catch (DirectoryNotFoundException) { }
             _analyzed.TryRemove(media,out _);
             _restoredPcm.TryRemove(media,out _);
             if(removeOriginal)

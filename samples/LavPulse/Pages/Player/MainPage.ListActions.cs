@@ -145,7 +145,7 @@ public sealed partial class MainPage
         {
             foreach(var file in files.Select(QueueFile).OfType<TrackFile>().ToArray()) await RemoveQueueTrackAsync(file);
         }
-        else if(selection.Local && action is ListSwipeAction.ClearAnalysis or ListSwipeAction.Rescan or ListSwipeAction.RemoveFromStorage)
+        else if(selection.Local && action is (ListSwipeAction.ClearAnalysis or ListSwipeAction.Rescan or ListSwipeAction.RemoveFromStorage))
             await ChangeStoredFilesAsync(files,action==ListSwipeAction.ClearAnalysis?ClearDerived:action==ListSwipeAction.Rescan?Rescan:RemoveStorage);
     }
 

@@ -184,7 +184,7 @@ public sealed partial class TrackLibraryPanel
             SetSelectionMark(_panel._editing,_panel._checkedRows.Contains(row));
             bool unscanned=_panel._local && row.File is { } file && !_panel._hasAnalysis(file);
             _analysisState.IsVisible=unscanned;
-            Opacity=unscanned?.56:1;
+            Opacity = unscanned ? .56 : 1;
             SetDeleteEnabled(!_panel._busy);
             _import.IsVisible = !_panel._local;
             _add.IsEnabled = _import.IsEnabled = !_panel._busy && !_panel._editing;

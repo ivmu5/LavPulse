@@ -49,6 +49,7 @@ internal sealed class QueueTrackRow : TrackListRow
 
     public View DragHandle { get; }
     public bool IsPlayed => _played;
+    public bool IsActivePlayback => _shown is { PlaybackState: not QueuePlaybackState.None };
     public bool NeedsAnimation => File is not null && (_loading || _text.IsOverflowing);
     public TrackFile? File { get; private set; }
     public int Index { get; private set; }
