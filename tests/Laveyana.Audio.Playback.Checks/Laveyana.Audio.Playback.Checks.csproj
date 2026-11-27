@@ -29,6 +29,7 @@
     <Compile Include="../../src/LavPulse.Controls/Views/Library/TrackFolderSizes.cs" Link="TrackFolderSizes.cs" />
     <Compile Include="../../src/LavPulse.Controls/Views/Library/TrackMetadataCache.cs" Link="TrackMetadataCache.cs" />
     <Compile Include="../../src/LavPulse.Controls/Views/TrackLists/TrackListLayout.cs" Link="TrackListLayout.cs" />
+    <Compile Include="../../src/LavPulse.Controls/Views/Layout/AdaptivePanelLayout.cs" Link="AdaptivePanelLayout.cs" />
     <Compile Include="../../src/LavPulse.Controls/Views/Queue/QueueViewport.cs" Link="QueueViewport.cs" />
     <Compile Include="../../src/LavPulse.Controls/Views/Queue/QueueMarqueeMotion.cs" Link="QueueMarqueeMotion.cs" />
     <Compile Include="../../src/LavPulse.Controls/Views/Queue/QueueTextFragments.cs" Link="QueueTextFragments.cs" />

@@ -57,6 +57,7 @@ internal static partial class Program
 
     private static void CheckTrackListLayout()
     {
+        CheckAdaptivePanelLayout();
         const int stride = TrackListLayout.Stride;
         const int viewport = 4 * stride;
         int[] parents = TrackListLayout.ParentIndexes([0,1,2,3,4,3,2,1,2]);
@@ -110,6 +111,32 @@ internal static partial class Program
             TrackListLayout.PaddingToKeepOffset(50, offset, viewport) == 0,
             "Collapsing a folder changed its scroll offset or retained unnecessary space.");
         Console.WriteLine("OK: shared track list virtualization and folder collapse offset.");
+    }
+
+    private static void CheckAdaptivePanelLayout()
+    {
+        var portrait = AdaptivePanelLayout.Measure(900, 1200);
+        Require(!portrait.IsWide && portrait.Width == 660 && portrait.ContentWidth == 628,
+            "Portrait unexpectedly allocated side rails.");
+        Require(!AdaptivePanelLayout.Measure(820, 400).IsWide &&
+            !AdaptivePanelLayout.Measure(900, 900).IsWide &&
+            AdaptivePanelLayout.Measure(double.NaN, 500).Width == 0 &&
+            AdaptivePanelLayout.Measure(900, 0).Width == 0,
+            "Invalid, square or narrow windows activated the wide layout.");
+        var boundary = AdaptivePanelLayout.Measure(AdaptivePanelLayout.MinimumWideWidth, 400);
+        Require(boundary.IsWide && boundary.SideWidth == AdaptivePanelLayout.MinimumSide &&
+            boundary.ContentWidth == AdaptivePanelLayout.MinimumContent,
+            "Wide layout boundary compressed the main panel.");
+        for (int width = 320; width <= 2400; width++)
+        {
+            var size = AdaptivePanelLayout.Measure(width, 400);
+            Require(size.Width <= width && size.ContentWidth <= 628 &&
+                (!size.IsWide || (size.SideWidth is >= 180 and <= 240 && size.ContentWidth >= 420)),
+                "Adaptive layout exceeded its window or rail constraints.");
+        }
+        var large = AdaptivePanelLayout.Measure(1920, 1080);
+        Require(large.Width == AdaptivePanelLayout.MaximumWidth && large.ContentWidth == 628 &&
+            large.SideWidth == 240, "Large window did not preserve the central content width.");
     }
 
     private static void CheckQueueMarqueeMotion()
