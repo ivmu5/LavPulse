@@ -53,6 +53,17 @@ internal static partial class Program
         RhythmTempoContinuity.RecoverSingleWindows(tempos, quality, eligible, raw, periodicity, phase, hits, 40, .5, default);
         Require(eligible[3] && quality[3] == .145f && !eligible[6] && !eligible[7] && !eligible[10],
             "Recovery inflated confidence, chained weak windows, or crossed unsupported audio.");
-        Console.WriteLine("OK: evidence-gated octave correction and isolated window recovery.");
+        // 150 BPM, 100 Hz envelope, eight-hop offset. The old phase
+        // search never tested this tempo because it was above 120 BPM.
+        var energy = Enumerable.Range(0, 1000).Select(i =>
+            new RhythmEnergy(i % 40 == 8 ? 1f : 0f, i % 40 == 8 ? .5f : 0f, 0)).ToArray();
+        var evidence = new RhythmBandEvidence(energy, 100, default);
+        var refined = evidence.ChoosePhase(0, 40, 150, 0, 1000, false);
+        Require(refined.Alternate && refined.SelectedScore > refined.OriginalScore &&
+            refined.Phase >= 5 && refined.Phase <= 10,
+            "An independently supported fast phase offset was not selected.");
+        Require(!evidence.ChoosePhase(0, 40, 150, 0, 1000, true).Alternate,
+            "A strong phase anchor was overwritten.");
+        Console.WriteLine("OK: evidence-gated octave correction, isolated window recovery and local phase refinement.");
     }
 }

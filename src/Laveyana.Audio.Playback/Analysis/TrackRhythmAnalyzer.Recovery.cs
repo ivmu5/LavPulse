@@ -108,17 +108,20 @@ public static partial class TrackRhythmAnalyzer
             double originalScore = original.Average(e => bands.FindPulse(e.Frame / (double)hopFrames, radius).Score);
             var options = new List<SectionPhaseCandidate> { new(original, originalScore, 0) };
             states[i] = options;
-            // Do not reinterpret a clear fast kick grid. For a half-time
-            // region require independent evidence of the doubled pulse.
+            // Compatible sections may have a small phase offset even at
+            // fast tempos. Half-beat alternatives still require an observed
+            // subdivision; ordinary phase refinement does not.
             bool hasNeighbor = i > 0 && Compatible(sections[i - 1], section) ||
                 i + 1 < sections.Count && Compatible(section, sections[i + 1]);
-            if (section.Bpm <= 120 && hasNeighbor)
+            if (hasNeighbor)
             {
                 var (normal,doubled) = bands.MeasurePair((int)(section.StartFrame / hopFrames),
                     (int)Math.Ceiling(section.EndFrame / (double)hopFrames), section.Bpm, section.Bpm*2, token);
-                if (normal >= .075 && doubled >= .10 && doubled >= .65 * normal)
+                if (normal >= .105 || section.Bpm <= 120 && normal >= .075 && doubled >= .10 && doubled >= .65 * normal)
                 {
-                    foreach (double shift in new[] { -.5, .5 })
+                    bool parity = section.Bpm <= 120 && doubled >= .10 && doubled >= .65 * normal;
+                    double[] shifts = parity ? [-.5, -.25, -.125, .125, .25, .5] : [-.25, -.125, .125, .25];
+                    foreach (double shift in shifts)
                     {
                         var alternative = new List<TrackBeatEstimate>();
                         double score = 0;
@@ -145,7 +148,13 @@ public static partial class TrackRhythmAnalyzer
                         if (alternative.Count < Math.Max(4, Math.Ceiling(original.Length * .80)) ||
                             supported < Math.Ceiling(alternative.Count * .55) || longest > 2) continue;
                         score /= alternative.Count;
-                        if (score >= .25 && score >= originalScore - .03 &&
+                        // Small shifts need comparable local evidence. A
+                        // strongly coherent original is never replaced merely
+                        // to make the section boundaries line up.
+                        double minimum = Math.Abs(shift) < .5
+                            ? originalScore - (originalScore >= .42 ? 0 : .015)
+                            : originalScore - .03;
+                        if (score >= .25 && score >= minimum &&
                             alternative.Count(e => e.MatchedOnset) >= Math.Ceiling(alternative.Count * .55))
                             options.Add(new(alternative.ToArray(), score, shift));
                     }
