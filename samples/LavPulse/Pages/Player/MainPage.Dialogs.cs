@@ -67,7 +67,6 @@ public sealed partial class MainPage
             var panel = createPanel();
             _view.ShowPanel(panel);
             _view.SuspendPlayerAnimations();
-            _view.StopPlaybackVisuals();
             UpdateSpectrumAnalysis();
             UpdatePositionRefreshInterval();
             RecordOpeningScreen();

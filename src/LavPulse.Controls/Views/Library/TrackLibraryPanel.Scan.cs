@@ -145,7 +145,6 @@ public sealed partial class TrackLibraryPanel
         ClearScanRows();
         _stopScan.Text = "Остановить";
         _scanActions.IsVisible = _tree.IsVisible = false;
-        RefreshPinnedParents();
         _back.IsVisible = false;
         _scanPanel.IsVisible = true;
         _scanScroll.IsEnabled = _stopScan.IsEnabled = true;

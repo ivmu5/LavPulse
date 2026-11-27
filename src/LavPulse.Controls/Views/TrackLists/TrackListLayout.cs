@@ -18,6 +18,17 @@ internal static class TrackListLayout
 
     public const int MaximumPinnedParents = 3;
 
+    // Keep room for at least one ordinary row, including in short landscape windows.
+    public static int PinnedCapacity(double viewport) =>
+        !double.IsFinite(viewport) || viewport < RowHeight ? 0 :
+            (int)Math.Clamp(Math.Floor((viewport - RowHeight) / Stride), 0, MaximumPinnedParents);
+
+    public static double StickyTranslation(int index, int slot, double scroll) =>
+        scroll + (double)(slot - index) * Stride;
+
+    public static double CollapseAnchor(int index, double viewport) =>
+        (double)Math.Max(0, index - PinnedCapacity(viewport)) * Stride;
+
     /// <summary>Builds parent indexes for a flattened pre-order tree.</summary>
     public static int[] ParentIndexes(IReadOnlyList<int> depths)
     {

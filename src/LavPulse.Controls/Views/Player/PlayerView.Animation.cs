@@ -74,6 +74,7 @@ public sealed partial class PlayerView
             library.DrawScanFrame(time);
             return;
         }
+        if (Panel is not null) return;
         if (_queueAnimating) _queue.DrawFrame(time);
         if (_deckEntrance is { } entrance && entrance.Advance(time)) _deckEntrance = null;
         if (_deckExit is { } exit && exit.Advance(time))

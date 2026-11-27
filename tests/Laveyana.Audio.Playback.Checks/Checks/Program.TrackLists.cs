@@ -70,6 +70,20 @@ internal static partial class Program
         Require(TrackListLayout.PinnedParents(parents,7*stride,pinned)==1 && pinned[0]==0 &&
             TrackListLayout.PinnedParents(parents,8*stride,pinned)==2 && pinned[..2].SequenceEqual(new[]{0,7}),
             "Pinned ancestors did not switch when scrolling into a sibling.");
+        Require(TrackListLayout.PinnedCapacity(3 * stride + TrackListLayout.RowHeight)==3 &&
+            TrackListLayout.PinnedCapacity(2 * stride + TrackListLayout.RowHeight)==2 &&
+            TrackListLayout.PinnedCapacity(TrackListLayout.RowHeight)==0,
+            "Sticky rows consumed the entire viewport.");
+        double scroll = 12 * stride + 17;
+        for (int slot = 0; slot < 3; slot++)
+        {
+            int index = slot + 1;
+            double actual = index * stride + TrackListLayout.StickyTranslation(index, slot, scroll) - scroll;
+            Require(actual == slot * stride, "A sticky row moved away from its viewport slot.");
+        }
+        Require(TrackListLayout.CollapseAnchor(10,4*stride)==7*stride &&
+            TrackListLayout.CollapseAnchor(1,4*stride)==0,
+            "Collapsed row can be hidden beneath pinned ancestors.");
         Require(TrackListLayout.PinnedParents([],0,pinned)==0 &&
             TrackListLayout.PinnedParents(parents,double.NaN,pinned)==0,
             "Empty or invalid scroll state produced pinned ancestors.");
@@ -96,6 +110,15 @@ internal static partial class Program
         const float centerY = 32;
         const float fontSize = 13;
         float baseline = QueueMarqueeMotion.Baseline(centerY, fontSize);
+        foreach (bool status in new[] { false, true })
+        foreach (bool artist in new[] { false, true })
+        {
+            int count = 1 + (status ? 1 : 0) + (artist ? 1 : 0);
+            var (top, height) = QueueMarqueeMotion.LineLayout(4, 44, status, artist);
+            Require(Math.Abs(top + count * height / 2 - 26) < .001 &&
+                top >= 4 && top + count * height <= 48.001,
+                "Queue text group is not vertically centered.");
+        }
         Require(QueueMarqueeMotion.Offset(0, 10) == 0 &&
             QueueMarqueeMotion.Offset(-1, 10) == 0 &&
             QueueMarqueeMotion.Offset(overflow, 0) == 0,

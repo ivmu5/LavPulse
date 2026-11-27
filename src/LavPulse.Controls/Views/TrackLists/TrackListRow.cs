@@ -26,6 +26,7 @@ internal partial class TrackListRow : Border
     internal event Action? SelectionToggled;
     internal bool HasRevealedSwipe => _revealedItem is not null;
     private Button? _swipeActionButton;
+    private ListSwipeAction? _swipeIconAction;
     private BoxView? _swipeTint;
     private object? _swipeItem;
     private object? _revealedItem;
@@ -62,7 +63,10 @@ internal partial class TrackListRow : Border
         button.IsVisible = false;
         button.RemoveDynamicResource(BackgroundColorProperty);
         button.BackgroundColor = Colors.Transparent;
-        button.FontSize = 11;
+        button.FontSize = 10;
+        button.Padding = new Thickness(2);
+        button.MinimumHeightRequest = 0;
+        button.ContentLayout = new(Button.ButtonContentLayout.ImagePosition.Left, 3);
         button.LineBreakMode = LineBreakMode.TailTruncation;
         Layers.Children.Insert(0, tint);
         Layers.Children.Insert(1, button);
@@ -154,11 +158,20 @@ internal partial class TrackListRow : Border
         var side = right ? LayoutOptions.Start : LayoutOptions.End;
         tint.HorizontalOptions = button.HorizontalOptions = side;
         tint.WidthRequest = button.WidthRequest = Math.Max(0,distance);
-        tint.Color = action is ListSwipeAction.RemoveFromQueue or ListSwipeAction.RemoveFromStorage or ListSwipeAction.ClearAnalysis
-            ? colors.Alternate : colors.Accent;
+        tint.Color = ListActionText.Tint(action, colors);
         tint.Opacity = Math.Clamp((distance-first)/(second-first),0,1);
         tint.IsVisible = distance >= first;
-        button.Text = ListActionText.Label(action);
+        if (_swipeIconAction != action)
+        {
+            _swipeIconAction = action;
+            MixerStyle.UseIcon(button, Button.ImageSourceProperty, ListActionText.Icon(action));
+            SemanticProperties.SetDescription(button, ListActionText.Label(action));
+            ToolTipProperties.SetText(button, ListActionText.Label(action));
+        }
+        // At the first threshold show a clear icon even on narrow screens.
+        // Longer reveals also have room for the caption.
+        string caption = distance >= 130 ? ListActionText.Label(action) : "";
+        if (button.Text != caption) button.Text = caption;
         button.IsVisible = distance >= first;
         button.InputTransparent = _revealedItem is null;
         Foreground.TranslationX = right ? distance : -distance;

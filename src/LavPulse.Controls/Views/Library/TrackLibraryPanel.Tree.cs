@@ -80,6 +80,7 @@ public sealed partial class TrackLibraryPanel
 
     private async Task SelectAsync(TreeRow row)
     {
+        bool collapsePinned = row.File is null && row.Expanded && _tree.IsPinned(row);
         if (row.File is null)
         {
             var folder = row.Folders[^1];
@@ -113,6 +114,17 @@ public sealed partial class TrackLibraryPanel
         row.Selected = true;
         row.Refresh();
         if (row.File is null) PublishTree();
+        if (collapsePinned)
+        {
+            int index = _rows.IndexOf(row);
+            if (index >= 0)
+            {
+                // Leave space above the collapsed row for other pinned ancestors.
+                await _tree.ScrollToAsync(0, TrackListLayout.CollapseAnchor(index, _tree.Height), false);
+                _scrollOffset = Math.Max(0, _tree.ScrollY);
+                KeepScrollOffset(_rows.Count);
+            }
+        }
         _message.Text = "";
     }
 
