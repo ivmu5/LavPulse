@@ -18,6 +18,7 @@ public sealed partial class MainPage
             _trackStore.ReadTrackStorageSizeAsync, _settings.ScanReturnSeconds));
         if (library is null) return false;
         library.ConfigureListActions(_settings,ShowLibraryActionsAsync,ExecuteLibrarySwipeAsync);
+        library.SelectionActionRequested = ExecuteLibrarySelectionActionAsync;
         library.ImportFolderOpened += RecordOpeningScreen;
         library.ImportFolderClosed += root =>
             _forwardNavigation.Push(() => _view.Panel is TrackLibraryPanel panel && panel.TryReopenImportFolder(root));

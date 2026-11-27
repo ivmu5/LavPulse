@@ -174,7 +174,7 @@ internal sealed partial class TrackQueueView
         }
     }
 
-    private bool CanEditRows => !_showRecommendations && !_queue.InputTransparent && _rowAnimationsEnabled;
+    private bool CanEditRows => !_selectionActionRunning && !_showRecommendations && !_queue.InputTransparent && _rowAnimationsEnabled;
     private bool CanDragRows => IsEditing && !_deletingTracks && CanEditRows;
     private bool CanSwipe => !IsEditing && CanEditRows;
 

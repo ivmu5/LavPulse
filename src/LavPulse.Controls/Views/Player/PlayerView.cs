@@ -226,6 +226,11 @@ public sealed partial class PlayerView : Grid
         get => _queue.ActionsRequested;
         set => _queue.ActionsRequested = value;
     }
+    public Func<IReadOnlyList<TrackFile>, ListEditAction, Task>? QueueSelectionActionRequested
+    {
+        get => _queue.SelectionActionRequested;
+        set => _queue.SelectionActionRequested = value;
+    }
     public Func<TrackFile,ListSwipeAction,Task>? QueueSwipeRequested
     {
         get => _queue.SwipeRequested;

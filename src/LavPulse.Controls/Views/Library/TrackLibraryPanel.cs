@@ -11,7 +11,8 @@ public sealed partial class TrackLibraryPanel : ContentView
 {
     private bool _editing;
     private readonly HashSet<TreeRow> _checkedRows = [];
-    private readonly Button _bulk = MixerStyle.Button("Действия (0)");
+    private readonly ListEditToolbar _editToolbar;
+    public Func<IReadOnlyList<TrackLibrarySelection>, ListEditAction, Task>? SelectionActionRequested { get; set; }
     private Func<IReadOnlyList<TrackLibrarySelection>, Point?, Task>? _listActions;
     private Func<TrackLibrarySelection,ListSwipeAction,Task>? _swipeAction;
     private PlayerSettings _listSettings = new();
@@ -36,6 +37,20 @@ public sealed partial class TrackLibraryPanel : ContentView
             if (!_token.IsCancellationRequested && _local)
                 await ShowRootAsync(await _openLibrary(),local:true,preservePosition:true);
         }, "Не удалось выполнить действие");
+
+    private Task ExecuteSelectionActionAsync(ListEditAction action)
+    {
+        if (!_editing || _busy || _checkedRows.Count == 0 || SelectionActionRequested is not { } execute)
+            return Task.CompletedTask;
+        // Keep tree order, not checkbox click order, for playback and batch imports.
+        var selections = _rows.Where(_checkedRows.Contains).Select(SelectionFor).ToArray();
+        return RunAsync(async () =>
+        {
+            await execute(selections, action);
+            if (!_token.IsCancellationRequested)
+                await ShowRootAsync(await _openLibrary(), local: true, preservePosition: true);
+        }, "Не удалось выполнить действие");
+    }
 
     private void ToggleChecked(TreeRow row)
     {
@@ -105,25 +120,9 @@ public sealed partial class TrackLibraryPanel : ContentView
         header.Add(_heading);
         header.IsVisible = _heading.IsVisible;
         // Editing belongs to the list, independent of the global library actions.
-        var actions = new HorizontalStackLayout
-        {
-            HorizontalOptions = LayoutOptions.End,
-            Spacing = 8,
-            Children = { _edit, _bulk }
-        };
+        _editToolbar = new ListEditToolbar(true, () => SetEditing(false), ExecuteSelectionActionAsync);
         _edit.HorizontalOptions = LayoutOptions.End;
-        _bulk.HorizontalOptions = LayoutOptions.End;
-        _bulk.Clicked += async (_, _) =>
-        {
-            if (_checkedRows.Count == 0 || _listActions is not { } menu) return;
-            var selections = _checkedRows.Select(SelectionFor).ToArray();
-            await RunAsync(async () =>
-            {
-                await menu(selections, null);
-                _checkedRows.Clear();
-                if (!_token.IsCancellationRequested) await ShowRootAsync(await _openLibrary(),local:true,preservePosition:true);
-            }, "Не удалось выполнить действие");
-        };
+        var actions = new Grid { Children = { _edit, _editToolbar } };
 
         _message.MaxLines = 2;
         _message.LineBreakMode = LineBreakMode.TailTruncation;
@@ -340,9 +339,9 @@ public sealed partial class TrackLibraryPanel : ContentView
         _back.Text = _editing ? "Готово" : "Назад";
         _back.IsEnabled = !_busy;
         _back.IsVisible = _scanBatch is null;
-        _bulk.IsVisible = _editing;
-        _bulk.IsEnabled = !_busy && _checkedRows.Count > 0;
-        _bulk.Text = $"Действия ({_checkedRows.Count})";
+        _editToolbar.Update(_editing, _busy, _checkedRows.Count,
+            _checkedRows.Count == 1 && _checkedRows.First().File is not null, _checkedRows.Count == 1,
+            SelectionActionRequested is not null);
         MixerStyle.SetListEditButton(_edit, _editing);
         if (!_editing) _edit.Text = "Редактировать";
         _scanActions.IsVisible = _local && _scanBatch is null;

@@ -15,7 +15,6 @@ internal sealed partial class TrackQueueView : Grid
     private readonly View _feedSelector;
     private readonly Grid _right;
     private readonly Grid _editorHeader;
-    private readonly Label _editorTitle;
     private readonly VerticalStackLayout _editorSideActions = new()
     {
         IsVisible = false,
@@ -26,7 +25,9 @@ internal sealed partial class TrackQueueView : Grid
     private readonly Button _editorDone = MixerStyle.Button("Готово", primary: true, icon: "player_confirm.png");
     private readonly Label _editorHint = MixerStyle.Label("", 11, MixerColor.Muted);
     private readonly Button _clearQueue = MixerStyle.Button("Очистить");
-    private readonly Button _deleteMode = MixerStyle.Button("Удаление", icon: "player_delete.png");
+    private readonly ListEditToolbar _editToolbar;
+    private bool _selectionActionRunning;
+    internal Func<IReadOnlyList<TrackFile>, ListEditAction, Task>? SelectionActionRequested { get; set; }
     private readonly Button _queueTab = MixerStyle.Button("Очередь", icon: "player_queue.png", stacked: true);
     private readonly Button _recommendationsTab = MixerStyle.Button("Рекомендации", icon: "player_recommendations.png", stacked: true);
     private readonly TrackListView<TrackFile, QueueTrackRow> _queueScroll;
@@ -99,14 +100,10 @@ internal sealed partial class TrackQueueView : Grid
             if (IsEditing && CanEditRows && _dragging is null && _tracks.Count > 0)
                 ClearRequested?.Invoke();
         };
-        _deleteMode.HorizontalOptions = LayoutOptions.End;
-        _deleteMode.Clicked += async (_, _) =>
-        {
-            if (CanEditRows && _checkedTracks.Count > 0 && ActionsRequested is { } actions)
-                await actions(_tracks.Where(_checkedTracks.Contains).ToArray(), null);
-        };
+        _editToolbar = new ListEditToolbar(false, () => CloseEditor(), ExecuteSelectionActionAsync);
+        _editToolbar.SizeChanged += (_, _) => UpdateQueueViewport();
         UpdateEditorActions();
-        var title = _editorTitle = MixerStyle.Label("Редактор очереди", MixerStyle.PhoneFont(19, 16), bold: true);
+        var title = MixerStyle.Label("Редактор очереди", MixerStyle.PhoneFont(19, 16), bold: true);
         title.VerticalOptions = LayoutOptions.Center;
         SemanticProperties.SetHeadingLevel(title, SemanticHeadingLevel.Level1);
 #if WINDOWS
@@ -122,8 +119,8 @@ internal sealed partial class TrackQueueView : Grid
         };
         _editorHeader.Add(title);
         _editorHeader.Add(_clearQueue, column: 1);
-        _editorHeader.Add(_deleteMode, row: 1);
-        Grid.SetColumnSpan(_deleteMode, 2);
+        _editorHeader.Add(_editToolbar, row: 1);
+        Grid.SetColumnSpan(_editToolbar, 2);
         _editorHint.IsVisible = false;
         _queue = new VerticalStackLayout
         {
@@ -194,26 +191,19 @@ internal sealed partial class TrackQueueView : Grid
         if (wide)
         {
             _editorHeader.Children.Remove(_clearQueue);
-            _editorHeader.Children.Remove(_deleteMode);
-            _clearQueue.HorizontalOptions = _deleteMode.HorizontalOptions = LayoutOptions.Fill;
+            _clearQueue.HorizontalOptions = LayoutOptions.Fill;
             Grid.SetColumn(_clearQueue, 0);
             Grid.SetRow(_clearQueue, 0);
-            Grid.SetColumnSpan(_deleteMode, 1);
-            Grid.SetRow(_deleteMode, 0);
             _editorSideActions.Children.Add(_clearQueue);
-            _editorSideActions.Children.Add(_deleteMode);
         }
         else
         {
             _editorSideActions.Children.Remove(_clearQueue);
-            _editorSideActions.Children.Remove(_deleteMode);
-            _clearQueue.HorizontalOptions = _deleteMode.HorizontalOptions = LayoutOptions.End;
+            _clearQueue.HorizontalOptions = LayoutOptions.End;
             _editorHeader.Add(_clearQueue, column: 1);
-            _editorHeader.Add(_deleteMode, row: 1);
-            Grid.SetColumnSpan(_deleteMode, 2);
         }
         _editorSideActions.IsVisible = wide;
-        _editorHeader.IsVisible = IsEditing && (!wide || _editorTitle.IsVisible);
+        _editorHeader.IsVisible = IsEditing;
         UpdateQueueViewport();
     }
 
@@ -334,7 +324,7 @@ internal sealed partial class TrackQueueView : Grid
         _tracks = tracks;
         _checkedTracks.RemoveWhere(file => !tracks.Contains(file));
         UpdateEditorActions();
-        _clearQueue.IsEnabled = tracks.Count > 0;
+        _clearQueue.IsEnabled = !_selectionActionRunning && tracks.Count > 0;
         _currentTrack = current;
         _playedCount = playedCount;
         _readRow = read;
@@ -394,10 +384,29 @@ internal sealed partial class TrackQueueView : Grid
         return true;
     }
 
+    private async Task ExecuteSelectionActionAsync(ListEditAction action)
+    {
+        if (!IsEditing || !CanEditRows || _dragging is not null || _selectionActionRunning ||
+            _checkedTracks.Count == 0 || SelectionActionRequested is not { } execute) return;
+        var files = _tracks.Where(_checkedTracks.Contains).ToArray();
+        _selectionActionRunning = true;
+        UpdateEditorActions();
+        try { await execute(files, action); }
+        finally
+        {
+            _selectionActionRunning = false;
+            UpdateEditorActions();
+        }
+    }
+
     private void UpdateEditorActions()
     {
-        _deleteMode.Text = $"Действия ({_checkedTracks.Count})";
-        _deleteMode.IsEnabled = _checkedTracks.Count > 0;
+        _editToolbar.Update(IsEditing, _selectionActionRunning, _checkedTracks.Count,
+            _checkedTracks.Count == 1,
+            _checkedTracks.Count == 1 && _checkedTracks.First().LocalPath is not null,
+            SelectionActionRequested is not null);
+        _editorDone.IsEnabled = !_selectionActionRunning;
+        _clearQueue.IsEnabled = !_selectionActionRunning && _tracks.Count > 0;
         _editorHint.Text = "Отметьте треки. Перетаскивание за ручку — изменение порядка.";
     }
 
@@ -410,7 +419,7 @@ internal sealed partial class TrackQueueView : Grid
         _deletingTracks = false;
         UpdateEditorActions();
         _feedSelector.IsVisible = !editing;
-        _editorHeader.IsVisible = editing && (!_wideEditor || _editorTitle.IsVisible);
+        _editorHeader.IsVisible = editing;
         _editorHint.IsVisible = _editorDone.IsVisible = editing;
         _current.IsVisible = !editing;
         Grid.SetColumn(_right, editing ? 0 : 1);
