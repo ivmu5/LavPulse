@@ -150,8 +150,8 @@ public sealed partial class PlayerView : Grid
                 player.WidthRequest = Math.Min(split ? AdaptivePanelLayout.MaximumWidth : 760, _body.Width);
                 _queue.SetEditorLayout(default);
             }
-            deckScroll.MaximumHeightRequest = split ? double.PositiveInfinity :
-                _body.Height * (shortWindow ? .43 : .56);
+            if (!split)
+                deckScroll.MaximumHeightRequest = _body.Height * (shortWindow ? .43 : .56);
         }
         _queue.EditingChanged += editing =>
         {

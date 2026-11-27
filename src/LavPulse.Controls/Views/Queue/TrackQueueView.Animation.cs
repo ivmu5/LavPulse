@@ -169,6 +169,7 @@ internal sealed partial class TrackQueueView
         if (!animate)
         {
             _current.Show(track);
+            UpdateCenterAudioInfo();
             UpdateCoverState();
             refreshQueue?.Invoke();
             return;
@@ -179,6 +180,7 @@ internal sealed partial class TrackQueueView
         // track. No artwork travels across the decks or covers the queue.
         (_current, _incoming) = (_incoming, _current);
         _current.Show(track);
+        UpdateCenterAudioInfo();
         UpdateCoverState();
         _current.ZIndex = 1;
         _incoming.ZIndex = 0;
