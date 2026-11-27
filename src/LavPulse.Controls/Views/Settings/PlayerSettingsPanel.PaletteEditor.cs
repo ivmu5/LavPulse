@@ -136,9 +136,9 @@ public sealed partial class PlayerSettingsPanel
             ToolTipProperties.SetText(cancel, "Отмена");
             cancel.Clicked += (_, _) => dismiss();
             _apply.Clicked += (_, _) => apply(_colors);
-            var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
-            actions.Add(_apply);
-            actions.Add(cancel, 1);
+            var actions = new Grid { ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Star)], ColumnSpacing = 8 };
+            actions.Add(cancel);
+            actions.Add(_apply, 1);
 
             var layout = new Grid { RowDefinitions = [new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)], RowSpacing = 10 };
             layout.Add(heading);

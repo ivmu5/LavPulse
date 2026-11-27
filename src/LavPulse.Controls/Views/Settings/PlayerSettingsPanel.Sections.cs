@@ -79,13 +79,51 @@ public sealed partial class PlayerSettingsPanel
     private View CreateSwipeSettings()
     {
         var options = Enum.GetValues<ListSwipeAction>().Select(a => (a,ListActionText.Label(a))).ToArray();
-        var queueOptions=options.Where(o=>o.a is not (ListSwipeAction.AddToQueue or ListSwipeAction.RemoveFromStorage)).ToArray();
+        var queueOptions = options.Where(o => o.a is not (ListSwipeAction.AddToQueue or ListSwipeAction.RemoveFromStorage)).ToArray();
+        View Direction(bool right, (ListSwipeAction, string)[] choices, ListSwipeAction selected, Action<ListSwipeAction> update) =>
+            Select(right ? "→  Слева направо" : "←  Справа налево", choices, selected,
+                action => CreateSwipePreview(action, right), update, maxColumns: MixerStyle.IsPhone ? 2 : 3);
+
         return Section("Свайпы в списках",
-            Select("Очередь: слева направо",queueOptions,_settings.QueueSwipeRight,null,a=>_settings=_settings with {QueueSwipeRight=a},maxColumns:3),
-            Select("Очередь: справа налево",queueOptions,_settings.QueueSwipeLeft,null,a=>_settings=_settings with {QueueSwipeLeft=a},maxColumns:3),
-            Select("Медиатека: слева направо",options,_settings.LibrarySwipeRight,null,a=>_settings=_settings with {LibrarySwipeRight=a},maxColumns:3),
-            Select("Медиатека: справа налево",options,_settings.LibrarySwipeLeft,null,a=>_settings=_settings with {LibrarySwipeLeft=a},maxColumns:3),
-            MixerStyle.Label("Короткий свайп открывает кнопку. Длинный выполняет действие при отпускании.",11,MixerColor.Muted));
+            MixerStyle.Label("Очередь", 15, MixerColor.Accent, bold: true),
+            Direction(true, queueOptions, _settings.QueueSwipeRight, a => _settings = _settings with { QueueSwipeRight = a }),
+            Direction(false, queueOptions, _settings.QueueSwipeLeft, a => _settings = _settings with { QueueSwipeLeft = a }),
+            MixerStyle.Label("Медиатека", 15, MixerColor.Accent, bold: true),
+            Direction(true, options, _settings.LibrarySwipeRight, a => _settings = _settings with { LibrarySwipeRight = a }),
+            Direction(false, options, _settings.LibrarySwipeLeft, a => _settings = _settings with { LibrarySwipeLeft = a }),
+            MixerStyle.Label("Цвет и значок совпадают с действием в списке. Короткий свайп открывает кнопку, длинный выполняет действие при отпускании.", 11, MixerColor.Muted));
+    }
+
+    private View CreateSwipePreview(ListSwipeAction action, bool right)
+    {
+        var sample = new Grid
+        {
+            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)],
+            ColumnSpacing = 0, IsClippedToBounds = true
+        };
+        MixerStyle.UseColor(sample, BackgroundColorProperty, MixerColor.Surface);
+        var revealed = new Grid { BackgroundColor = ListActionText.Tint(action, PlayerColors.For(_settings)) };
+        var icon = new Image { WidthRequest = 24, HeightRequest = 24, HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center, Aspect = Aspect.AspectFit };
+        MixerStyle.UseIcon(icon, Image.SourceProperty, ListActionText.Icon(action));
+        revealed.Add(icon);
+        var track = new Grid { ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Star)], ColumnSpacing = 3,
+            Padding = new Thickness(3) };
+        MixerStyle.UseColor(track, BackgroundColorProperty, MixerColor.Button);
+        var cover = new BoxView { WidthRequest = 10, HeightRequest = 17, VerticalOptions = LayoutOptions.Center };
+        MixerStyle.UseColor(cover, BoxView.ColorProperty, MixerColor.Accent);
+        var lines = new VerticalStackLayout { Spacing = 3, VerticalOptions = LayoutOptions.Center };
+        foreach (double width in new[] { 1d, .65 })
+        {
+            var line = new BoxView { HeightRequest = 3, HorizontalOptions = LayoutOptions.Fill, Opacity = width };
+            MixerStyle.UseColor(line, BoxView.ColorProperty, MixerColor.Muted);
+            lines.Add(line);
+        }
+        track.Add(cover);
+        track.Add(lines, 1);
+        sample.Add(revealed, right ? 0 : 1);
+        sample.Add(track, right ? 1 : 0);
+        return sample;
     }
 
     private View CreateFileAssociationSection()

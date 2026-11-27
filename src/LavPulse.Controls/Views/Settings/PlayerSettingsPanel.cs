@@ -104,9 +104,9 @@ public sealed partial class PlayerSettingsPanel : ContentView
             dismiss();
         };
         cancel.Clicked += (_, _) => dismiss();
-        var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
-        actions.Add(save);
-        actions.Add(cancel, 1);
+        var actions = new Grid { ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Star)], ColumnSpacing = 8 };
+        actions.Add(cancel);
+        actions.Add(save, 1);
 
         int topInset = 16;
 #if WINDOWS

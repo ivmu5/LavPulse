@@ -17,7 +17,7 @@ The current player has two decks. Recommendation, beat-matched time stretching a
 
 ## List navigation and actions
 
-In hierarchical library views, up to three nearest parent folders remain pinned above the scrolling rows. Tap a pinned folder to collapse its branch and return to its row. Unanalyzed tracks show a compact indicator below the file size, separately from title and artist. Context menus, destructive confirmations and operation results appear as themed in-app overlays; Back dismisses the overlay first. Native OS file/folder pickers remain native. Panel completion buttons are at the bottom, with a wide Save button and a compact cancel icon where edits are staged. Other operations remain above the list.
+In hierarchical library views, up to three nearest parent folders remain pinned within the scrolling list using the actual virtualized rows. The inline queue-add buttons have been removed; use the context actions or swipe instead. Tap a pinned folder to collapse its branch and return to its row. Unanalyzed tracks show a compact indicator below the file size, separately from title and artist. Context menus, destructive confirmations and operation results appear as themed in-app overlays; Back dismisses the overlay first. Native OS file/folder pickers remain native. Panel completion buttons are at the bottom, with a wide Save button and a compact cancel icon where edits are staged (on the left in settings). Swipe settings show direction-specific previews with the same palette tint and icon as the real list. Other operations remain above the list.
 
 ## Contents
 
@@ -120,7 +120,7 @@ The current storage layout remains analysis-v13; individual derived profile fiel
 - Adjustable transport fade times, crossfade length and visual latency compensation (the latter affects presentation, not the audio).
 - Background playback and OS media controls where supported; lock-screen integration and Android status-bar preference. Rendering is suspended when the player is not visible, while audio/eligible background work continues.
 
-Default visual settings: automatic display cadence, dark theme, gradient spectrum with peaks, 20% side width, minimum brightness 5%, full brightness at 70%, and no extra visual delay. Detailed waveforms use transient mode; the overview defaults to a progress bar. Start/pause fades default to 300 ms. Optional normalization is disabled by default. Opening another panel or hiding the window suspends the player visuals; reopening restores the current state without replaying an old transition.
+Default visual settings: automatic display cadence, dark theme, gradient spectrum with peaks, 20% side width, minimum brightness 5%, full brightness at 70%, and no extra visual delay. Detailed waveforms use transient mode; the overview defaults to a progress bar. Start/pause fades default to 300 ms. Optional normalization is disabled by default. Opening another panel suspends hidden deck and queue animations, but the master spectrum continues in the visible window. Hiding the window suspends rendering and FFT; reopening restores the current state without replaying an old transition.
 
 ## Diagnostics
 

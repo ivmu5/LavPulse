@@ -96,6 +96,15 @@ internal static partial class Program
         const float centerY = 32;
         const float fontSize = 13;
         float baseline = QueueMarqueeMotion.Baseline(centerY, fontSize);
+        foreach (bool status in new[] { false, true })
+        foreach (bool artist in new[] { false, true })
+        {
+            int count = 1 + (status ? 1 : 0) + (artist ? 1 : 0);
+            var (top, height) = QueueMarqueeMotion.LineLayout(4, 44, status, artist);
+            Require(Math.Abs(top + count * height / 2 - 26) < .001 &&
+                top >= 4 && top + count * height <= 48.001,
+                "Queue text group is not vertically centered.");
+        }
         Require(QueueMarqueeMotion.Offset(0, 10) == 0 &&
             QueueMarqueeMotion.Offset(-1, 10) == 0 &&
             QueueMarqueeMotion.Offset(overflow, 0) == 0,

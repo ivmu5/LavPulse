@@ -196,14 +196,22 @@ internal sealed class QueueTrackRow : TrackListRow
             }
             canvas.SaveState();
             canvas.ClipRectangle(bounds);
-            // Fixed three slots even when optional status or artist changes.
-            // Never derive the baseline from the currently visible substring.
-            float lineHeight=bounds.Height/3;
-            if(Status is { } status)
-                DrawLine(canvas,new(bounds.X,bounds.Y,bounds.Width,lineHeight),status,ArtistFont,(float)MixerStyle.PhoneFont(10,9),StatusColor);
-            DrawLine(canvas,new(bounds.X,bounds.Y+lineHeight,bounds.Width,lineHeight),Title,TitleFont,(float)MixerStyle.PhoneFont(12,11),Color);
-            if(!string.IsNullOrWhiteSpace(Artist))
-                DrawLine(canvas,new(bounds.X,bounds.Y+2*lineHeight,bounds.Width,lineHeight),Artist,ArtistFont,(float)MixerStyle.PhoneFont(10,9),ArtistColor);
+            // Reserve space only for lines that actually exist. Center the
+            // group and keep every line's vertical position fixed during scrolling.
+            bool hasStatus = !string.IsNullOrWhiteSpace(Status);
+            bool hasArtist = !string.IsNullOrWhiteSpace(Artist);
+            var (top, lineHeight) = QueueMarqueeMotion.LineLayout(bounds.Y, bounds.Height, hasStatus, hasArtist);
+            if (hasStatus)
+            {
+                DrawLine(canvas, new(bounds.X, top, bounds.Width, lineHeight), Status!, ArtistFont,
+                    (float)MixerStyle.PhoneFont(10,9), StatusColor);
+                top += lineHeight;
+            }
+            DrawLine(canvas, new(bounds.X, top, bounds.Width, lineHeight), Title, TitleFont,
+                (float)MixerStyle.PhoneFont(hasStatus ? 12 : 13, hasStatus ? 11 : 12), Color);
+            if (hasArtist)
+                DrawLine(canvas, new(bounds.X, top + lineHeight, bounds.Width, lineHeight), Artist!, ArtistFont,
+                    (float)MixerStyle.PhoneFont(hasStatus ? 10 : 11, hasStatus ? 9 : 10), ArtistColor);
             canvas.RestoreState();
             if (overflowed != IsOverflowing) OverflowChanged?.Invoke();
         }

@@ -18,6 +18,14 @@ internal static class QueueMarqueeMotion
             Math.Min(phase - EndpointPauseSeconds, cycle - phase) * Speed, 0, overflow);
     }
 
+    /// <summary>Centers the occupied line slots without reserving an invisible status row.</summary>
+    public static (float Top, float Height) LineLayout(float top, float height, bool status, bool artist)
+    {
+        int count = 1 + (status ? 1 : 0) + (artist ? 1 : 0);
+        float line = Math.Min(height / count, status ? 15 : 18);
+        return (top + (height - count * line) / 2, line);
+    }
+
     /// <summary>Fixed glyph baseline, independent of the title's length and scroll offset.</summary>
     public static float Baseline(float centerY, float fontSize) => centerY + fontSize * .35f;
 }
