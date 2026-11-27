@@ -105,28 +105,49 @@ public sealed partial class PlayerView : Grid
             MaximumWidthRequest = AdaptivePanelLayout.MaximumWidth,
             Padding = new Thickness(sidePadding, topPadding, sidePadding, 12),
             RowSpacing = 8,
+            ColumnDefinitions = [new(GridLength.Star), new(0)],
             RowDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto)]
         };
         player.Add(_queue);
         player.Add(deckScroll, row: 1);
         var transport = new VerticalStackLayout { Spacing = 5, Children = { Status, CreateTransport() } };
         player.Add(transport, row: 2);
+        Grid.SetColumnSpan(transport, 2);
+        bool split = false;
         void UpdatePlayerWidth()
         {
             if (_body.Width <= 0 || _body.Height <= 0) return;
+            bool shortWindow = AdaptivePanelLayout.IsShortLandscape(_body.Width, _body.Height);
+            int inset = shortWindow ? Math.Max(4, topPadding - 8) : topPadding;
+            int bottom = shortWindow ? 6 : 12;
+            bool nextSplit = !_queue.IsEditing && AdaptivePanelLayout.UseSplitPlayer(_body.Width, _body.Height);
+            if (split != nextSplit)
+            {
+                split = nextSplit;
+                player.ColumnDefinitions[0].Width = split ? new GridLength(1.1, GridUnitType.Star) : GridLength.Star;
+                player.ColumnDefinitions[1].Width = split ? GridLength.Star : new GridLength(0);
+                player.ColumnSpacing = split ? 12 : 0;
+                player.RowDefinitions[1].Height = split ? new GridLength(0) : GridLength.Auto;
+                Grid.SetColumn(deckScroll, split ? 1 : 0);
+                Grid.SetRow(deckScroll, split ? 0 : 1);
+            }
+            player.RowSpacing = shortWindow ? 4 : 8;
+            Grid.SetColumnSpan(_queue, _queue.IsEditing ? 2 : 1);
             if (_queue.IsEditing)
             {
                 var layout = AdaptivePanelLayout.Measure(_body.Width, _body.Height);
-                player.Padding = new Thickness(AdaptivePanelLayout.Padding, topPadding, AdaptivePanelLayout.Padding, 12);
+                player.Padding = new Thickness(AdaptivePanelLayout.Padding, inset, AdaptivePanelLayout.Padding, bottom);
                 player.WidthRequest = layout.Width;
-                _queue.SetEditorLayout(layout);
+                _queue.SetEditorLayout(layout, shortWindow);
             }
             else
             {
-                player.Padding = new Thickness(sidePadding, topPadding, sidePadding, 12);
-                player.WidthRequest = Math.Min(760, _body.Width);
+                player.Padding = new Thickness(sidePadding, inset, sidePadding, bottom);
+                player.WidthRequest = Math.Min(split ? AdaptivePanelLayout.MaximumWidth : 760, _body.Width);
                 _queue.SetEditorLayout(default);
             }
+            deckScroll.MaximumHeightRequest = split ? double.PositiveInfinity :
+                _body.Height * (shortWindow ? .43 : .56);
         }
         _queue.EditingChanged += editing =>
         {
@@ -153,12 +174,6 @@ public sealed partial class PlayerView : Grid
             if (_body.Width > 0 && _body.Height > 0)
             {
                 UpdatePlayerWidth();
-#if IOS
-                bool shortPhone = MixerStyle.IsPhone && _body.Height < 430;
-                deckScroll.MaximumHeightRequest = _body.Height * (shortPhone ? .43 : .56);
-#else
-                deckScroll.MaximumHeightRequest = _body.Height * .56;
-#endif
             }
         };
         return player;
@@ -260,15 +275,12 @@ public sealed partial class PlayerView : Grid
     {
         var controls = new Grid
         {
-            ColumnDefinitions = [new(GridLength.Star), new(0), new(GridLength.Star)],
+            ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)],
             RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)],
             RowSpacing = 4
         };
 #if IOS
-        // Let the two groups take their natural widths on small iPhones, with flexible space between.
         _equalizerToggle.WidthRequest = 52;
-        controls.ColumnDefinitions[0].Width = controls.ColumnDefinitions[2].Width = GridLength.Auto;
-        controls.ColumnDefinitions[1].Width = GridLength.Star;
 #endif
         _automix.Clicked += (_, _) => AutoMixChanged?.Invoke();
         _repeatOne.Clicked += (_, _) => RepeatOneChanged?.Invoke();
@@ -332,15 +344,11 @@ public sealed partial class PlayerView : Grid
         bool wide = false;
         controls.SizeChanged += (_, _) =>
         {
-            bool next = controls.Width >= 520;
+            bool next = AdaptivePanelLayout.UseSingleRowTransport(controls.Width);
             if (next == wide) return;
             wide = next;
-#if IOS
             controls.ColumnDefinitions[0].Width = controls.ColumnDefinitions[2].Width = wide ? GridLength.Star : GridLength.Auto;
             controls.ColumnDefinitions[1].Width = wide ? GridLength.Auto : GridLength.Star;
-#else
-            controls.ColumnDefinitions[1].Width = wide ? GridLength.Auto : new GridLength(0);
-#endif
             Grid.SetColumnSpan(primary, wide ? 1 : 3);
             Grid.SetColumn(primary, wide ? 1 : 0);
             Grid.SetRow(primary, wide ? 0 : 1);

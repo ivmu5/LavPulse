@@ -219,6 +219,7 @@ public sealed partial class TrackLibraryPanel
         if (!_local || _selected is not { } selected) return;
         using var batch = new TrackScanBatch(_analysisParallelism, _token);
         _scanBatch = batch;
+        UpdateActions();
         ClearScanRows();
         _stopScan.Text = "Остановить";
         _scanActions.IsVisible = _tree.IsVisible = false;

@@ -181,16 +181,32 @@ public sealed partial class PlayerView
         else MixerStyle.UseColor(overlay, BackgroundColorProperty, MixerColor.Scrim);
         overlay.Add(card);
         bool revealed = false;
+        double placedWidth = 0, placedHeight = 0;
         void Place()
         {
             if (!ReferenceEquals(_actionOverlayResult, result) || overlay.Width <= 32 || overlay.Height <= 32) return;
+            // An anchored menu owns coordinates in the old visual tree.
+            // Dismiss on rotation/resize rather than showing it at a stale row.
+            if (anchored && placedWidth > 0 &&
+                (Math.Abs(overlay.Width - placedWidth) > 2 || Math.Abs(overlay.Height - placedHeight) > 2))
+            {
+                CompleteOverlay(result, null);
+                return;
+            }
+            placedWidth = overlay.Width;
+            placedHeight = overlay.Height;
             double preferredWidth = dropdown ? Math.Clamp(dropdownAnchor!.Value.Width, 230, 320) :
                 anchored ? 300 : compact ? 320 : 520;
             double width = Math.Min(preferredWidth, overlay.Width - 32);
             if (card.WidthRequest != width) card.WidthRequest = width;
             double maximumHeight = overlay.Height - 32;
             if (card.MaximumHeightRequest != maximumHeight) card.MaximumHeightRequest = maximumHeight;
-            double bodyHeight = Math.Max(24, overlay.Height - (compact && anchored ? 84 : 160));
+            // Reserve actual header/footer sizes, including wrapped titles
+            // and large text, instead of allowing the footer to be clipped.
+            double fixedHeight = Math.Max(heading.Height, compact ? 22 : 28) +
+                (showFooter ? Math.Max(44, layout.Children.OfType<Grid>().LastOrDefault()?.Height ?? 0) : 0) +
+                card.Padding.VerticalThickness + layout.RowSpacing * (showFooter ? 2 : 1) + 4;
+            double bodyHeight = Math.Max(24, maximumHeight - fixedHeight);
             if (scroll.MaximumHeightRequest != bodyHeight) scroll.MaximumHeightRequest = bodyHeight;
             if (!anchored || card.Width <= 0 || card.Height <= 0) return;
             var point = dropdown ? new Point(dropdownAnchor!.Value.X, dropdownAnchor.Value.Bottom) : anchor!.Value;

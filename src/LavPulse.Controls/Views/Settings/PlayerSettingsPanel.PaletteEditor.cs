@@ -102,8 +102,9 @@ public sealed partial class PlayerSettingsPanel
             }));
             _picker.ColorPicked += color => SetColor(color, syncHex: true, syncPicker: false);
             inputs.Add(_picker);
-            inputs.Add(ControlRow("HEX", _hex));
-            inputs.Add(_validation);
+            var colorControls = new VerticalStackLayout { Spacing = 7 };
+            colorControls.Add(ControlRow("HEX", _hex));
+            colorControls.Add(_validation);
             for (int channel = 0; channel < Channels.Length; channel++)
             {
                 var slider = new Slider { Minimum = 0, Maximum = 255 };
@@ -126,10 +127,13 @@ public sealed partial class PlayerSettingsPanel
                 value.HorizontalTextAlignment = TextAlignment.End;
                 _channelValues[channel] = value;
                 row.Add(value, 2);
-                inputs.Add(row);
+                colorControls.Add(row);
             }
-            inputs.Add(MixerStyle.Label("Мастер-спектр", 13));
-            inputs.Add(_preview);
+            colorControls.Add(MixerStyle.Label("Мастер-спектр", 13));
+            colorControls.Add(_preview);
+            var inputScroll = new ScrollView { Content = inputs };
+            var controlScroll = new ScrollView { IsVisible = false };
+            inputs.Add(colorControls);
 
             var cancel = MixerStyle.IconButton("player_cancel.png", 44);
             SemanticProperties.SetDescription(cancel, "Отмена");
@@ -140,10 +144,18 @@ public sealed partial class PlayerSettingsPanel
             actions.Add(cancel);
             actions.Add(_apply, 1);
 
-            var layout = new Grid { RowDefinitions = [new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)], RowSpacing = 10 };
+            var layout = new Grid
+            {
+                RowDefinitions = [new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)],
+                ColumnDefinitions = [new(GridLength.Star), new(0)],
+                RowSpacing = 10
+            };
             layout.Add(heading);
-            layout.Add(new ScrollView { Content = inputs }, row: 1);
+            Grid.SetColumnSpan(heading, 2);
+            layout.Add(inputScroll, row: 1);
+            layout.Add(controlScroll, 1, 1);
             layout.Add(actions, row: 2);
+            Grid.SetColumnSpan(actions, 2);
             var dialog = new Border { HorizontalOptions = LayoutOptions.Center, VerticalOptions = LayoutOptions.Center };
             MixerStyle.StyleCard(dialog, layout);
             MixerStyle.UseColor(dialog, BackgroundColorProperty, MixerColor.Overlay);
@@ -153,10 +165,27 @@ public sealed partial class PlayerSettingsPanel
                 Children = { dialog }
             };
             MixerStyle.UseColor(overlay, BackgroundColorProperty, MixerColor.Scrim);
+            bool split = false;
             overlay.SizeChanged += (_, _) =>
             {
-                if (overlay.Width > 32) dialog.WidthRequest = Math.Min(480, overlay.Width - 32);
+                bool nextSplit = overlay.Width >= 600 && overlay.Width > overlay.Height;
+                if (overlay.Width > 32) dialog.WidthRequest = Math.Min(nextSplit ? 800 : 480, overlay.Width - 32);
                 if (overlay.Height > 32) dialog.MaximumHeightRequest = overlay.Height - 32;
+                if (split == nextSplit) return;
+                split = nextSplit;
+                layout.ColumnDefinitions[1].Width = split ? GridLength.Star : new GridLength(0);
+                layout.ColumnSpacing = split ? 12 : 0;
+                if (split)
+                {
+                    inputs.Children.Remove(colorControls);
+                    controlScroll.Content = colorControls;
+                }
+                else
+                {
+                    controlScroll.Content = null;
+                    inputs.Add(colorControls);
+                }
+                controlScroll.IsVisible = split;
             };
             SyncInputs(ReadColor(_role), syncHex: true);
             Content = overlay;

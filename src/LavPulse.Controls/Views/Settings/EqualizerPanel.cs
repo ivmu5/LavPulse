@@ -27,8 +27,9 @@ public sealed class EqualizerPanel : ContentView
         header.Add(toggle, 1);
 
         var bands = new Grid { RowSpacing = 12, ColumnSpacing = 4 };
-        const int compactColumns = 5;
+        const int compactColumns = 4;
         int visibleColumns = compactColumns;
+        bool singleStrip = false;
         var frequencies = EqualizerSettings.Frequencies;
         _bands = new NumericSettingInput[frequencies.Count + 1];
         var rows = new View[_bands.Length];
@@ -55,7 +56,7 @@ public sealed class EqualizerPanel : ContentView
         ArrangeFaders(compactColumns);
         bands.SizeChanged += (_, _) =>
         {
-            int columns = bands.Width >= 704 ? rows.Length : compactColumns;
+            int columns = singleStrip ? rows.Length : AdaptivePanelLayout.EqualizerColumns(bands.Width, rows.Length);
             if (columns == visibleColumns) return;
             visibleColumns = columns;
             ArrangeFaders(columns);
@@ -89,7 +90,14 @@ public sealed class EqualizerPanel : ContentView
         };
         var close = MixerStyle.Button("Готово", primary: true, icon: "player_confirm.png");
         close.Clicked += (_, _) => dismiss();
-        var topActions = new VerticalStackLayout { Spacing = 6, Children = { header, reset } };
+        var topActions = new Grid
+        {
+            ColumnDefinitions = [new(GridLength.Star), new(0)],
+            RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)],
+            RowSpacing = 6
+        };
+        topActions.Add(header);
+        topActions.Add(reset, row: 1);
         int topInset = 16;
 #if WINDOWS
         topInset += WindowsWindowChrome.ContentInset;
@@ -102,10 +110,29 @@ public sealed class EqualizerPanel : ContentView
             RowDefinitions = [new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)]
         };
         layout.Add(topActions);
-        layout.Add(new ScrollView { Content = bands }, row: 1);
+        var faderScroll = new ScrollView { Content = bands };
+        layout.Add(faderScroll, row: 1);
         layout.Add(close, row: 2);
         var host = new Grid { Children = { layout } };
-        host.SizeChanged += (_, _) => { if (host.Width > 0) layout.WidthRequest = Math.Min(host.Width, 848); };
+        host.SizeChanged += (_, _) =>
+        {
+            if (host.Width <= 0 || host.Height <= 0) return;
+            bool shortWindow = AdaptivePanelLayout.IsShortLandscape(host.Width, host.Height);
+            layout.WidthRequest = Math.Min(host.Width, shortWindow ? AdaptivePanelLayout.MaximumWidth : 848);
+            layout.Padding = new Thickness(16, shortWindow ? Math.Max(4, topInset - 8) : topInset, 16, shortWindow ? 6 : 16);
+            layout.RowSpacing = shortWindow ? 5 : 12;
+            bands.WidthRequest = shortWindow ? Math.Max(rows.Length * 64 - 4, layout.WidthRequest - 32) : -1;
+            if (singleStrip == shortWindow) return;
+            singleStrip = shortWindow;
+            topActions.ColumnDefinitions[1].Width = shortWindow ? GridLength.Auto : new GridLength(0);
+            Grid.SetRow(reset, shortWindow ? 0 : 1);
+            Grid.SetColumn(reset, shortWindow ? 1 : 0);
+            topActions.ColumnSpacing = shortWindow ? 8 : 0;
+            faderScroll.Orientation = shortWindow ? ScrollOrientation.Both : ScrollOrientation.Vertical;
+            bands.MinimumWidthRequest = shortWindow ? rows.Length * 64 - 4 : 0;
+            visibleColumns = shortWindow ? rows.Length : AdaptivePanelLayout.EqualizerColumns(Math.Max(1, layout.WidthRequest - 32), rows.Length);
+            ArrangeFaders(visibleColumns);
+        };
         Content = host;
     }
 

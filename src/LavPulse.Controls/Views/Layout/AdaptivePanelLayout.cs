@@ -30,6 +30,26 @@ internal readonly record struct AdaptivePanelLayout(double Width, double SideWid
     public double RightColumnWidth(bool navigation) =>
         IsThreeColumn ? SideWidth : IsTwoColumn && !navigation ? SideWidth + Gap : 0;
 
+    // Use actual available window dimensions rather than device idiom.
+    public static bool IsShortLandscape(double width, double height) =>
+        double.IsFinite(width) && double.IsFinite(height) && height > 0 &&
+        width >= MinimumTwoColumnWidth && width > height && height < 520;
+
+    public static bool UseSplitPlayer(double width, double height) =>
+        IsShortLandscape(width, height) && width >= 640;
+
+    public static bool UseSingleRowTransport(double width) => width >= 600;
+
+    // Spread faders over a balanced number of rows, rather than leaving
+    // only the output control in a third row on a five-column grid.
+    public static int EqualizerColumns(double width, int count)
+    {
+        if (!double.IsFinite(width) || width <= 0 || count <= 0) return 1;
+        int capacity = (int)Math.Clamp(Math.Floor((width + 4) / 64), 1, count);
+        int rows = (count + capacity - 1) / capacity;
+        return (count + rows - 1) / rows;
+    }
+
     public static AdaptivePanelLayout Measure(double width, double height)
     {
         if (!double.IsFinite(width) || !double.IsFinite(height) || width <= 0 || height <= 0)

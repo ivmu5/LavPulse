@@ -22,6 +22,7 @@ internal sealed partial class TrackQueueView : Grid
         VerticalOptions = LayoutOptions.Start
     };
     private bool _wideEditor;
+    private bool _doneOnRail;
     private readonly Button _editorDone = MixerStyle.Button("Готово", primary: true, icon: "player_confirm.png");
     private readonly Label _editorHint = MixerStyle.Label("", 11, MixerColor.Muted);
     private readonly Button _clearQueue = MixerStyle.Button("Очистить");
@@ -159,6 +160,11 @@ internal sealed partial class TrackQueueView : Grid
         {
             UpdateQueueViewport();
             if (IsEditing) return;
+            // The feed may be narrower than half a phone screen in a split
+            // landscape player. Keep its full accessible names as tooltips.
+            bool iconOnly = Width / 2 < 205;
+            _queueTab.Text = iconOnly ? "" : "Очередь";
+            _recommendationsTab.Text = iconOnly ? "" : "Рекомендации";
             double columnWidth = Math.Max(0, (Width - ColumnSpacing) / 2);
             if (columnWidth <= 0 || Height <= 0) return;
 
@@ -171,7 +177,7 @@ internal sealed partial class TrackQueueView : Grid
     }
 
     /// <summary>Uses the shared panel rails only while editing, leaving playback geometry unchanged.</summary>
-    internal void SetEditorLayout(AdaptivePanelLayout layout)
+    internal void SetEditorLayout(AdaptivePanelLayout layout, bool shortWindow = false)
     {
         bool wide = IsEditing && layout.IsWide;
         double left = wide ? layout.LeftColumnWidth(navigation: false) : 0;
@@ -188,7 +194,28 @@ internal sealed partial class TrackQueueView : Grid
             _right.ColumnSpacing = gap;
         }
         _editorSideActions.Margin = new Thickness(wide ? layout.RailGutter : 0, 0, 0, 0);
-        if (_wideEditor == wide) return;
+        bool doneOnRail = wide && shortWindow;
+        if (_doneOnRail != doneOnRail)
+        {
+            _doneOnRail = doneOnRail;
+            if (doneOnRail)
+            {
+                _right.Children.Remove(_editorDone);
+                _editorSideActions.Children.Add(_editorDone);
+            }
+            else
+            {
+                _editorSideActions.Children.Remove(_editorDone);
+                _right.Add(_editorDone, 1, 1);
+            }
+        }
+        _editorDone.LineBreakMode = LineBreakMode.WordWrap;
+        _editorHint.IsVisible = IsEditing && !shortWindow;
+        if (_wideEditor == wide)
+        {
+            if (IsEditing) UpdateQueueViewport();
+            return;
+        }
 
         // A native drag can outlive its old geometry during a window resize.
         // Cancel it rather than applying a drop against a different viewport.
@@ -200,7 +227,7 @@ internal sealed partial class TrackQueueView : Grid
             _clearQueue.HorizontalOptions = LayoutOptions.Fill;
             Grid.SetColumn(_clearQueue, 0);
             Grid.SetRow(_clearQueue, 0);
-            _editorSideActions.Children.Add(_clearQueue);
+            _editorSideActions.Children.Insert(0, _clearQueue);
         }
         else
         {
@@ -217,9 +244,9 @@ internal sealed partial class TrackQueueView : Grid
     {
         double header = IsEditing
             ? (_editorHeader.IsVisible ? Math.Max(_wideEditor ? 20 : 44, _editorHeader.Height) + _queue.Spacing : 0)
-                + Math.Max(16, _editorHint.Height)
+                + (_editorHint.IsVisible ? Math.Max(16, _editorHint.Height) + _queue.Spacing : 0)
             : Math.Max(0, _feedSelector.Height);
-        double footer = IsEditing ? Math.Max(44, _editorDone.Height) + _queue.Spacing : 0;
+        double footer = IsEditing && !_doneOnRail ? Math.Max(44, _editorDone.Height) : 0;
         double available = Height > 0 ? Math.Max(0, Height - header - footer - _queue.Spacing) : ViewportHeight;
         double maximum = IsEditing ? available : Math.Min(available, ViewportHeight);
         _queueScroll.MaximumHeightRequest = maximum;
@@ -250,6 +277,8 @@ internal sealed partial class TrackQueueView : Grid
     private View CreateFeedSelector()
     {
         _queueTab.CornerRadius = _recommendationsTab.CornerRadius = 7;
+        ToolTipProperties.SetText(_queueTab, "Очередь");
+        ToolTipProperties.SetText(_recommendationsTab, "Рекомендации");
         if (MixerStyle.IsPhone)
         {
             _queueTab.FontSize = _recommendationsTab.FontSize = 10;
@@ -412,6 +441,7 @@ internal sealed partial class TrackQueueView : Grid
             _checkedTracks.Count == 1 && _checkedTracks.First().LocalPath is not null,
             SelectionActionRequested is not null);
         _editorDone.IsEnabled = !_selectionActionRunning;
+        SemanticProperties.SetDescription(_editToolbar, "Отметьте треки. Для изменения порядка используйте ручку перетаскивания.");
         _clearQueue.IsEnabled = !_selectionActionRunning && _tracks.Count > 0;
         _editorHint.Text = "Отметьте треки. Перетаскивание за ручку — изменение порядка.";
     }

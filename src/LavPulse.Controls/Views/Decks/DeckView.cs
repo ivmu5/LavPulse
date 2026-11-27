@@ -101,6 +101,36 @@ public sealed partial class DeckView : Border
         header.Add(_time, 2);
         header.Add(_markProblem, 3);
         header.Add(_markRhythm, 4);
+        // Keep the title from disappearing behind time, BPM and diagnostic
+        // controls when the deck is placed in a narrow landscape column.
+        header.RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)];
+        var diagnostics = new HorizontalStackLayout
+        {
+            Spacing = 4, HorizontalOptions = LayoutOptions.End, IsVisible = false
+        };
+        header.Children.Remove(_markProblem);
+        header.Children.Remove(_markRhythm);
+        diagnostics.Children.Add(_markProblem);
+        diagnostics.Children.Add(_markRhythm);
+        header.Add(diagnostics, 3);
+        Grid.SetColumnSpan(diagnostics, 2);
+        bool compactHeader = false;
+        void UpdateDiagnostics()
+        {
+            diagnostics.IsVisible = _markProblem.IsVisible || _markRhythm.IsVisible;
+        }
+        _markProblem.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(IsVisible)) UpdateDiagnostics(); };
+        _markRhythm.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(IsVisible)) UpdateDiagnostics(); };
+        header.SizeChanged += (_, _) =>
+        {
+            bool next = header.Width > 0 && header.Width < 380;
+            if (next == compactHeader) return;
+            compactHeader = next;
+            Grid.SetRow(diagnostics, next ? 1 : 0);
+            Grid.SetColumn(diagnostics, next ? 0 : 3);
+            Grid.SetColumnSpan(diagnostics, next ? 5 : 2);
+            header.RowSpacing = next ? 3 : 0;
+        };
         var detailLayer = new Grid { Children = { _detail, _detailCursor, _previewLabel } };
         MixerStyle.StyleCard(this, new VerticalStackLayout { Spacing = 5, Children = { header, detailLayer, _overviewLayer } });
         Padding = new Thickness(10, 7);

@@ -126,6 +126,11 @@ public sealed partial class TrackLibraryPanel : ContentView
         _message.MaxLines = 2;
         _message.LineBreakMode = LineBreakMode.TailTruncation;
         _message.VerticalOptions = LayoutOptions.Center;
+        _message.IsVisible = false;
+        _message.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(Label.Text)) _message.IsVisible = !string.IsNullOrWhiteSpace(_message.Text);
+        };
         var footer = new VerticalStackLayout { Spacing = 6, Children = { _message, _back } };
         _scanActions = CreateScanActions();
         _scanPanel = CreateScanPanel();
@@ -166,7 +171,10 @@ public sealed partial class TrackLibraryPanel : ContentView
             RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)]
         };
         layout.Add(header, 1, 0);
-        layout.Add(operations, 1, 1);
+        var operationScroll = new ScrollView { Content = operations, VerticalScrollBarVisibility = ScrollBarVisibility.Default };
+        // Inline operations are short and use their natural height. In the
+        // sidebar the same controls get an independent bounded viewport.
+        layout.Add(operationScroll, 1, 1);
         layout.Add(actions, 1, 2);
         layout.Add(new Grid { Children = { _tree, _scanPanel } }, 1, 3);
         layout.Add(footer, 1, 4);
@@ -178,11 +186,16 @@ public sealed partial class TrackLibraryPanel : ContentView
         {
             var size = AdaptivePanelLayout.Measure(host.Width, host.Height);
             if (size.Width <= 0) return;
+            bool shortWindow = AdaptivePanelLayout.IsShortLandscape(host.Width, host.Height);
+            layout.Padding = new Thickness(AdaptivePanelLayout.Padding, shortWindow ? Math.Max(4, top - 8) : top,
+                AdaptivePanelLayout.Padding, shortWindow ? 6 : 16);
+            layout.RowSpacing = shortWindow ? 4 : 8;
             layout.WidthRequest = size.Width;
             layout.ColumnDefinitions[0].Width = new GridLength(size.LeftColumnWidth(navigation: false));
             layout.ColumnDefinitions[2].Width = new GridLength(size.RightColumnWidth(navigation: false));
             layout.ColumnSpacing = size.ColumnSpacing;
-            operations.Margin = new Thickness(size.RailGutter, 0, 0, 0);
+            operationScroll.Margin = new Thickness(size.RailGutter, 0, 0, 0);
+            operationScroll.MaximumHeightRequest = size.IsWide ? double.PositiveInfinity : 240;
             _pick.FontSize = size.HasCompactRails ? 11 : pickFontSize;
             _pick.LineBreakMode = LineBreakMode.WordWrap;
             _pick.ContentLayout = new(size.HasCompactRails ? Button.ButtonContentLayout.ImagePosition.Top :
@@ -193,9 +206,9 @@ public sealed partial class TrackLibraryPanel : ContentView
             wide = size.IsWide;
             // Move the existing controls without recreating the list, scan
             // session, current selection or expanded analysis mode menu.
-            Grid.SetColumn(operations, wide ? 2 : 1);
-            Grid.SetRow(operations, wide ? 2 : 1);
-            Grid.SetRowSpan(operations, wide ? 2 : 1);
+            Grid.SetColumn(operationScroll, wide ? 2 : 1);
+            Grid.SetRow(operationScroll, wide ? 2 : 1);
+            Grid.SetRowSpan(operationScroll, wide ? 2 : 1);
             layout.RowDefinitions[1].Height = wide ? new GridLength(0) : GridLength.Auto;
         };
         Content = host;
@@ -342,11 +355,12 @@ public sealed partial class TrackLibraryPanel : ContentView
     private void UpdateActions()
     {
         _pick.IsEnabled = _edit.IsEnabled = !_busy;
-        _edit.IsVisible = _local && _selected is not null && !_editing;
+        _pick.IsVisible = _scanBatch is null;
+        _edit.IsVisible = _scanBatch is null && _local && _selected is not null && !_editing;
         _back.Text = _editing ? "Готово" : "Назад";
         _back.IsEnabled = !_busy;
         _back.IsVisible = _scanBatch is null;
-        _editToolbar.Update(_editing, _busy, _checkedRows.Count,
+        _editToolbar.Update(_editing && _scanBatch is null, _busy, _checkedRows.Count,
             _checkedRows.Count == 1 && _checkedRows.First().File is not null, _checkedRows.Count == 1,
             SelectionActionRequested is not null);
         MixerStyle.SetListEditButton(_edit, _editing);
