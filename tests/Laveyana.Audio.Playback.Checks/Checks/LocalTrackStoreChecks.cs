@@ -150,6 +150,15 @@ internal static class LocalTrackStoreChecks
         await File.WriteAllTextAsync(Path.Combine(root,"queue.json"),"{broken");
         await store.ReadQueueAsync(default);
         Require(File.Exists(pcm),"Unreadable queue caused destructive PCM pruning.");
+        await store.SaveQueueAsync(new([null!],null,[]));
+        await store.ReadQueueAsync(default);
+        Require(File.Exists(pcm),"Malformed queue entry caused destructive PCM pruning.");
+        await store.SaveQueueAsync(new([new StoredTrack(new string('A',64),"missing.mp3")],null,[]));
+        await store.ReadQueueAsync(default);
+        Require(File.Exists(pcm),"Unavailable original caused destructive PCM pruning.");
+        await store.SaveQueueAsync(new([],new string('B',64),[]));
+        await store.ReadQueueAsync(default);
+        Require(File.Exists(pcm),"Unresolved current track caused destructive PCM pruning.");
         await store.SaveQueueAsync(new([],null,[]));
         await store.ReadQueueAsync(default);
         Require(!File.Exists(pcm),"Valid empty queue did not release obsolete PCM.");

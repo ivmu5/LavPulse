@@ -41,8 +41,9 @@ internal sealed partial class LocalTrackStore
         if (analysis.TotalFrames <= 0 ||
             analysis.TotalFrames > long.MaxValue / PlaybackFormat.Pcm16FrameBytes ||
             PcmPath(analysis.PcmFile) is not { } path) return null;
-        var pcm = new FileInfo(path);
-        return pcm.Exists && pcm.Length == analysis.TotalFrames * PlaybackFormat.Pcm16FrameBytes ? path : null;
+        // Eviction or an external storage change may race a cache lookup.
+        // A disappearing/inaccessible file is a cache miss, not a fatal decode error.
+        return FileSize(path) == analysis.TotalFrames * PlaybackFormat.Pcm16FrameBytes ? path : null;
     }
 
     private string? PcmPath(string? name) => name is not null && name == Path.GetFileName(name) &&

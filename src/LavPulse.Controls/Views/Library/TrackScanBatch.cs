@@ -9,10 +9,19 @@ internal enum TrackScanOutcome { Scanned, Skipped, Failed, Stopped }
 internal readonly record struct TrackScanResult(TrackFile File, TrackScanOutcome Outcome,
     long? BeforeBytes, long? AfterBytes, TimeSpan Elapsed);
 
-internal sealed class TrackScanBatch(int parallelism, CancellationToken lifetime) : IDisposable
+internal sealed class TrackScanBatch : IDisposable
 {
-    private readonly CancellationTokenSource _stop = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
-    private readonly List<Scan> _running = new(parallelism);
+    private readonly int _parallelism;
+    private readonly CancellationTokenSource _stop;
+    private readonly List<Scan> _running;
+
+    public TrackScanBatch(int parallelism, CancellationToken lifetime)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(parallelism, 1);
+        _parallelism = parallelism;
+        _running = new List<Scan>(parallelism);
+        _stop = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+    }
 
     public CancellationToken Token => _stop.Token;
     public void Skip(TrackFile file)
@@ -36,7 +45,7 @@ internal sealed class TrackScanBatch(int parallelism, CancellationToken lifetime
         {
             while (true)
             {
-                while (_running.Count < parallelism && next < files.Count && !Token.IsCancellationRequested)
+                while (_running.Count < _parallelism && next < files.Count && !Token.IsCancellationRequested)
                 {
                     var file = files[next++];
                     var cancellation = CancellationTokenSource.CreateLinkedTokenSource(Token);

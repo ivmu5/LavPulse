@@ -128,9 +128,18 @@ internal sealed partial class LocalTrackStore(string root)
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var result = new List<TrackFile>();
         TrackFile? current = null;
+        bool completeQueue = manifest?.Tracks is not null;
         foreach (var entry in manifest?.Tracks ?? [])
         {
-            if (entry is null || RestoreTrack(entry) is not { } file || !seen.Add(entry.Id)) continue;
+            token.ThrowIfCancellationRequested();
+            if (entry is null || RestoreTrack(entry) is not { } file)
+            {
+                // A partially recoverable manifest cannot authorize destructive
+                // pruning: an original may be temporarily unavailable.
+                completeQueue = false;
+                continue;
+            }
+            if (!seen.Add(entry.Id)) continue;
             result.Add(file);
             if (entry.Id == manifest!.Current) current = file;
             if (File.Exists(AnalysisPath(file))) _analyzed[file.LocalPath!] = 0;
@@ -142,7 +151,8 @@ internal sealed partial class LocalTrackStore(string root)
             ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         // A missing/unreadable manifest is not evidence that every PCM is
         // unwanted. Keep it until a valid queue can establish the horizon.
-        if (manifest?.Tracks is not null && Directory.Exists(PcmDirectory))
+        if (completeQueue && (manifest!.Current is null || current is not null) &&
+            Directory.Exists(PcmDirectory))
         {
             foreach (var file in result.Skip(Math.Max(0, start)).Take(1 + Math.Clamp(pcmLookahead, 1, 20)))
             {

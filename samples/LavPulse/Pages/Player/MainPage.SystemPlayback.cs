@@ -69,6 +69,12 @@ public sealed partial class MainPage
         var state = new SystemPlaybackState(current.Track, current.Position, playing, canNext, true, current.Speed);
         _lastSystemState = state;
         _lastSystemUpdate = now;
-        _systemPlayback.Publish(state);
+        try { _systemPlayback.Publish(state); }
+        catch (Exception ex)
+        {
+            // OS media controls are advisory. Their failure must not prevent
+            // starting audio or break the recurring UI position callback.
+            System.Diagnostics.Debug.WriteLine($"LavPulse system playback update: {ex}");
+        }
     }
 }

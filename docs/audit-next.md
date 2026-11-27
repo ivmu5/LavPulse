@@ -172,3 +172,16 @@ This batch adds test source, not a passed test claim. No local dotnet SDK is pre
 - [ ] Device checks: import, restore queue, crossfade, pause/resume, interruption, background/foreground, storage relocation and prolonged rendering.
 - [ ] Real-track rhythm/tonal regression and measured CPU, allocations, memory and FPS compared with the baseline.
 - [ ] Review any remaining CI errors and approve merge explicitly; publish a release only through the existing manual workflow.
+
+## Post-merge review
+
+PR #111 was merged as a55373d. GitHub Actions reported success for the intermediate audit commits through pass 90 (run 45797281880); the final PR run 45799678300 was cancelled. The exact merged tree therefore still requires a build. Source inventory: 205 C# files. A cross-layer follow-up focused on queue restore, cache lookup, OS media integration and native output shutdown. The first all-files request exceeded the connector call limit, then bounded batches completed a targeted lexical scan of all 205 C# files (26,864 split lines, including trailing empty lines), looking for synchronous waits, unconditional loops, async-void callbacks, recursive deletes, forced GC and empty catches. Flagged constructs were considered in context; this is not a compiler, semantic analyzer, exhaustive line-by-line review or device test.
+
+- Do not prune PCM after a partially recoverable queue manifest or an unresolved current ID; valid empty queues retain existing eviction behavior. Added deterministic tests for null records, missing originals and invalid current IDs.
+- Treat disappearing/inaccessible PCM files as cache misses.
+- Isolate system media publication exceptions from actual playback and UI callbacks, and ensure window shutdown releases library resources even if system integration fails. Avoid calling Stop twice through Dispose.
+- Bound Windows cancellation's wait for PlaybackStopped to five seconds. A driver timeout is an error, not a successful drain; native disposal itself remains driver-dependent.
+
+No dependency, cache schema, release workflow or settings changes. Local build unavailable: dotnet is not installed and direct GitHub DNS resolution failed. Native tests and exact-head CI remain outstanding.
+
+Follow-up: guard the Windows async-void file-drop receive path, recheck the destination before importing, and reject invalid manual scan parallelism at construction (before creating cancellation resources). Added zero/negative concurrency regression cases. PR #112 opened; its first commit had a running workflow 45902211856 when checked. Final revision must be verified separately.
