@@ -119,7 +119,8 @@ public sealed partial class TrackLibraryPanel
             int index = _rows.IndexOf(row);
             if (index >= 0)
             {
-                await _tree.ScrollToAsync(0, index * (double)TrackListLayout.Stride, false);
+                // Leave space above the collapsed row for other pinned ancestors.
+                await _tree.ScrollToAsync(0, TrackListLayout.CollapseAnchor(index, _tree.Height), false);
                 _scrollOffset = Math.Max(0, _tree.ScrollY);
                 KeepScrollOffset(_rows.Count);
             }

@@ -139,8 +139,7 @@ internal sealed class TrackListView<TItem, TRow> : ScrollView where TItem : clas
         if (_hierarchyParents is { } parents)
         {
             _stickySlots.Clear();
-            int capacity = Math.Clamp((int)((height - TrackListLayout.RowHeight) / TrackListLayout.Stride),
-                0, _pinnedIndexes.Length);
+            int capacity = TrackListLayout.PinnedCapacity(height);
             _pinnedCount = TrackListLayout.PinnedParents(parents, scroll, _pinnedIndexes.AsSpan(0, capacity));
             for (int slot = 0; slot < _pinnedCount; slot++)
             {
@@ -195,7 +194,7 @@ internal sealed class TrackListView<TItem, TRow> : ScrollView where TItem : clas
             if (_stickySlots.TryGetValue(item, out int slot))
             {
                 row!.ZIndex = 100 + slot;
-                row.TranslationY = scroll + slot * TrackListLayout.Stride - naturalTop;
+                row.TranslationY = TrackListLayout.StickyTranslation(index, slot, scroll);
             }
             else ResetSticky(row!);
         }
