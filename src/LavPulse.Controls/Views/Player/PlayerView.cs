@@ -203,7 +203,7 @@ public sealed partial class PlayerView : Grid
         add => _queue.RemoveRequested += value;
         remove => _queue.RemoveRequested -= value;
     }
-    public Func<IReadOnlyList<TrackFile>,Task>? QueueActionsRequested
+    public Func<IReadOnlyList<TrackFile>,Point?,Task>? QueueActionsRequested
     {
         get => _queue.ActionsRequested;
         set => _queue.ActionsRequested = value;

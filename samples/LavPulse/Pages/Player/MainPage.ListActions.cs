@@ -30,7 +30,7 @@ public sealed partial class MainPage
         return false;
     }
 
-    private async Task ShowQueueActionsAsync(IReadOnlyList<TrackFile> files)
+    private async Task ShowQueueActionsAsync(IReadOnlyList<TrackFile> files, Point? anchor)
     {
         if(_closed||files.Count==0) return;
         var options=new List<string>{PlayNow,NextQueue,RemoveQueue,ClearDerived,Rescan,RemoveCatalog};
@@ -38,7 +38,7 @@ public sealed partial class MainPage
 #if WINDOWS
         if(files.Count==1 && files[0].LocalPath is not null) options.Insert(0,OpenLocation);
 #endif
-        var choice=await _view.ChooseActionAsync(files.Count==1?files[0].Name:$"Выбрано: {files.Count}",options);
+        var choice=await _view.ChooseActionAsync(files.Count==1?files[0].Name:$"Выбрано: {files.Count}",options,anchor);
         if(_closed||choice is null||!options.Contains(choice)) return;
         await RunListActionAsync(async ()=>
         {
@@ -61,7 +61,7 @@ public sealed partial class MainPage
         });
     }
 
-    private async Task ShowLibraryActionsAsync(IReadOnlyList<TrackLibrarySelection> selections)
+    private async Task ShowLibraryActionsAsync(IReadOnlyList<TrackLibrarySelection> selections, Point? anchor)
     {
         if(_closed||selections.Count==0) return;
         var files=await SelectionFilesAsync(selections);
@@ -79,7 +79,7 @@ public sealed partial class MainPage
 #endif
         if(options.Count==0) return;
         string? choice=await _view.ChooseActionAsync(selections.Count==1?selections[0].File?.Name??selections[0].Folders[^1].Name:
-            $"Выбрано: {selections.Count}",options);
+            $"Выбрано: {selections.Count}",options,anchor);
         if(_closed||choice is null||!options.Contains(choice)) return;
         if(choice==OpenLocation)
         {

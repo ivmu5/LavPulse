@@ -78,52 +78,128 @@ public sealed partial class PlayerSettingsPanel
 
     private View CreateSwipeSettings()
     {
-        var options = Enum.GetValues<ListSwipeAction>().Select(a => (a,ListActionText.Label(a))).ToArray();
-        var queueOptions = options.Where(o => o.a is not (ListSwipeAction.AddToQueue or ListSwipeAction.RemoveFromStorage)).ToArray();
-        View Direction(bool right, (ListSwipeAction, string)[] choices, ListSwipeAction selected, Action<ListSwipeAction> update) =>
-            Select(right ? "→  Слева направо" : "←  Справа налево", choices, selected,
-                action => CreateSwipePreview(action, right), update, maxColumns: MixerStyle.IsPhone ? 2 : 3);
+        var all = Enum.GetValues<ListSwipeAction>();
+        var queue = all.Where(a => a is not (ListSwipeAction.AddToQueue or ListSwipeAction.RemoveFromStorage)).ToArray();
+        View? open = null;
+        void Toggle(View menu)
+        {
+            bool show = !menu.IsVisible;
+            if (open is not null) open.IsVisible = false;
+            menu.IsVisible = show;
+            open = show ? menu : null;
+        }
+        void Close()
+        {
+            if (open is not null) open.IsVisible = false;
+            open = null;
+        }
+
+        View Example(string title, ListSwipeAction[] choices, ListSwipeAction right, ListSwipeAction left,
+            Action<ListSwipeAction> setRight, Action<ListSwipeAction> setLeft)
+        {
+            var leftMenu = new VerticalStackLayout { IsVisible = false, Spacing = 4 };
+            var rightMenu = new VerticalStackLayout { IsVisible = false, Spacing = 4 };
+            var leftButton = CreateSwipeChoice(right, compact: true);
+            var rightButton = CreateSwipeChoice(left, compact: true);
+            leftButton.Clicked += (_, _) => Toggle(leftMenu);
+            rightButton.Clicked += (_, _) => Toggle(rightMenu);
+            Populate(leftMenu, leftButton, setRight, choices, "Слева направо →");
+            Populate(rightMenu, rightButton, setLeft, choices, "← Справа налево");
+
+            var track = new Grid
+            {
+                ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Star)],
+                ColumnSpacing = 5, Padding = new Thickness(6, 4),
+                VerticalOptions = LayoutOptions.Fill
+            };
+            MixerStyle.UseColor(track, BackgroundColorProperty, MixerColor.Button);
+            var art = new Image { WidthRequest = 23, HeightRequest = 23, VerticalOptions = LayoutOptions.Center };
+            MixerStyle.UseIcon(art, Image.SourceProperty, "player_file.png");
+            track.Add(art);
+            var trackName = MixerStyle.Label("Трек", 12, bold: true);
+            trackName.LineBreakMode = LineBreakMode.TailTruncation;
+            track.Add(new VerticalStackLayout
+            {
+                Spacing = 2, VerticalOptions = LayoutOptions.Center,
+                Children = { trackName, MixerStyle.Label("Исполнитель", 10, MixerColor.Muted) }
+            }, 1);
+
+            var sample = new Grid
+            {
+                ColumnDefinitions = [new(GridLength.Star), new(new GridLength(1.4, GridUnitType.Star)), new(GridLength.Star)],
+                ColumnSpacing = 4, RowSpacing = 3,
+                RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)]
+            };
+            sample.Add(DirectionLabel("→"), 0, 0);
+            sample.Add(DirectionLabel("←"), 2, 0);
+            sample.Add(leftButton, 0, 1);
+            sample.Add(track, 1, 1);
+            sample.Add(rightButton, 2, 1);
+            return new VerticalStackLayout
+            {
+                Spacing = 5,
+                Children = { MixerStyle.Label(title, 15, MixerColor.Accent, bold: true), sample, leftMenu, rightMenu }
+            };
+        }
+
+        void Populate(VerticalStackLayout menu, Button current, Action<ListSwipeAction> update,
+            ListSwipeAction[] choices, string direction)
+        {
+            menu.Add(MixerStyle.Label(direction, 11, MixerColor.Muted));
+            foreach (var action in choices)
+            {
+                var option = CreateSwipeChoice(action, compact: false);
+                option.Clicked += (_, _) =>
+                {
+                    update(action);
+                    ApplySwipeChoice(current, action);
+                    Close();
+                };
+                menu.Add(option);
+            }
+        }
 
         return Section("Свайпы в списках",
-            MixerStyle.Label("Очередь", 15, MixerColor.Accent, bold: true),
-            Direction(true, queueOptions, _settings.QueueSwipeRight, a => _settings = _settings with { QueueSwipeRight = a }),
-            Direction(false, queueOptions, _settings.QueueSwipeLeft, a => _settings = _settings with { QueueSwipeLeft = a }),
-            MixerStyle.Label("Медиатека", 15, MixerColor.Accent, bold: true),
-            Direction(true, options, _settings.LibrarySwipeRight, a => _settings = _settings with { LibrarySwipeRight = a }),
-            Direction(false, options, _settings.LibrarySwipeLeft, a => _settings = _settings with { LibrarySwipeLeft = a }),
-            MixerStyle.Label("Цвет и значок совпадают с действием в списке. Короткий свайп открывает кнопку, длинный выполняет действие при отпускании.", 11, MixerColor.Muted));
+            Example("Очередь", queue, _settings.QueueSwipeRight, _settings.QueueSwipeLeft,
+                a => _settings = _settings with { QueueSwipeRight = a },
+                a => _settings = _settings with { QueueSwipeLeft = a }),
+            Example("Медиатека", all, _settings.LibrarySwipeRight, _settings.LibrarySwipeLeft,
+                a => _settings = _settings with { LibrarySwipeRight = a },
+                a => _settings = _settings with { LibrarySwipeLeft = a }),
+            MixerStyle.Label("Нажмите на действие слева или справа, чтобы изменить его. Значки и цвета совпадают со свайпами в списках.", 11, MixerColor.Muted));
     }
 
-    private View CreateSwipePreview(ListSwipeAction action, bool right)
+    private static Label DirectionLabel(string text)
     {
-        var sample = new Grid
-        {
-            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)],
-            ColumnSpacing = 0, IsClippedToBounds = true
-        };
-        MixerStyle.UseColor(sample, BackgroundColorProperty, MixerColor.Surface);
-        var revealed = new Grid { BackgroundColor = ListActionText.Tint(action, PlayerColors.For(_settings)) };
-        var icon = new Image { WidthRequest = 24, HeightRequest = 24, HorizontalOptions = LayoutOptions.Center,
-            VerticalOptions = LayoutOptions.Center, Aspect = Aspect.AspectFit };
-        MixerStyle.UseIcon(icon, Image.SourceProperty, ListActionText.Icon(action));
-        revealed.Add(icon);
-        var track = new Grid { ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Star)], ColumnSpacing = 3,
-            Padding = new Thickness(3) };
-        MixerStyle.UseColor(track, BackgroundColorProperty, MixerColor.Button);
-        var cover = new BoxView { WidthRequest = 10, HeightRequest = 17, VerticalOptions = LayoutOptions.Center };
-        MixerStyle.UseColor(cover, BoxView.ColorProperty, MixerColor.Accent);
-        var lines = new VerticalStackLayout { Spacing = 3, VerticalOptions = LayoutOptions.Center };
-        foreach (double width in new[] { 1d, .65 })
-        {
-            var line = new BoxView { HeightRequest = 3, HorizontalOptions = LayoutOptions.Fill, Opacity = width };
-            MixerStyle.UseColor(line, BoxView.ColorProperty, MixerColor.Muted);
-            lines.Add(line);
-        }
-        track.Add(cover);
-        track.Add(lines, 1);
-        sample.Add(revealed, right ? 0 : 1);
-        sample.Add(track, right ? 1 : 0);
-        return sample;
+        var label = MixerStyle.Label(text, 13, MixerColor.Muted);
+        label.HorizontalTextAlignment = TextAlignment.Center;
+        return label;
+    }
+
+    private Button CreateSwipeChoice(ListSwipeAction action, bool compact)
+    {
+        var button = MixerStyle.Button("", stacked: compact);
+        button.HorizontalOptions = LayoutOptions.Fill;
+        button.VerticalOptions = LayoutOptions.Fill;
+        button.FontSize = compact ? MixerStyle.PhoneFont(11, 10) : 12;
+        button.Padding = compact ? new Thickness(3, 4) : new Thickness(8, 5);
+        button.LineBreakMode = LineBreakMode.WordWrap;
+        button.ContentLayout = new(compact ? Button.ButtonContentLayout.ImagePosition.Top :
+            Button.ButtonContentLayout.ImagePosition.Left, 4);
+        ApplySwipeChoice(button, action);
+        return button;
+    }
+
+    private void ApplySwipeChoice(Button button, ListSwipeAction action)
+    {
+        button.Text = ListActionText.Label(action);
+        MixerStyle.UseIcon(button, Button.ImageSourceProperty, ListActionText.Icon(action));
+        button.RemoveDynamicResource(BackgroundColorProperty);
+        if (action == ListSwipeAction.None)
+            MixerStyle.UseColor(button, BackgroundColorProperty, MixerColor.Surface);
+        else
+            button.BackgroundColor = ListActionText.Tint(action, PlayerColors.For(_settings));
+        SemanticProperties.SetDescription(button, ListActionText.Label(action));
     }
 
     private View CreateFileAssociationSection()

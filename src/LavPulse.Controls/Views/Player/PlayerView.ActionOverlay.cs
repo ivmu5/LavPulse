@@ -7,8 +7,8 @@ public sealed partial class PlayerView
     private bool _bodyWasEnabled, _panelWasEnabled, _bodyWasTransparent, _panelWasTransparent;
 
     /// <summary>Displays themed actions within the player window, without an OS dialog.</summary>
-    public Task<string?> ChooseActionAsync(string title, IReadOnlyList<string> choices) =>
-        ShowActionOverlayAsync(title, null, choices, null, null);
+    public Task<string?> ChooseActionAsync(string title, IReadOnlyList<string> choices, Point? anchor = null) =>
+        ShowActionOverlayAsync(title, null, choices, null, null, anchor);
 
     public async Task<bool> ConfirmActionAsync(string title, string message, string accept, string cancel = "Отмена") =>
         await ShowActionOverlayAsync(title, message, [], accept, cancel) == accept;
@@ -26,7 +26,7 @@ public sealed partial class PlayerView
     }
 
     private Task<string?> ShowActionOverlayAsync(string title, string? message,
-        IReadOnlyList<string> choices, string? accept, string? cancel)
+        IReadOnlyList<string> choices, string? accept, string? cancel, Point? anchor = null)
     {
         // Keep one owner; concurrent actions must not replace an awaiting confirmation.
         if (_actionOverlayResult is not null) return Task.FromResult<string?>(null);
@@ -69,20 +69,51 @@ public sealed partial class PlayerView
         layout.Add(scroll, row: 1);
         layout.Add(footer, row: 2);
 
-        var card = new Border { HorizontalOptions = LayoutOptions.Center, VerticalOptions = LayoutOptions.Center };
+        bool anchored = anchor is { } p && double.IsFinite(p.X) && double.IsFinite(p.Y);
+        var card = new Border
+        {
+            HorizontalOptions = anchored ? LayoutOptions.Start : LayoutOptions.Center,
+            VerticalOptions = anchored ? LayoutOptions.Start : LayoutOptions.Center,
+            Opacity = anchored ? 0 : 1
+        };
         MixerStyle.StyleCard(card, layout);
         MixerStyle.UseColor(card, BackgroundColorProperty, MixerColor.Overlay);
-        var overlay = new Grid { Padding = 16, Children = { card } };
-        MixerStyle.UseColor(overlay, BackgroundColorProperty, MixerColor.Scrim);
-        overlay.SizeChanged += (_, _) =>
+        var overlay = new Grid { Padding = anchored ? new Thickness(0) : new Thickness(16) };
+        if (anchored)
         {
-            if (overlay.Width > 32) card.WidthRequest = Math.Min(520, overlay.Width - 32);
-            if (overlay.Height > 32)
-            {
-                card.MaximumHeightRequest = overlay.Height - 32;
-                scroll.MaximumHeightRequest = Math.Max(44, overlay.Height - 160);
-            }
-        };
+            var backdrop = new BoxView { Color = Colors.Transparent };
+            var tap = new TapGestureRecognizer();
+            tap.Tapped += (_, _) => CompleteOverlay(result, null);
+            backdrop.GestureRecognizers.Add(tap);
+            overlay.Add(backdrop);
+        }
+        else MixerStyle.UseColor(overlay, BackgroundColorProperty, MixerColor.Scrim);
+        overlay.Add(card);
+        bool revealed = false;
+        void Place()
+        {
+            if (!ReferenceEquals(_actionOverlayResult, result) || overlay.Width <= 32 || overlay.Height <= 32) return;
+            double width = Math.Min(anchored ? 320 : 520, overlay.Width - 32);
+            if (card.WidthRequest != width) card.WidthRequest = width;
+            double maximumHeight = overlay.Height - 32;
+            if (card.MaximumHeightRequest != maximumHeight) card.MaximumHeightRequest = maximumHeight;
+            double bodyHeight = Math.Max(24, overlay.Height - 160);
+            if (scroll.MaximumHeightRequest != bodyHeight) scroll.MaximumHeightRequest = bodyHeight;
+            if (!anchored || card.Width <= 0 || card.Height <= 0) return;
+            var point = anchor!.Value;
+            var (x, y) = TrackListLayout.ContextMenuPosition(point.X, point.Y,
+                overlay.Width, overlay.Height, card.Width, card.Height);
+            card.TranslationX = x;
+            card.TranslationY = y;
+            if (revealed) return;
+            revealed = true;
+            card.AnchorX = Math.Clamp((point.X - x) / card.Width, 0, 1);
+            card.AnchorY = Math.Clamp((point.Y - y) / card.Height, 0, 1);
+            new Animation(v => { card.Opacity = v; card.Scale = .96 + .04 * v; }, 0, 1)
+                .Commit(card, "ContextMenuOpen", 16, 160, Easing.CubicOut);
+        }
+        overlay.SizeChanged += (_, _) => Place();
+        card.SizeChanged += (_, _) => Place();
         _actionOverlayResult = result;
         _bodyWasEnabled = _body.IsEnabled;
         _panelWasEnabled = _panelHost.IsEnabled;
@@ -92,6 +123,7 @@ public sealed partial class PlayerView
         _body.InputTransparent = _panelHost.InputTransparent = true;
         _body.IsEnabled = _panelHost.IsEnabled = false;
         _actionOverlayHost.IsVisible = true;
+        Place();
         return result.Task;
     }
 

@@ -117,7 +117,7 @@ public sealed partial class TrackLibraryPanel
                 right => right ? panel._listSettings.LibrarySwipeRight :
                     panel._local ? panel._listSettings.LibrarySwipeLeft : ListSwipeAction.None,
                 action => _row is { } row ? panel.ExecuteListActionAsync(row,action) : Task.CompletedTask,
-                () => _row is { } row ? panel.ExecuteListActionAsync(row,ListSwipeAction.Menu) : Task.CompletedTask,
+                point => _row is { } row ? panel.ExecuteListActionAsync(row,ListSwipeAction.Menu,point) : Task.CompletedTask,
                 () => PlayerColors.For(panel._listSettings),
                 () => { foreach(var other in panel._tree.RealizedRows)if(!ReferenceEquals(other,this))other.ResetSwipe(); });
             var tap = new TapGestureRecognizer();
