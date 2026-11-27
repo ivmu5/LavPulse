@@ -12,8 +12,12 @@ public sealed partial class TrackLibraryPanel
     private readonly int _analysisParallelism;
     private readonly Grid _scanActions;
     private readonly Grid _scanPanel;
-    private readonly Button _rescan = MixerStyle.Button("Повторный анализ");
-    private readonly Button _scanNew = MixerStyle.Button("Анализ новых");
+    private readonly Button _scanRun = MixerStyle.Button("Анализ", primary: true);
+    private readonly Button _scanMode = MixerStyle.Button("");
+    private readonly Button _scanNewOption = MixerStyle.Button("");
+    private readonly Button _rescanOption = MixerStyle.Button("");
+    private readonly VerticalStackLayout _scanModeMenu = new() { IsVisible = false, Spacing = 4 };
+    private bool _replaceScanAnalysis;
     private readonly Label _scanPosition = MixerStyle.Label("", 13, MixerColor.Accent, bold: true);
     private readonly ProgressBar _scanProgress = new() { HeightRequest = 6 };
     private readonly Button _stopScan = MixerStyle.Button("Остановить", icon: "player_cancel.png");
@@ -63,13 +67,87 @@ public sealed partial class TrackLibraryPanel
 
     private Grid CreateScanActions()
     {
-        _rescan.Clicked += async (_, _) => await RunAsync(() => ScanAsync(replaceAnalysis: true), "Не удалось повторить анализ");
-        _scanNew.Clicked += async (_, _) => await RunAsync(() => ScanAsync(replaceAnalysis: false), "Не удалось выполнить анализ");
-        SemanticProperties.SetDescription(_scanNew, "Анализ треков без сохранённых результатов");
-        var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)], ColumnSpacing = 6 };
-        actions.Add(_rescan);
-        actions.Add(_scanNew, 1);
+        _scanRun.Clicked += async (_, _) =>
+        {
+            bool replace = _replaceScanAnalysis;
+            CloseScanModeMenu();
+            await RunAsync(() => ScanAsync(replace),
+                replace ? "Не удалось повторить анализ" : "Не удалось выполнить анализ");
+        };
+        _scanMode.Clicked += (_, _) =>
+        {
+            _scanModeMenu.IsVisible = !_scanModeMenu.IsVisible;
+            UpdateScanModeDescription();
+        };
+        _scanNewOption.Clicked += (_, _) => SelectScanMode(false);
+        _rescanOption.Clicked += (_, _) => SelectScanMode(true);
+        _scanModeMenu.Add(_scanNewOption);
+        _scanModeMenu.Add(_rescanOption);
+
+        // One split action: running a batch and selecting its mode are
+        // independent. The mode menu expands inside the themed library panel.
+        var segments = new Grid
+        {
+            ColumnDefinitions = [new(GridLength.Star), new(new GridLength(1.4, GridUnitType.Star))],
+            ColumnSpacing = 2
+        };
+        _scanRun.CornerRadius = _scanMode.CornerRadius = 6;
+        _scanMode.FontSize = MixerStyle.PhoneFont(13, 11);
+        _scanMode.LineBreakMode = LineBreakMode.WordWrap;
+        segments.Add(_scanRun);
+        segments.Add(_scanMode, 1);
+        var split = new Border
+        {
+            Padding = 2,
+            StrokeThickness = 1,
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 9 },
+            Content = segments
+        };
+        MixerStyle.UseBrush(split, Border.StrokeProperty, MixerColor.Border);
+        MixerStyle.UseColor(split, BackgroundColorProperty, MixerColor.Surface);
+
+        var actions = new Grid
+        {
+            RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)],
+            RowSpacing = 4
+        };
+        actions.Add(split);
+        actions.Add(_scanModeMenu, row: 1);
+        SelectScanMode(false);
         return actions;
+    }
+
+    private void SelectScanMode(bool replace)
+    {
+        _replaceScanAnalysis = replace;
+        _scanNewOption.Text = replace ? "Только новые" : "✓  Только новые";
+        _rescanOption.Text = replace ? "✓  Повторный анализ" : "Повторный анализ";
+        MixerStyle.UseColor(_scanNewOption, BackgroundColorProperty, replace ? MixerColor.Button : MixerColor.Selected);
+        MixerStyle.UseColor(_rescanOption, BackgroundColorProperty, replace ? MixerColor.Selected : MixerColor.Button);
+        _scanModeMenu.IsVisible = false;
+        UpdateScanModeDescription();
+    }
+
+    private bool CloseScanModeMenu()
+    {
+        if (!_scanModeMenu.IsVisible) return false;
+        _scanModeMenu.IsVisible = false;
+        UpdateScanModeDescription();
+        return true;
+    }
+
+    private void UpdateScanModeDescription()
+    {
+        string mode = _replaceScanAnalysis ? "Повторный анализ" : "Только новые";
+        _scanMode.Text = mode + (_scanModeMenu.IsVisible ? "  ▴" : "  ▾");
+        SemanticProperties.SetDescription(_scanMode, $"Режим анализа: {mode}. " +
+            (_scanModeMenu.IsVisible ? "Свернуть список" : "Выбрать режим"));
+        string scope = _selected?.File is null ? "выбранной папки" : "выбранного трека";
+        SemanticProperties.SetDescription(_scanRun, _replaceScanAnalysis
+            ? $"Повторный анализ {scope}"
+            : $"Анализ новых файлов: {scope}");
+        SemanticProperties.SetDescription(_scanNewOption, "Анализ треков без сохранённых результатов");
+        SemanticProperties.SetDescription(_rescanOption, "Повторный анализ всех выбранных треков");
     }
 
     private Grid CreateScanPanel()
