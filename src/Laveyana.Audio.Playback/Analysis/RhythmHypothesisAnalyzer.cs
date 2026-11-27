@@ -57,8 +57,14 @@ internal static class RhythmHypothesisAnalyzer
             double Periodicity(double bpm)
             {
                 double lag = 60 * Rate / bpm;
-                int i = (int)lag;
-                return correlations[i] + (correlations[i + 1] - correlations[i]) * (lag - i);
+                // Linear lag interpolation puts every maximum on an integer
+                // 20 ms hop. A quadratic neighborhood recovers fractional
+                // periods (e.g. 172 BPM is 17.44 hops, not 17 or 18).
+                int i = Math.Clamp((int)Math.Floor(lag + .5), 13, 75);
+                double x = lag - i;
+                double previous = correlations[i - 1], center = correlations[i], next = correlations[i + 1];
+                return Math.Clamp(center + .5 * (next - previous) * x +
+                    .5 * (previous - 2 * center + next) * x * x, 0, 1);
             }
             long firstFrame = frames[start].Frame;
             long lastFrame = Math.Min(totalFrames, frames[end - 1].Frame + RhythmSpectralFlux.Hop);
