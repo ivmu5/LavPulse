@@ -28,6 +28,7 @@ internal sealed class ListEditToolbar : Grid
         this.Add(left);
         var right = new FlexLayout
         {
+            VerticalOptions = LayoutOptions.Start,
             Direction = Microsoft.Maui.Layouts.FlexDirection.Row,
             Wrap = Microsoft.Maui.Layouts.FlexWrap.Wrap,
             JustifyContent = Microsoft.Maui.Layouts.FlexJustify.End,
@@ -64,14 +65,14 @@ internal sealed class ListEditToolbar : Grid
         }
     }
 
-    internal void Update(bool editing, bool busy, int count, bool singleTrack, bool canReveal)
+    internal void Update(bool editing, bool busy, int count, bool singleTrack, bool canReveal, bool actionsAvailable)
     {
         IsVisible = editing;
         _cancel.IsEnabled = !busy;
         _count.Text = count.ToString(System.Globalization.CultureInfo.InvariantCulture);
         SemanticProperties.SetDescription(_count, $"Выбрано: {count}");
         foreach (var (action, button) in _buttons)
-            button.IsEnabled = !busy && count > 0 && (action switch
+            button.IsEnabled = actionsAvailable && !busy && count > 0 && (action switch
             {
                 ListEditAction.PlayNow => singleTrack,
                 ListEditAction.Reveal => canReveal,

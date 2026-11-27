@@ -339,8 +339,9 @@ public sealed partial class TrackLibraryPanel : ContentView
         _back.Text = _editing ? "Готово" : "Назад";
         _back.IsEnabled = !_busy;
         _back.IsVisible = _scanBatch is null;
-        _editToolbar.Update(_editing, _busy || SelectionActionRequested is null, _checkedRows.Count,
-            _checkedRows.Count == 1 && _checkedRows.First().File is not null, _checkedRows.Count == 1);
+        _editToolbar.Update(_editing, _busy, _checkedRows.Count,
+            _checkedRows.Count == 1 && _checkedRows.First().File is not null, _checkedRows.Count == 1,
+            SelectionActionRequested is not null);
         MixerStyle.SetListEditButton(_edit, _editing);
         if (!_editing) _edit.Text = "Редактировать";
         _scanActions.IsVisible = _local && _scanBatch is null;

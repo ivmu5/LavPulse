@@ -15,7 +15,6 @@ internal sealed partial class TrackQueueView : Grid
     private readonly View _feedSelector;
     private readonly Grid _right;
     private readonly Grid _editorHeader;
-    private readonly Label _editorTitle;
     private readonly VerticalStackLayout _editorSideActions = new()
     {
         IsVisible = false,
@@ -104,7 +103,7 @@ internal sealed partial class TrackQueueView : Grid
         _editToolbar = new ListEditToolbar(false, () => CloseEditor(), ExecuteSelectionActionAsync);
         _editToolbar.SizeChanged += (_, _) => UpdateQueueViewport();
         UpdateEditorActions();
-        var title = _editorTitle = MixerStyle.Label("Редактор очереди", MixerStyle.PhoneFont(19, 16), bold: true);
+        var title = MixerStyle.Label("Редактор очереди", MixerStyle.PhoneFont(19, 16), bold: true);
         title.VerticalOptions = LayoutOptions.Center;
         SemanticProperties.SetHeadingLevel(title, SemanticHeadingLevel.Level1);
 #if WINDOWS
@@ -367,7 +366,7 @@ internal sealed partial class TrackQueueView : Grid
 
     internal bool CloseEditor()
     {
-        if (!IsEditing || _selectionActionRunning) return false;
+        if (!IsEditing) return false;
         EndDrag();
         DismissDeleteAction();
         SetEditing(false);
@@ -402,9 +401,10 @@ internal sealed partial class TrackQueueView : Grid
 
     private void UpdateEditorActions()
     {
-        _editToolbar.Update(IsEditing, _selectionActionRunning || SelectionActionRequested is null,
-            _checkedTracks.Count, _checkedTracks.Count == 1,
-            _checkedTracks.Count == 1 && _checkedTracks.First().LocalPath is not null);
+        _editToolbar.Update(IsEditing, _selectionActionRunning, _checkedTracks.Count,
+            _checkedTracks.Count == 1,
+            _checkedTracks.Count == 1 && _checkedTracks.First().LocalPath is not null,
+            SelectionActionRequested is not null);
         _editorDone.IsEnabled = !_selectionActionRunning;
         _clearQueue.IsEnabled = !_selectionActionRunning && _tracks.Count > 0;
         _editorHint.Text = "Отметьте треки. Перетаскивание за ручку — изменение порядка.";
