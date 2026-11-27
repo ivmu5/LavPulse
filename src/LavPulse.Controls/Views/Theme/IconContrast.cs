@@ -28,6 +28,26 @@ internal static class IconContrast
         return Contrast(background, dark) >= Contrast(background, light);
     }
 
+    // Smooth, reversible blend around the point where both variants have
+    // equal contrast. Outside this short interval keep the stronger variant.
+    public static double DarkIconWeight(double background, string file)
+    {
+        bool muted = file is "player_delete.png" or "player_queue_add.png" or "player_edit.png" or "player_import.png";
+        double dark = muted ? MutedDark : Dark;
+        double light = muted || file == "player_reorder.png" ? MutedLight : Light;
+        return DarkWeight(background, dark, light);
+    }
+
+    public static double DarkTextWeight(double background) => DarkWeight(background, 0, 1);
+
+    private static double DarkWeight(double background, double dark, double light)
+    {
+        // Equal contrast for a surface between the two foreground luminances.
+        double center = Math.Sqrt((dark + .05) * (light + .05)) - .05;
+        double t = Math.Clamp((background - center + .035) / .07, 0, 1);
+        return t * t * (3 - 2 * t);
+    }
+
     public static bool UseLightSuffix(string file, bool darkIcon)
     {
         // The play/pause/confirm assets were originally intended for primary

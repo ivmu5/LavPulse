@@ -53,7 +53,7 @@ public sealed partial class PlayerView
 
     private void SyncUiFrames()
     {
-        bool needed = !_uiFramesSuspended && (Panel switch
+        bool needed = !_uiFramesSuspended && (_overlayReveal is not null || (Panel switch
         {
             TrackLibraryPanel library => library.NeedsScanFrames,
             null => _queueAnimating || _deckEntrance is not null || _deckExit is not null ||
@@ -61,7 +61,7 @@ public sealed partial class PlayerView
                 (!_queue.IsEditing && (_playheadsAnimating || CurrentDeck.IsScrubbing || IncomingDeck.IsScrubbing ||
                     CurrentDeck.IsOverviewAnimating || IncomingDeck.IsOverviewAnimating)),
             _ => false
-        });
+        }));
         if (_uiClockActive == needed) return;
         _uiClockActive = needed;
         Spectrum.SetUiCallback(this, needed ? DrawUiFrame : null);
@@ -69,6 +69,7 @@ public sealed partial class PlayerView
 
     private void DrawUiFrame(double time)
     {
+        AdvanceOverlayReveal(time);
         if (Panel is TrackLibraryPanel library)
         {
             library.DrawScanFrame(time);
@@ -211,6 +212,7 @@ public sealed partial class PlayerView
     {
         CancelPreviousHold();
         _uiFramesSuspended = true;
+        FinishOverlayReveal();
         Spectrum.Stop();
         SuspendPlayerAnimations();
     }
