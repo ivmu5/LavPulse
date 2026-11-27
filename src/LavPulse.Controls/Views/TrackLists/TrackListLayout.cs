@@ -23,8 +23,9 @@ internal static class TrackListLayout
         !double.IsFinite(viewport) || viewport < RowHeight ? 0 :
             (int)Math.Clamp(Math.Floor((viewport - RowHeight) / Stride), 0, MaximumPinnedParents);
 
-    public static double StickyTranslation(int index, int slot, double scroll) =>
-        scroll + (double)(slot - index) * Stride;
+    // Cover the whole slot, including the gap after the final pinned row.
+    public static double PinnedAreaHeight(int count) =>
+        (double)Math.Clamp(count, 0, MaximumPinnedParents) * Stride;
 
     public static double CollapseAnchor(int index, double viewport) =>
         (double)Math.Max(0, index - PinnedCapacity(viewport)) * Stride;

@@ -74,12 +74,16 @@ internal static partial class Program
             TrackListLayout.PinnedCapacity(2 * stride + TrackListLayout.RowHeight)==2 &&
             TrackListLayout.PinnedCapacity(TrackListLayout.RowHeight)==0,
             "Sticky rows consumed the entire viewport.");
-        double scroll = 12 * stride + 17;
-        for (int slot = 0; slot < 3; slot++)
+        Require(TrackListLayout.PinnedAreaHeight(0)==0 &&
+            TrackListLayout.PinnedAreaHeight(1)==stride &&
+            TrackListLayout.PinnedAreaHeight(3)==3*stride &&
+            TrackListLayout.PinnedAreaHeight(4)==3*stride,
+            "Pinned mask did not cover row gaps or respect the three-parent cap.");
+        for (int i=0;i<stride;i++)
         {
-            int index = slot + 1;
-            double actual = index * stride + TrackListLayout.StickyTranslation(index, slot, scroll) - scroll;
-            Require(actual == slot * stride, "A sticky row moved away from its viewport slot.");
+            Require(TrackListLayout.PinnedParents(parents,4*stride+i,pinned)==3 &&
+                pinned.SequenceEqual(new[]{1,2,3}),
+                "Scrolling within a row changed the pinned chain.");
         }
         Require(TrackListLayout.CollapseAnchor(10,4*stride)==7*stride &&
             TrackListLayout.CollapseAnchor(1,4*stride)==0,
