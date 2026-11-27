@@ -50,10 +50,26 @@ internal static class RhythmReportReplay
             var oldBeats = ReadBeats(zip.GetEntry(prefix + "diagnostics/beats.csv")!);
             Array.Sort(taps);
             int Close(long[] beats) => MatchOneToOne(beats, taps, PlaybackFormat.SampleRate / 10);
+            int Close180(long[] beats) => MatchOneToOne(beats, taps, PlaybackFormat.SampleRate * 180 / 1000);
+            long oldCovered = 0;
+            if (zip.GetEntry(prefix + "diagnostics/sections.csv") is { } sectionEntry)
+            {
+                using var sectionReader = new StreamReader(sectionEntry.Open());
+                string[] header = (sectionReader.ReadLine() ?? "").Split(',');
+                int startColumn = Array.IndexOf(header, "start_frame"), endColumn = Array.IndexOf(header, "end_frame_exclusive");
+                if (startColumn >= 0 && endColumn >= 0)
+                    while (sectionReader.ReadLine() is { } sectionLine)
+                    {
+                        var columns = sectionLine.Split(',');
+                        oldCovered += long.Parse(columns[endColumn], CultureInfo.InvariantCulture) -
+                            long.Parse(columns[startColumn], CultureInfo.InvariantCulture);
+                    }
+            }
             int ClosePredicted = Close(grid.PredictedBeatFrames);
             long covered = grid.Sections.Sum(s => s.EndFrame - s.StartFrame);
             Console.WriteLine(FormattableString.Invariant(
                 $"{report.GetProperty("Title").GetString()}: BPM={grid.Bpm:F1}; coverage={covered / (double)total:P1}; beats {oldBeats.Length}->{grid.BeatFrames.Length}; one-to-one taps within 100ms {Close(oldBeats)}->{Close(grid.BeatFrames)}/{taps.Length}; predictions {ClosePredicted}/{taps.Length}"));
+            Console.WriteLine(FormattableString.Invariant($"  coverage {oldCovered/(double)total:P1}->{covered/(double)total:P1}; one-to-one taps within 180ms {Close180(oldBeats)}->{Close180(grid.BeatFrames)}/{taps.Length}"));
             Console.WriteLine(FormattableString.Invariant($"  rhythm replay {watch.Elapsed.TotalMilliseconds:F1} ms; allocated {allocated / 1048576d:F2} MiB"));
             if (taps.Length >= 2)
             {

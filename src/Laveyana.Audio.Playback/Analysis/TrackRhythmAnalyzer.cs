@@ -259,6 +259,10 @@ public static partial class TrackRhythmAnalyzer
         }
 
         var path = RhythmTempoPath.Select(tempo.Ranking,BpmResolution,cancellationToken);
+        RhythmTempoContinuity.Resolve(path, scores, periodicity, phaseEvidence,
+            MinimumBpm, BpmResolution, cancellationToken);
+        RhythmBassOctave.Resolve(path, scores, periodicity, phaseEvidence, bands, stride, radius,
+            MinimumBpm, BpmResolution, cancellationToken);
         var selected = new double[slices];
         var quality = new float[slices];
         var eligibleWindows = new bool[slices];
@@ -281,6 +285,8 @@ public static partial class TrackRhythmAnalyzer
             eligibleWindows[window] = hitsPerSlice[window] >= 8 &&
                 (quality[window] >= .28f && rhythmicEvidence || corroborated);
         }
+        RhythmTempoContinuity.RecoverSingleWindows(selected, quality, eligibleWindows,
+            scores, periodicity, phaseEvidence, hitsPerSlice, MinimumBpm, BpmResolution, cancellationToken);
         // Retain the result of EVERY analysis window, including rejected ones. This
         // explains failures in exported reports instead of only reporting "BPM = 0".
         var windows = new TrackTempoWindow[slices];

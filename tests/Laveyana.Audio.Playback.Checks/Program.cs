@@ -47,6 +47,7 @@ internal static partial class Program
             await CheckCompactAnalysisPassAsync();
             CheckMp3AudioInfo();
             MusicProfileChecks.Run();
+            CheckRhythmContinuity();
             await TrackPreparationChecks.RunAsync(directory);
             await LocalTrackStoreChecks.RunAsync(directory);
             await CheckTrackReportBundleAsync(directory);
