@@ -80,6 +80,7 @@ internal partial class TrackListRow : Border
         button.IsVisible = false;
         button.RemoveDynamicResource(BackgroundColorProperty);
         button.BackgroundColor = Colors.Transparent;
+        button.RemoveDynamicResource(Button.TextColorProperty);
         button.FontSize = 10;
         button.Padding = new Thickness(2);
         button.MinimumHeightRequest = 0;
@@ -199,13 +200,29 @@ internal partial class TrackListRow : Border
         var side = right ? LayoutOptions.Start : LayoutOptions.End;
         tint.HorizontalOptions = button.HorizontalOptions = side;
         tint.WidthRequest = button.WidthRequest = Math.Max(0,distance);
-        tint.Color = ListActionText.Tint(action, colors);
-        tint.Opacity = Math.Clamp((distance-first)/(second-first),0,1);
+        Color actionColor = ListActionText.Tint(action, colors);
+        tint.Color = actionColor;
+        double opacity = Math.Clamp((distance-first)/(second-first),0,1);
+        tint.Opacity = opacity;
         tint.IsVisible = distance >= first;
+        // The tint starts transparent, so the effective background is the
+        // row's surface blended with the action color, not the theme mode.
+        Color surface = BackgroundColor ?? MixerTheme.Default[MixerColor.Button];
+        if (surface.Alpha < .999f)
+        {
+            Color backdrop = FindPlayer(Body)?.Theme[MixerColor.Background] ?? MixerTheme.Default[MixerColor.Background];
+            surface = MixerTheme.Blend(backdrop, surface, surface.Alpha);
+        }
+        double luminance = IconContrast.BlendLuminance(surface.Red, surface.Green, surface.Blue,
+            actionColor.Red, actionColor.Green, actionColor.Blue, opacity * actionColor.Alpha);
+        if (distance >= first)
+        {
+            MixerStyle.SetContrastIcon(button, Button.ImageSourceProperty, ListActionText.Icon(action), luminance);
+            MixerStyle.SetContrastText(button, luminance);
+        }
         if (_swipeIconAction != action)
         {
             _swipeIconAction = action;
-            MixerStyle.UseIcon(button, Button.ImageSourceProperty, ListActionText.Icon(action));
             SemanticProperties.SetDescription(button, ListActionText.Label(action));
             ToolTipProperties.SetText(button, ListActionText.Label(action));
         }

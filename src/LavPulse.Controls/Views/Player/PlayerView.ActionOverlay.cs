@@ -123,6 +123,7 @@ public sealed partial class PlayerView
                 button.RemoveDynamicResource(BackgroundColorProperty);
                 button.BackgroundColor = tint;
             }
+            MixerStyle.UseReadableButtonText(button);
             SemanticProperties.SetDescription(button, choice.Selected ? choice.Label + " (выбрано)" : choice.Label);
             button.Clicked += (_, _) => CompleteOverlay(result, choice.Value);
             body.Add(button);

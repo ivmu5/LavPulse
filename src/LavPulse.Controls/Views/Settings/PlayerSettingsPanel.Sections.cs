@@ -166,6 +166,7 @@ public sealed partial class PlayerSettingsPanel
         button.FontSize = compact ? MixerStyle.PhoneFont(11, 10) : 12;
         button.Padding = compact ? new Thickness(3, 4) : new Thickness(8, 5);
         button.LineBreakMode = LineBreakMode.WordWrap;
+        MixerStyle.UseReadableButtonText(button);
         button.ContentLayout = new(compact ? Button.ButtonContentLayout.ImagePosition.Top :
             Button.ButtonContentLayout.ImagePosition.Left, 4);
         ApplySwipeChoice(button, action);
