@@ -31,7 +31,7 @@ internal sealed partial class TrackQueueView : Grid
     private bool _showRecommendations;
     private bool _deletingTracks;
     private readonly HashSet<TrackFile> _checkedTracks = [];
-    internal Func<IReadOnlyList<TrackFile>, Task>? ActionsRequested { get; set; }
+    internal Func<IReadOnlyList<TrackFile>, Point?, Task>? ActionsRequested { get; set; }
     internal Func<TrackFile, ListSwipeAction, Task>? SwipeRequested { get; set; }
     internal PlayerSettings ListSettings { get; set; } = new();
 
@@ -95,7 +95,7 @@ internal sealed partial class TrackQueueView : Grid
         _deleteMode.Clicked += async (_, _) =>
         {
             if (CanEditRows && _checkedTracks.Count > 0 && ActionsRequested is { } actions)
-                await actions(_tracks.Where(_checkedTracks.Contains).ToArray());
+                await actions(_tracks.Where(_checkedTracks.Contains).ToArray(), null);
         };
         UpdateEditorActions();
         var title = MixerStyle.Label("Редактор очереди", MixerStyle.PhoneFont(19, 16), bold: true);

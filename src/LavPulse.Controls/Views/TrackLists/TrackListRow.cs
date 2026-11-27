@@ -56,7 +56,7 @@ internal partial class TrackListRow : Border
 
     internal void AttachActions(Func<object?> item, Func<bool> enabled,
         Func<bool, ListSwipeAction> resolve, Func<ListSwipeAction, Task> execute,
-        Func<Task> context, Func<PlayerColors> colors, Action? closeOtherSwipes = null)
+        Func<Point?, Task> context, Func<PlayerColors> colors, Action? closeOtherSwipes = null)
     {
         var tint = _swipeTint = new BoxView { IsVisible = false, InputTransparent = true };
         var button = _swipeActionButton = MixerStyle.Button("");
@@ -74,14 +74,14 @@ internal partial class TrackListRow : Border
         bool right = false;
         double first = 0, second = 0;
 
-        async Task InvokeAsync(ListSwipeAction requested, object? expected)
+        async Task InvokeAsync(ListSwipeAction requested, object? expected, Point? anchor = null)
         {
             if (!enabled() || expected is null || !ReferenceEquals(expected, item())) return;
             _lastGesture = System.Diagnostics.Stopwatch.GetTimestamp();
             ResetSwipe();
             try
             {
-                if (requested == ListSwipeAction.Menu) await context();
+                if (requested == ListSwipeAction.Menu) await context(anchor);
                 else if (requested != ListSwipeAction.None) await execute(requested);
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }
@@ -144,12 +144,23 @@ internal partial class TrackListRow : Border
         GestureRecognizers.Add(pan);
 #endif
         var secondary = new TapGestureRecognizer { Buttons = ButtonsMask.Secondary };
-        secondary.Tapped += async (_, _) => await InvokeAsync(ListSwipeAction.Menu,item());
+        secondary.Tapped += async (_, args) =>
+            await InvokeAsync(ListSwipeAction.Menu, item(), FindPlayer(Body) is { } player ? args.GetPosition(player) : null);
         Body.GestureRecognizers.Add(secondary);
-        AttachHold(Body, () => { if (enabled() && !_horizontalSwipe) _ = InvokeAsync(ListSwipeAction.Menu,item()); });
+        AttachHold(Body, point =>
+        {
+            if (enabled() && !_horizontalSwipe) _ = InvokeAsync(ListSwipeAction.Menu,item(),point);
+        });
     }
 
-    static partial void AttachHold(View view, Action invoke);
+    private static PlayerView? FindPlayer(View view)
+    {
+        for (Element? element = view; element is not null; element = element.Parent)
+            if (element is PlayerView player) return player;
+        return null;
+    }
+
+    static partial void AttachHold(View view, Action<Point?> invoke);
     static partial void AttachDesktopPan(View view,Func<bool> enabled,Action<GestureStatus,double,double> pan);
 
     private void DrawSwipe(double distance, bool right, ListSwipeAction action, double first, double second, PlayerColors colors)

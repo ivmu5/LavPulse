@@ -27,6 +27,22 @@ internal static class TrackListLayout
     public static double PinnedAreaHeight(int count) =>
         (double)Math.Clamp(count, 0, MaximumPinnedParents) * Stride;
 
+    // Prefer below/right of the press; flip when there is room on the other
+    // side and clamp for narrow windows or menus larger than the free space.
+    public static (double X, double Y) ContextMenuPosition(double x, double y,
+        double width, double height, double menuWidth, double menuHeight)
+    {
+        const double edge = 8, gap = 4;
+        static double Axis(double anchor, double extent, double size)
+        {
+            double start = anchor + gap;
+            if (start + size > extent - edge && anchor - gap - size >= edge)
+                start = anchor - gap - size;
+            return Math.Clamp(start, edge, Math.Max(edge, extent - edge - size));
+        }
+        return (Axis(x, width, menuWidth), Axis(y, height, menuHeight));
+    }
+
     public static double CollapseAnchor(int index, double viewport) =>
         (double)Math.Max(0, index - PinnedCapacity(viewport)) * Stride;
 

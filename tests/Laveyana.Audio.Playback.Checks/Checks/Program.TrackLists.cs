@@ -74,6 +74,10 @@ internal static partial class Program
             TrackListLayout.PinnedCapacity(2 * stride + TrackListLayout.RowHeight)==2 &&
             TrackListLayout.PinnedCapacity(TrackListLayout.RowHeight)==0,
             "Sticky rows consumed the entire viewport.");
+        Require(TrackListLayout.ContextMenuPosition(30,40,800,600,300,250)==(34d,44d) &&
+            TrackListLayout.ContextMenuPosition(790,590,800,600,300,250)==(486d,336d) &&
+            TrackListLayout.ContextMenuPosition(160,150,320,300,288,268)==(24d,24d),
+            "Context menu did not anchor, flip or clamp within its viewport.");
         Require(TrackListLayout.PinnedAreaHeight(0)==0 &&
             TrackListLayout.PinnedAreaHeight(1)==stride &&
             TrackListLayout.PinnedAreaHeight(3)==3*stride &&

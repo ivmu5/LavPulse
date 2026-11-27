@@ -4,7 +4,7 @@ namespace Laveyana.LavPulse.Controls;
 
 internal partial class TrackListRow
 {
-    static partial void AttachHold(View view, Action invoke)
+    static partial void AttachHold(View view, Action<Point?> invoke)
     {
         UILongPressGestureRecognizer? hold = null;
         view.HandlerChanged += (_, _) =>
@@ -12,7 +12,13 @@ internal partial class TrackListRow
             if (view.Handler?.PlatformView is not UIView native) return;
             hold = new UILongPressGestureRecognizer(gesture =>
             {
-                if (gesture.State == UIGestureRecognizerState.Began) invoke();
+                if (gesture.State != UIGestureRecognizerState.Began) return;
+                if (FindPlayer(view)?.Handler?.PlatformView is UIView root)
+                {
+                    var point = gesture.LocationInView(root);
+                    invoke(new Point(point.X, point.Y));
+                }
+                else invoke(null);
             }) { MinimumPressDuration = .55, CancelsTouchesInView = true };
             native.AddGestureRecognizer(hold);
         };

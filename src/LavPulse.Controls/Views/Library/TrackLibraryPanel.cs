@@ -12,12 +12,12 @@ public sealed partial class TrackLibraryPanel : ContentView
     private bool _editing;
     private readonly HashSet<TreeRow> _checkedRows = [];
     private readonly Button _bulk = MixerStyle.Button("Действия (0)");
-    private Func<IReadOnlyList<TrackLibrarySelection>, Task>? _listActions;
+    private Func<IReadOnlyList<TrackLibrarySelection>, Point?, Task>? _listActions;
     private Func<TrackLibrarySelection,ListSwipeAction,Task>? _swipeAction;
     private PlayerSettings _listSettings = new();
 
     public void ConfigureListActions(PlayerSettings settings,
-        Func<IReadOnlyList<TrackLibrarySelection>,Task> actions,
+        Func<IReadOnlyList<TrackLibrarySelection>,Point?,Task> actions,
         Func<TrackLibrarySelection,ListSwipeAction,Task> swipe)
     {
         _listSettings = settings;
@@ -25,12 +25,12 @@ public sealed partial class TrackLibraryPanel : ContentView
         _swipeAction = swipe;
     }
 
-    private Task ExecuteListActionAsync(TreeRow row, ListSwipeAction action) =>
+    private Task ExecuteListActionAsync(TreeRow row, ListSwipeAction action, Point? anchor = null) =>
         RunAsync(async () =>
         {
             if (action == ListSwipeAction.Menu)
             {
-                if (_listActions is { } menu) await menu([SelectionFor(row)]);
+                if (_listActions is { } menu) await menu([SelectionFor(row)], anchor);
             }
             else if (_swipeAction is { } swipe) await swipe(SelectionFor(row),action);
             if (!_token.IsCancellationRequested && _local)
@@ -118,7 +118,7 @@ public sealed partial class TrackLibraryPanel : ContentView
             var selections = _checkedRows.Select(SelectionFor).ToArray();
             await RunAsync(async () =>
             {
-                await menu(selections);
+                await menu(selections, null);
                 _checkedRows.Clear();
                 if (!_token.IsCancellationRequested) await ShowRootAsync(await _openLibrary(),local:true,preservePosition:true);
             }, "Не удалось выполнить действие");

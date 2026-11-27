@@ -61,7 +61,7 @@ internal sealed partial class TrackQueueView
         row.AttachActions(() => row.File, () => CanEditRows && !IsEditing && _dragging is null,
             right => right ? ListSettings.QueueSwipeRight : ListSettings.QueueSwipeLeft,
             action => row.File is { } file && SwipeRequested is { } swipe ? swipe(file,action) : Task.CompletedTask,
-            () => row.File is { } file && ActionsRequested is { } menu ? menu([file]) : Task.CompletedTask,
+            point => row.File is { } file && ActionsRequested is { } menu ? menu([file], point) : Task.CompletedTask,
             () => _theme.Artwork,
             () => { RecordQueueInteraction(); foreach(var other in _queueScroll.RealizedRows) if(!ReferenceEquals(other,row)) other.ResetSwipe(); });
         var drag = new DragGestureRecognizer { CanDrag = true };
