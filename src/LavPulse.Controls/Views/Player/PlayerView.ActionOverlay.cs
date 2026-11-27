@@ -23,8 +23,17 @@ public sealed partial class PlayerView
     {
         for (Element? element = trigger; element is not null; element = element.Parent)
             if (element is PlayerView player)
-                return player.ShowActionOverlayAsync(title, null, choices, null, null,
-                    dropdownAnchor: player.GetDropdownAnchor(trigger));
+            {
+                Rect? anchor = null;
+                try { anchor = player.GetDropdownAnchor(trigger); }
+                catch (Exception ex)
+                {
+                    // The native visual tree may be rearranged during rotation.
+                    // Keep the menu usable with the centered fallback.
+                    System.Diagnostics.Debug.WriteLine(ex);
+                }
+                return player.ShowActionOverlayAsync(title, null, choices, null, null, dropdownAnchor: anchor);
+            }
         return Task.FromResult<string?>(null);
     }
 
@@ -34,16 +43,16 @@ public sealed partial class PlayerView
         // platform density; a missing handler falls back to a centered menu.
         if (trigger.Width <= 0 || trigger.Height <= 0) return null;
 #if WINDOWS
-        if (trigger.Handler?.PlatformView is Microsoft.UI.Xaml.UIElement source &&
-            Handler?.PlatformView is Microsoft.UI.Xaml.UIElement root)
+        if (trigger.Handler?.PlatformView is global::Microsoft.UI.Xaml.UIElement source &&
+            Handler?.PlatformView is global::Microsoft.UI.Xaml.UIElement root)
         {
             var bounds = source.TransformToVisual(root).TransformBounds(
-                new Windows.Foundation.Rect(0, 0, trigger.Width, trigger.Height));
+                new global::Windows.Foundation.Rect(0, 0, trigger.Width, trigger.Height));
             return new Rect(bounds.X, bounds.Y, bounds.Width, bounds.Height);
         }
 #elif ANDROID
-        if (trigger.Handler?.PlatformView is Android.Views.View source &&
-            Handler?.PlatformView is Android.Views.View root)
+        if (trigger.Handler?.PlatformView is global::Android.Views.View source &&
+            Handler?.PlatformView is global::Android.Views.View root)
         {
             var sourceLocation = new int[2];
             var rootLocation = new int[2];
@@ -55,8 +64,8 @@ public sealed partial class PlayerView
                     (sourceLocation[1] - rootLocation[1]) / density, source.Width / density, source.Height / density);
         }
 #elif IOS || MACCATALYST
-        if (trigger.Handler?.PlatformView is UIKit.UIView source &&
-            Handler?.PlatformView is UIKit.UIView root)
+        if (trigger.Handler?.PlatformView is global::UIKit.UIView source &&
+            Handler?.PlatformView is global::UIKit.UIView root)
         {
             var bounds = source.ConvertRectToView(source.Bounds, root);
             return new Rect((double)bounds.X, (double)bounds.Y, (double)bounds.Width, (double)bounds.Height);
@@ -92,7 +101,8 @@ public sealed partial class PlayerView
             double.IsFinite(r.Width) && double.IsFinite(r.Height) && r.Width > 0 && r.Height > 0;
         bool anchored = dropdown || anchor is { } p && double.IsFinite(p.X) && double.IsFinite(p.Y);
         var heading = MixerStyle.Label(title, compact ? 14 : 18, bold: true);
-        heading.LineBreakMode = LineBreakMode.WordWrap;
+        heading.LineBreakMode = compact ? LineBreakMode.TailTruncation : LineBreakMode.WordWrap;
+        if (compact) heading.MaxLines = 2;
         SemanticProperties.SetHeadingLevel(heading, SemanticHeadingLevel.Level1);
         var body = new VerticalStackLayout { Spacing = compact ? 2 : 6 };
         if (!string.IsNullOrWhiteSpace(message))
@@ -117,23 +127,10 @@ public sealed partial class PlayerView
             button.Clicked += (_, _) => CompleteOverlay(result, choice.Value);
             body.Add(button);
         }
-        var footer = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
-        var primary = MixerStyle.Button(accept ?? "Назад", primary: true);
-        primary.HorizontalOptions = LayoutOptions.Fill;
-        primary.Clicked += (_, _) => CompleteOverlay(result, accept);
-        footer.Add(primary);
-        if (accept is not null && cancel is not null)
-        {
-            var dismiss = MixerStyle.IconButton("player_cancel.png", 44);
-            SemanticProperties.SetDescription(dismiss, cancel);
-            ToolTipProperties.SetText(dismiss, cancel);
-            dismiss.Clicked += (_, _) => CompleteOverlay(result, null);
-            footer.Add(dismiss, 1);
-        }
-
+        bool showFooter = !compact || !anchored;
         var layout = new Grid
         {
-            RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Auto)],
+            RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)],
             RowSpacing = compact ? 5 : 10
         };
         layout.Add(heading);
@@ -141,7 +138,24 @@ public sealed partial class PlayerView
         layout.Add(scroll, row: 1);
         // An anchored menu is dismissed by tapping outside or navigating back.
         // Centered fallback menus retain an explicit Back button.
-        if (!compact || !anchored) layout.Add(footer, row: 2);
+        if (showFooter)
+        {
+            layout.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+            var footer = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
+            var primary = MixerStyle.Button(accept ?? "Назад", primary: true);
+            primary.HorizontalOptions = LayoutOptions.Fill;
+            primary.Clicked += (_, _) => CompleteOverlay(result, accept);
+            footer.Add(primary);
+            if (accept is not null && cancel is not null)
+            {
+                var dismiss = MixerStyle.IconButton("player_cancel.png", 44);
+                SemanticProperties.SetDescription(dismiss, cancel);
+                ToolTipProperties.SetText(dismiss, cancel);
+                dismiss.Clicked += (_, _) => CompleteOverlay(result, null);
+                footer.Add(dismiss, 1);
+            }
+            layout.Add(footer, row: 2);
+        }
 
         var card = new Border
         {

@@ -7,12 +7,12 @@ internal static class ListActionText
     // One mapping for the list gesture and settings previews.
     public static string Icon(ListSwipeAction action) => action switch
     {
-        ListSwipeAction.AddToQueue => "player_queue_add.png",
-        ListSwipeAction.PlayNext => "player_next.png",
-        ListSwipeAction.RemoveFromQueue => "player_delete.png",
-        ListSwipeAction.RemoveFromStorage => "player_delete.png",
-        ListSwipeAction.ClearAnalysis => "player_reset.png",
-        ListSwipeAction.Rescan => "player_automix.png",
+        ListSwipeAction.AddToQueue => ListEditActionPresentation.Icon(ListEditAction.AddToQueue),
+        ListSwipeAction.PlayNext => ListEditActionPresentation.Icon(ListEditAction.PlayNext),
+        ListSwipeAction.RemoveFromQueue => ListEditActionPresentation.Icon(ListEditAction.RemoveFromQueue),
+        ListSwipeAction.RemoveFromStorage => ListEditActionPresentation.Icon(ListEditAction.RemoveFromStorage),
+        ListSwipeAction.ClearAnalysis => ListEditActionPresentation.Icon(ListEditAction.ClearAnalysis),
+        ListSwipeAction.Rescan => ListEditActionPresentation.Icon(ListEditAction.Rescan),
         ListSwipeAction.Menu => "player_settings.png",
         _ => "player_cancel.png"
     };
