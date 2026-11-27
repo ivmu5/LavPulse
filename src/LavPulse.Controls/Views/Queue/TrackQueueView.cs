@@ -209,10 +209,11 @@ internal sealed partial class TrackQueueView : Grid
                 _right.Add(_editorDone, 1, 1);
             }
         }
+        _editorDone.LineBreakMode = LineBreakMode.WordWrap;
         _editorHint.IsVisible = IsEditing && !shortWindow;
         if (_wideEditor == wide)
         {
-            UpdateQueueViewport();
+            if (IsEditing) UpdateQueueViewport();
             return;
         }
 
@@ -226,7 +227,7 @@ internal sealed partial class TrackQueueView : Grid
             _clearQueue.HorizontalOptions = LayoutOptions.Fill;
             Grid.SetColumn(_clearQueue, 0);
             Grid.SetRow(_clearQueue, 0);
-            _editorSideActions.Children.Add(_clearQueue);
+            _editorSideActions.Children.Insert(0, _clearQueue);
         }
         else
         {

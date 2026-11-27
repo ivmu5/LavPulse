@@ -121,6 +121,7 @@ public sealed class EqualizerPanel : ContentView
             layout.WidthRequest = Math.Min(host.Width, shortWindow ? AdaptivePanelLayout.MaximumWidth : 848);
             layout.Padding = new Thickness(16, shortWindow ? Math.Max(4, topInset - 8) : topInset, 16, shortWindow ? 6 : 16);
             layout.RowSpacing = shortWindow ? 5 : 12;
+            bands.WidthRequest = shortWindow ? Math.Max(rows.Length * 64 - 4, layout.WidthRequest - 32) : -1;
             if (singleStrip == shortWindow) return;
             singleStrip = shortWindow;
             topActions.ColumnDefinitions[1].Width = shortWindow ? GridLength.Auto : new GridLength(0);

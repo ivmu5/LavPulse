@@ -181,9 +181,20 @@ public sealed partial class PlayerView
         else MixerStyle.UseColor(overlay, BackgroundColorProperty, MixerColor.Scrim);
         overlay.Add(card);
         bool revealed = false;
+        double placedWidth = 0, placedHeight = 0;
         void Place()
         {
             if (!ReferenceEquals(_actionOverlayResult, result) || overlay.Width <= 32 || overlay.Height <= 32) return;
+            // An anchored menu owns coordinates in the old visual tree.
+            // Dismiss on rotation/resize rather than showing it at a stale row.
+            if (anchored && placedWidth > 0 &&
+                (Math.Abs(overlay.Width - placedWidth) > 2 || Math.Abs(overlay.Height - placedHeight) > 2))
+            {
+                CompleteOverlay(result, null);
+                return;
+            }
+            placedWidth = overlay.Width;
+            placedHeight = overlay.Height;
             double preferredWidth = dropdown ? Math.Clamp(dropdownAnchor!.Value.Width, 230, 320) :
                 anchored ? 300 : compact ? 320 : 520;
             double width = Math.Min(preferredWidth, overlay.Width - 32);

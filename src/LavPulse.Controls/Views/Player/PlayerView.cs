@@ -275,15 +275,12 @@ public sealed partial class PlayerView : Grid
     {
         var controls = new Grid
         {
-            ColumnDefinitions = [new(GridLength.Star), new(0), new(GridLength.Star)],
+            ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)],
             RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)],
             RowSpacing = 4
         };
 #if IOS
-        // Let the two groups take their natural widths on small iPhones, with flexible space between.
         _equalizerToggle.WidthRequest = 52;
-        controls.ColumnDefinitions[0].Width = controls.ColumnDefinitions[2].Width = GridLength.Auto;
-        controls.ColumnDefinitions[1].Width = GridLength.Star;
 #endif
         _automix.Clicked += (_, _) => AutoMixChanged?.Invoke();
         _repeatOne.Clicked += (_, _) => RepeatOneChanged?.Invoke();
@@ -350,12 +347,8 @@ public sealed partial class PlayerView : Grid
             bool next = AdaptivePanelLayout.UseSingleRowTransport(controls.Width);
             if (next == wide) return;
             wide = next;
-#if IOS
             controls.ColumnDefinitions[0].Width = controls.ColumnDefinitions[2].Width = wide ? GridLength.Star : GridLength.Auto;
             controls.ColumnDefinitions[1].Width = wide ? GridLength.Auto : GridLength.Star;
-#else
-            controls.ColumnDefinitions[1].Width = wide ? GridLength.Auto : new GridLength(0);
-#endif
             Grid.SetColumnSpan(primary, wide ? 1 : 3);
             Grid.SetColumn(primary, wide ? 1 : 0);
             Grid.SetRow(primary, wide ? 0 : 1);
