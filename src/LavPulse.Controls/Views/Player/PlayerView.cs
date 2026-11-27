@@ -190,6 +190,16 @@ public sealed partial class PlayerView : Grid
         add => _queue.RemoveRequested += value;
         remove => _queue.RemoveRequested -= value;
     }
+    public Func<IReadOnlyList<TrackFile>,Task>? QueueActionsRequested
+    {
+        get => _queue.ActionsRequested;
+        set => _queue.ActionsRequested = value;
+    }
+    public Func<TrackFile,ListSwipeAction,Task>? QueueSwipeRequested
+    {
+        get => _queue.SwipeRequested;
+        set => _queue.SwipeRequested = value;
+    }
     public event Action? SettingsRequested;
     public event Action? LibraryRequested;
     public event Action<bool>? QueueEditingChanged
@@ -373,6 +383,7 @@ public sealed partial class PlayerView : Grid
             BackgroundColor = theme[MixerColor.Background];
             _queue.SetTheme(theme);
         }
+        _queue.ListSettings = settings;
         CurrentDeck.SetAppearance(settings, theme);
         IncomingDeck.SetAppearance(settings, theme);
         Spectrum.SetAppearance(theme, settings);

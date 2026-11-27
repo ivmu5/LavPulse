@@ -35,6 +35,10 @@ internal static class PlayerPreferences
             "spectrum-frame-rate", (int)defaults.SpectrumFrameRate);
         return new PlayerSettings
         {
+            QueueSwipeRight = (ListSwipeAction)Math.Clamp(Preferences.Default.Get("queue-swipe-right",(int)defaults.QueueSwipeRight),0,(int)ListSwipeAction.Menu),
+            QueueSwipeLeft = (ListSwipeAction)Math.Clamp(Preferences.Default.Get("queue-swipe-left",(int)defaults.QueueSwipeLeft),0,(int)ListSwipeAction.Menu),
+            LibrarySwipeRight = (ListSwipeAction)Math.Clamp(Preferences.Default.Get("library-swipe-right",(int)defaults.LibrarySwipeRight),0,(int)ListSwipeAction.Menu),
+            LibrarySwipeLeft = (ListSwipeAction)Math.Clamp(Preferences.Default.Get("library-swipe-left",(int)defaults.LibrarySwipeLeft),0,(int)ListSwipeAction.Menu),
             FadeInMilliseconds = Math.Clamp(Preferences.Default.Get("fade-in-ms", defaults.FadeInMilliseconds), 0, 3000),
             FadeOutMilliseconds = Math.Clamp(Preferences.Default.Get("fade-out-ms", defaults.FadeOutMilliseconds), 0, 3000),
             CrossfadeMilliseconds = Math.Clamp(Preferences.Default.Get("crossfade-ms", defaults.CrossfadeMilliseconds), 0, 12000),
@@ -89,6 +93,10 @@ internal static class PlayerPreferences
 
     public static void Save(PlayerSettings settings)
     {
+        Preferences.Default.Set("queue-swipe-right",(int)settings.QueueSwipeRight);
+        Preferences.Default.Set("queue-swipe-left",(int)settings.QueueSwipeLeft);
+        Preferences.Default.Set("library-swipe-right",(int)settings.LibrarySwipeRight);
+        Preferences.Default.Set("library-swipe-left",(int)settings.LibrarySwipeLeft);
         Preferences.Default.Set("fade-in-ms", settings.FadeInMilliseconds);
         Preferences.Default.Set("fade-out-ms", settings.FadeOutMilliseconds);
         Preferences.Default.Set("crossfade-ms", settings.CrossfadeMilliseconds);

@@ -99,6 +99,22 @@ public sealed record TrackBeatGrid(double Bpm, long FirstBeatFrame, float Confid
         return distance > 0 ? Math.Clamp(span * 60d * PlaybackFormat.SampleRate / distance, 40, 240) : Bpm;
     }
 
+    /// <summary>Stable rounded display tempo: use the entire estimated section, not individual intervals.</summary>
+    public int DisplayBpmAt(long position)
+    {
+        if (!HasBeatGrid) return 0;
+        int lo=0,hi=Sections.Length;
+        while(lo<hi)
+        {
+            int mid=lo+(hi-lo)/2;
+            if(Sections[mid].EndFrame<=position) lo=mid+1;
+            else hi=mid;
+        }
+        double bpm=Sections.Length==0 ? Bpm :
+            lo<Sections.Length && Sections[lo].StartFrame<=position ? Sections[lo].Bpm : 0;
+        return double.IsFinite(bpm) && bpm>=40 && bpm<=240 ? (int)Math.Round(bpm,MidpointRounding.AwayFromZero) : 0;
+    }
+
     private int BeatIndex(long frame)
     {
         int index = Array.BinarySearch(BeatFrames, frame);

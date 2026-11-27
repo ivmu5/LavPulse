@@ -63,6 +63,7 @@ internal sealed class QueueTrackRow : TrackListRow
 
     public void Bind(TrackFile file, int index)
     {
+        if (!ReferenceEquals(File,file)) ResetSwipe();
         File = file;
         Index = index;
     }
@@ -70,6 +71,7 @@ internal sealed class QueueTrackRow : TrackListRow
     public void Unbind()
     {
         File = null;
+        ResetSwipe();
         _shown = null;
         _current = _played = _loading = false;
         _spectrum.IsVisible = false;

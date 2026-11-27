@@ -93,12 +93,17 @@ public sealed partial class TrackLibraryPanel
             {
                 if (ReferenceEquals(panel._revealed, this)) panel.DismissDeleteAction();
             };
-            TrackListSwipe.Attach(this, () => _row,
-                () => !panel._editing && !panel._busy && panel.CanRemove(_row), () => panel.RevealDelete(this));
+            AttachActions(() => _row, () => !panel._editing && !panel._busy && _row is not null,
+                right => right ? panel._listSettings.LibrarySwipeRight :
+                    panel._local ? panel._listSettings.LibrarySwipeLeft : ListSwipeAction.None,
+                action => _row is { } row ? panel.ExecuteListActionAsync(row,action) : Task.CompletedTask,
+                () => _row is { } row ? panel.ExecuteListActionAsync(row,ListSwipeAction.Menu) : Task.CompletedTask,
+                () => PlayerColors.For(panel._listSettings));
             var tap = new TapGestureRecognizer();
             tap.Tapped += async (_, _) =>
             {
-                if (panel.DismissDeleteAction()) return;
+                if (ConsumedGesture || panel.DismissDeleteAction()) return;
+                if (panel._editing && _row is { } selected) { panel.ToggleChecked(selected); return; }
                 if (_row is { } row) await _panel.RunAsync(() => _panel.SelectAsync(row), "Не удалось открыть папку");
             };
             Body.GestureRecognizers.Add(tap);
@@ -132,6 +137,7 @@ public sealed partial class TrackLibraryPanel
                 old.MetadataChanged -= LoadMetadata;
             }
             _row = row;
+            ResetSwipe();
             SetDeleteReveal(0);
             if (row is null)
             {
@@ -166,10 +172,14 @@ public sealed partial class TrackLibraryPanel
             MixerStyle.UseColor(this, BackgroundColorProperty, row.Selected ? MixerColor.Selected : MixerColor.Button);
             if (_scanRow) return;
             _chevron.Text = row.Expanded ? "▾" : "▸";
-            SetInlineDelete(_panel._editing && _panel.CanRemove(row));
+            SetInlineDelete(false);
+            SetSelectionMark(_panel._editing,_panel._checkedRows.Contains(row));
+            Opacity = _panel._local && row.File is { } file && !_panel._hasAnalysis(file) ? .56 : 1;
             SetDeleteEnabled(!_panel._busy);
             _import.IsVisible = !_panel._local;
-            _add.IsEnabled = _import.IsEnabled = !_panel._busy;
+            _add.IsEnabled = _import.IsEnabled = !_panel._busy && !_panel._editing;
+            _add.IsVisible = !_panel._editing;
+            _import.IsVisible = !_panel._local && !_panel._editing;
             bool folder = row.File is null;
             string add = folder ? "Добавить папку в очередь" : "Добавить трек в очередь";
             DescribeDelete(folder ? "Убрать папку и её треки из медиатеки" : "Убрать трек из медиатеки");

@@ -43,6 +43,7 @@ public sealed partial class TrackLibraryPanel
         ResetFolderSizes();
         _metadataCache.Clear();
         _rows.Clear();
+        _checkedRows.Clear();
         _local = local;
         var row = new TreeRow([root], null) { Expanded = _expanded.Contains(root.Id) };
         _rows.Add(row);

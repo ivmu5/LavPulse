@@ -41,17 +41,26 @@ internal sealed partial class TrackQueueView
         tap.Tapped += (_, _) =>
         {
             RecordQueueInteraction();
-            if (DismissDeleteAction() || !CanEditRows) return;
+            if (row.ConsumedGesture || DismissDeleteAction() || !CanEditRows) return;
             if (row.File is { } file && _dragging is null &&
                 (_lastDrag == 0 || Stopwatch.GetElapsedTime(_lastDrag).TotalMilliseconds >= 300))
             {
-                if (IsEditing) PlayRequested?.Invoke(file);
+                if (IsEditing)
+                {
+                    if (!_checkedTracks.Add(file)) _checkedTracks.Remove(file);
+                    row.SetSelectionMark(true,_checkedTracks.Contains(file));
+                    UpdateEditorActions();
+                }
                 else if (row.IsPlayed) HistoryRequested?.Invoke(file);
                 else if (!ReferenceEquals(_currentTrack, file)) TrackRequested?.Invoke(file);
             }
         };
         row.TouchBody.GestureRecognizers.Add(tap);
-        TrackListSwipe.Attach(row, () => row.File, () => CanSwipe, () => BeginSwipe(row));
+        row.AttachActions(() => row.File, () => CanEditRows && !IsEditing && _dragging is null,
+            right => right ? ListSettings.QueueSwipeRight : ListSettings.QueueSwipeLeft,
+            action => row.File is { } file && SwipeRequested is { } swipe ? swipe(file,action) : Task.CompletedTask,
+            () => row.File is { } file && ActionsRequested is { } menu ? menu([file]) : Task.CompletedTask,
+            () => _theme.Artwork);
         var drag = new DragGestureRecognizer { CanDrag = true };
         drag.DragStarting += (_, args) =>
         {
@@ -175,6 +184,7 @@ internal sealed partial class TrackQueueView
 
     internal bool DismissDeleteAction()
     {
+        foreach (var realized in _queueScroll.RealizedRows) realized.ResetSwipe();
         if (_swipeRow is not { } row) return false;
         _swipeRow = null;
         GestureRecognizers.Remove(_outsideSwipeTap);

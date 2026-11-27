@@ -58,6 +58,11 @@ public sealed record PlayerSettings
     public static int ResolveAnalysisParallelism(int requested) =>
         TrackAnalysisParallelism.Resolve(requested, Environment.ProcessorCount);
 
+    public ListSwipeAction QueueSwipeRight { get; init; } = ListSwipeAction.PlayNext;
+    public ListSwipeAction QueueSwipeLeft { get; init; } = ListSwipeAction.RemoveFromQueue;
+    public ListSwipeAction LibrarySwipeRight { get; init; } = ListSwipeAction.AddToQueue;
+    public ListSwipeAction LibrarySwipeLeft { get; init; } = ListSwipeAction.RemoveFromStorage;
+
     public int FadeInMilliseconds { get; init; } = 300;
     public int FadeOutMilliseconds { get; init; } = 300;
     public int CrossfadeMilliseconds { get; init; } = 2500;

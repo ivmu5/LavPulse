@@ -71,8 +71,20 @@ public sealed partial class PlayerSettingsPanel
             value => _settings = _settings with { ShowOnLockScreen = value });
         sections.Add(Section("Экран блокировки", lockScreen));
 #endif
+        sections.Add(CreateSwipeSettings());
         sections.Add(CreateFileAssociationSection());
         return sections;
+    }
+
+    private View CreateSwipeSettings()
+    {
+        var options = Enum.GetValues<ListSwipeAction>().Select(a => (a,ListActionText.Label(a))).ToArray();
+        return Section("Свайпы в списках",
+            Select("Очередь: слева направо",options,_settings.QueueSwipeRight,null,a=>_settings=_settings with {QueueSwipeRight=a}),
+            Select("Очередь: справа налево",options,_settings.QueueSwipeLeft,null,a=>_settings=_settings with {QueueSwipeLeft=a}),
+            Select("Медиатека: слева направо",options,_settings.LibrarySwipeRight,null,a=>_settings=_settings with {LibrarySwipeRight=a}),
+            Select("Медиатека: справа налево",options,_settings.LibrarySwipeLeft,null,a=>_settings=_settings with {LibrarySwipeLeft=a}),
+            MixerStyle.Label("Короткий свайп открывает кнопку. Длинный выполняет действие при отпускании.",11,MixerColor.Muted));
     }
 
     private View CreateFileAssociationSection()
