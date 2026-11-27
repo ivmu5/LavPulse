@@ -59,6 +59,22 @@ internal static partial class Program
     {
         const int stride = TrackListLayout.Stride;
         const int viewport = 4 * stride;
+        int[] parents = TrackListLayout.ParentIndexes([0,1,2,3,4,3,2,1,2]);
+        Span<int> pinned = stackalloc int[3];
+        Require(parents.SequenceEqual(new[]{-1,0,1,2,3,2,1,0,7}),
+            "Flattened tree lost its parent chain.");
+        Require(TrackListLayout.PinnedParents(parents,0,pinned)==0 &&
+            TrackListLayout.PinnedParents(parents,4*stride,pinned)==3 &&
+            pinned.SequenceEqual(new[]{1,2,3}),
+            "Deep hierarchy did not retain the nearest three parents.");
+        Require(TrackListLayout.PinnedParents(parents,7*stride,pinned)==1 && pinned[0]==0 &&
+            TrackListLayout.PinnedParents(parents,8*stride,pinned)==2 && pinned[..2].SequenceEqual(new[]{0,7}),
+            "Pinned ancestors did not switch when scrolling into a sibling.");
+        Require(TrackListLayout.PinnedParents([],0,pinned)==0 &&
+            TrackListLayout.PinnedParents(parents,double.NaN,pinned)==0,
+            "Empty or invalid scroll state produced pinned ancestors.");
+        Require(TrackListLayout.PinnedParents(TrackListLayout.ParentIndexes([0,1,1,2]),3*stride,pinned)==2 &&
+            pinned[..2].SequenceEqual(new[]{0,2}),"Collapsed tree retained a removed ancestor.");
         Require(TrackListLayout.RealizedRange(1000, 100 * stride, viewport) == (98, 106),
             "A track list attached rows outside the viewport and its overscan.");
         Require(TrackListLayout.RealizedRange(0, 0, viewport) == (0, 0) &&

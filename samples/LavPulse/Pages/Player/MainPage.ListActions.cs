@@ -38,7 +38,7 @@ public sealed partial class MainPage
 #if WINDOWS
         if(files.Count==1 && files[0].LocalPath is not null) options.Insert(0,OpenLocation);
 #endif
-        var choice=await DisplayActionSheetAsync(files.Count==1?files[0].Name:$"Выбрано: {files.Count}","Отмена",null,options.ToArray());
+        var choice=await _view.ChooseActionAsync(files.Count==1?files[0].Name:$"Выбрано: {files.Count}",options);
         if(_closed||choice is null||!options.Contains(choice)) return;
         await RunListActionAsync(async ()=>
         {
@@ -78,8 +78,8 @@ public sealed partial class MainPage
         if(selections.Count==1) options.Insert(0,OpenLocation);
 #endif
         if(options.Count==0) return;
-        string? choice=await DisplayActionSheetAsync(selections.Count==1?selections[0].File?.Name??selections[0].Folders[^1].Name:
-            $"Выбрано: {selections.Count}","Отмена",null,options.ToArray());
+        string? choice=await _view.ChooseActionAsync(selections.Count==1?selections[0].File?.Name??selections[0].Folders[^1].Name:
+            $"Выбрано: {selections.Count}",options);
         if(_closed||choice is null||!options.Contains(choice)) return;
         if(choice==OpenLocation)
         {
@@ -166,7 +166,7 @@ public sealed partial class MainPage
     private async Task ChangeStoredFilesAsync(IReadOnlyList<TrackFile> files,string action)
     {
         bool remove=action==RemoveStorage, rescan=action==Rescan;
-        if(remove && !await DisplayAlertAsync("Удалить из хранилища?",
+        if(remove && !await _view.ConfirmActionAsync("Удалить из хранилища?",
             "Будут удалены импортированные копии и их данные анализа. Исходные файлы вне LavPulse не затрагиваются. Треки в очереди или используемые декой будут пропущены.",
             "Удалить","Отмена")) return;
         int done=0, skipped=0;
@@ -189,7 +189,7 @@ public sealed partial class MainPage
         if(!_closed)
         {
             UpdateQueue();
-            await DisplayAlertAsync(action,$"Выполнено: {done}. Пропущено или ошибок: {skipped}.","OK");
+            await _view.NotifyActionAsync(action,$"Выполнено: {done}. Пропущено или ошибок: {skipped}.","OK");
         }
     }
 

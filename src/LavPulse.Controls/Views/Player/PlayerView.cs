@@ -71,6 +71,8 @@ public sealed partial class PlayerView : Grid
         };
         _queue.LibraryRequested += () => LibraryRequested?.Invoke();
         this.Add(_panelHost);
+        this.Add(_actionOverlayHost);
+        Unloaded += (_, _) => TryDismissActionOverlay();
 
         _queue.ShowCurrent(null);
         CurrentDeck.Show(null, false);
@@ -369,6 +371,7 @@ public sealed partial class PlayerView : Grid
     /// <summary>Replaces the player controls above the shared spectrum.</summary>
     public void ShowPanel(View? panel)
     {
+        TryDismissActionOverlay();
         if (Panel is TrackLibraryPanel previous) previous.ScanAnimationChanged -= SyncUiFrames;
         _panelHost.Content = panel;
         if (panel is not null) _queue.CloseEditor();

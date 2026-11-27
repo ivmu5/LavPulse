@@ -16,6 +16,36 @@ internal static class TrackListLayout
         return (first, end);
     }
 
+    public const int MaximumPinnedParents = 3;
+
+    /// <summary>Builds parent indexes for a flattened pre-order tree.</summary>
+    public static int[] ParentIndexes(IReadOnlyList<int> depths)
+    {
+        var parents = new int[depths.Count];
+        var ancestors = new Stack<int>();
+        for (int i = 0; i < depths.Count; i++)
+        {
+            while (ancestors.Count > 0 && depths[ancestors.Peek()] >= depths[i])
+                ancestors.Pop();
+            parents[i] = ancestors.TryPeek(out int parent) ? parent : -1;
+            ancestors.Push(i);
+        }
+        return parents;
+    }
+
+    /// <summary>Returns the nearest three ancestors, from outermost to innermost.</summary>
+    public static int PinnedParents(int[] parents, double offset, Span<int> destination)
+    {
+        if (parents.Length == 0 || !double.IsFinite(offset) || offset < Stride) return 0;
+        int row = (int)Math.Clamp(Math.Floor(offset / Stride), 0, parents.Length - 1d);
+        int count = 0;
+        for (int parent = parents[row]; parent >= 0 && count < Math.Min(destination.Length, MaximumPinnedParents);
+            parent = parents[parent])
+            destination[count++] = parent;
+        destination[..count].Reverse();
+        return count;
+    }
+
     public static double PaddingToKeepOffset(int count, double scroll, double viewport) =>
         scroll > 0 ? Math.Ceiling(Math.Max(0, scroll + viewport - RowsHeight(count))) : 0;
 }

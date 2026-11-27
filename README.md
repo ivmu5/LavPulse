@@ -15,6 +15,10 @@ English (primary) | [Русский](README.ru.md)
 
 The current player has two decks. Recommendation, beat-matched time stretching and automatic harmonic track selection are not implemented. See the platform-specific installation notes below.
 
+## List navigation and actions
+
+In hierarchical library views, up to three nearest parent folders remain pinned above the scrolling rows. Tap a pinned folder to collapse its branch and return to its row. Unanalyzed tracks show a compact indicator below the file size, separately from title and artist. Context menus, destructive confirmations and operation results appear as themed in-app overlays; Back dismisses the overlay first. Native OS file/folder pickers remain native. Panel completion buttons are at the bottom, with a wide Save button and a compact cancel icon where edits are staged. Other operations remain above the list.
+
 ## Contents
 
 - [Getting started](#getting-started)

@@ -51,7 +51,7 @@ public sealed partial class TrackLibraryPanel
         _selected = RestoreSelection(previous) ?? row;
         _selected.Selected = true;
         if (preservePosition) KeepScrollOffset(_rows.Count);
-        _tree.SetItems(_rows);
+        PublishTree();
         _ = ReadFolderSizesAsync(root, listing);
         _heading.Text = local ? "Медиатека" : "Импорт папки";
         _message.Text = listing is { Files.Count: 0, Children.Count: 0 } ? "Нет аудиофайлов MP3." : "";
@@ -112,7 +112,7 @@ public sealed partial class TrackLibraryPanel
         _selected = row;
         row.Selected = true;
         row.Refresh();
-        if (row.File is null) _tree.SetItems(_rows);
+        if (row.File is null) PublishTree();
         _message.Text = "";
     }
 

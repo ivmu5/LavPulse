@@ -27,6 +27,7 @@ public sealed class TrackReportMarkPanel : ContentView
         HeightRequest = 90,
         Placeholder = "Комментарий"
     };
+    private readonly Label _error = MixerStyle.Label("", 12, MixerColor.Accent);
     private bool _setting;
     private bool _nextTapSetsEnd;
 
@@ -115,12 +116,17 @@ public sealed class TrackReportMarkPanel : ContentView
         }
         main.Add(MixerStyle.Label(mode == TrackMarkMode.Problem ? "Комментарий" : "Наблюдение", 12));
         main.Add(_comment);
+        _error.IsVisible = false;
+        main.Add(_error);
         var saveButton = MixerStyle.Button("Добавить в отчёт", primary: true);
-        var cancel = MixerStyle.Button("Отмена");
+        var cancel = MixerStyle.IconButton("player_cancel.png", 44);
+        SemanticProperties.SetDescription(cancel, "Отмена");
+        ToolTipProperties.SetText(cancel, "Отмена");
         cancel.Clicked += (_, _) => dismiss();
         saveButton.Clicked += async (_, _) =>
         {
             if (saveButton.IsEnabled == false) return;
+            _error.IsVisible = false;
             double? bpm = null;
             if (mode == TrackMarkMode.StrongRhythm && !string.IsNullOrWhiteSpace(_bpm.Text))
             {
@@ -128,7 +134,7 @@ public sealed class TrackReportMarkPanel : ContentView
                         NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) ||
                     !double.IsFinite(parsed) || parsed is < 40 or > 300)
                 {
-                    await ShowErrorAsync("Допустимый BPM: 40–300. Поле необязательное.");
+                    ShowError("Допустимый BPM: 40–300. Поле необязательное.");
                     return;
                 }
                 bpm = parsed;
@@ -136,12 +142,12 @@ public sealed class TrackReportMarkPanel : ContentView
             var comment = (_comment.Text ?? "").Trim();
             if (mode == TrackMarkMode.Problem && comment.Length == 0)
             {
-                await ShowErrorAsync("Комментарий обязателен.");
+                ShowError("Комментарий обязателен.");
                 return;
             }
             if (comment.Length > 3000)
             {
-                await ShowErrorAsync("Максимальная длина комментария — 3000 символов.");
+                ShowError("Максимальная длина комментария — 3000 символов.");
                 return;
             }
             saveButton.IsEnabled = false;
@@ -156,9 +162,9 @@ public sealed class TrackReportMarkPanel : ContentView
             }
             finally { saveButton.IsEnabled = true; }
         };
-        var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)], ColumnSpacing = 8 };
-        actions.Add(cancel);
-        actions.Add(saveButton, 1);
+        var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
+        actions.Add(saveButton);
+        actions.Add(cancel, 1);
         var container = new Grid
         {
             Padding = new Thickness(16, 18),
@@ -170,10 +176,10 @@ public sealed class TrackReportMarkPanel : ContentView
         Content = container;
     }
 
-    private static async Task ShowErrorAsync(string message)
+    private void ShowError(string message)
     {
-        if (Application.Current?.Windows.FirstOrDefault()?.Page is Page page)
-            await page.DisplayAlertAsync("Отчёт", message, "OK");
+        _error.Text = message;
+        _error.IsVisible = true;
     }
 
     private void RefreshRange()
