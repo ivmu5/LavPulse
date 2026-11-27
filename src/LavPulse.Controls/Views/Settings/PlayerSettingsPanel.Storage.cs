@@ -11,25 +11,33 @@ public sealed partial class PlayerSettingsPanel
                 StringComparison.OrdinalIgnoreCase)))
             options.Add(new(_settings.StorageDirectory, "Выбранная папка"));
 
-        var picker = new Picker
-        {
-            Title = "Расположение медиатеки",
-            HorizontalOptions = LayoutOptions.Fill
-        };
-        foreach (var option in options) picker.Items.Add(option.Label);
-        int current = options.FindIndex(option => string.Equals(option.Directory, _settings.StorageDirectory,
-            StringComparison.OrdinalIgnoreCase));
-        picker.SelectedIndex = Math.Max(0, current);
-        picker.SelectedIndexChanged += (_, _) =>
-        {
-            if (!_loading && picker.SelectedIndex >= 0)
-                _settings = _settings with { StorageDirectory = options[picker.SelectedIndex].Directory };
-        };
-
+        var picker = MixerStyle.Button("", icon: "player_folder.png");
+        picker.HorizontalOptions = LayoutOptions.Fill;
+        picker.LineBreakMode = LineBreakMode.WordWrap;
+        int current = Math.Max(0, options.FindIndex(option => string.Equals(option.Directory, _settings.StorageDirectory,
+            StringComparison.OrdinalIgnoreCase)));
         var location = MixerStyle.Label("Расположение: " + StorageDescription(_settings.StorageDirectory),
             11, MixerColor.Muted);
-        picker.SelectedIndexChanged += (_, _) =>
+        picker.Text = options[current].Label + "  ▾";
+        SemanticProperties.SetDescription(picker, "Расположение медиатеки: " + options[current].Label);
+
+        void SelectStorage(int index)
+        {
+            if (index < 0 || index >= options.Count) return;
+            current = index;
+            _settings = _settings with { StorageDirectory = options[index].Directory };
+            picker.Text = options[index].Label + "  ▾";
+            SemanticProperties.SetDescription(picker, "Расположение медиатеки: " + options[index].Label);
             location.Text = "Расположение: " + StorageDescription(_settings.StorageDirectory);
+        }
+        picker.Clicked += async (_, _) =>
+        {
+            var menu = options.Select((option, index) => new ActionMenuOption(
+                index.ToString(System.Globalization.CultureInfo.InvariantCulture), option.Label,
+                "player_folder.png", index == current)).ToArray();
+            string? value = await PlayerView.ChooseDropdownAsync(picker, "Расположение медиатеки", menu);
+            if (!_loading && int.TryParse(value, out int index)) SelectStorage(index);
+        };
 
         var container = new VerticalStackLayout
         {
@@ -54,11 +62,8 @@ public sealed partial class PlayerSettingsPanel
                     {
                         existing = options.Count;
                         options.Add(new(folder, "Папка: " + folder));
-                        picker.Items.Add(options[^1].Label);
                     }
-                    picker.SelectedIndex = existing;
-                    _settings = _settings with { StorageDirectory = folder };
-                    location.Text = "Расположение: " + StorageDescription(folder);
+                    SelectStorage(existing);
                 }
                 catch (Exception ex)
                 {

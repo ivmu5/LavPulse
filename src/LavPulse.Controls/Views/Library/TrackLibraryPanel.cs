@@ -104,7 +104,6 @@ public sealed partial class TrackLibraryPanel : ContentView
 
         _back.Clicked += (_, _) =>
         {
-            if (CloseScanModeMenu()) return;
             if (_editing) { SetEditing(false); return; }
             if (TryReturnToSavedLibrary()) return;
             close();
@@ -309,7 +308,6 @@ public sealed partial class TrackLibraryPanel : ContentView
 
     public bool TryCloseEditing()
     {
-        if (CloseScanModeMenu()) return true;
         if (DismissDeleteAction()) return true;
         if (!_editing || _busy) return false;
         SetEditing(false);
@@ -346,7 +344,6 @@ public sealed partial class TrackLibraryPanel : ContentView
         if (!_editing) _edit.Text = "Редактировать";
         _scanActions.IsVisible = _local && _scanBatch is null;
         _scanActions.IsEnabled = !_busy && _selected is not null;
-        if (!_scanActions.IsVisible || !_scanActions.IsEnabled) CloseScanModeMenu();
         UpdateScanModeDescription();
         foreach (var view in _tree.RealizedRows) view.UpdateRow();
     }

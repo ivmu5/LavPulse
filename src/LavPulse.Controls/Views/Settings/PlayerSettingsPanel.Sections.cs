@@ -80,31 +80,13 @@ public sealed partial class PlayerSettingsPanel
     {
         var all = Enum.GetValues<ListSwipeAction>();
         var queue = all.Where(a => a is not (ListSwipeAction.AddToQueue or ListSwipeAction.RemoveFromStorage)).ToArray();
-        View? open = null;
-        void Toggle(View menu)
-        {
-            bool show = !menu.IsVisible;
-            if (open is not null) open.IsVisible = false;
-            menu.IsVisible = show;
-            open = show ? menu : null;
-        }
-        void Close()
-        {
-            if (open is not null) open.IsVisible = false;
-            open = null;
-        }
-
         View Example(string title, ListSwipeAction[] choices, ListSwipeAction right, ListSwipeAction left,
             Action<ListSwipeAction> setRight, Action<ListSwipeAction> setLeft)
         {
-            var leftMenu = new VerticalStackLayout { IsVisible = false, Spacing = 4 };
-            var rightMenu = new VerticalStackLayout { IsVisible = false, Spacing = 4 };
             var leftButton = CreateSwipeChoice(right, compact: true);
             var rightButton = CreateSwipeChoice(left, compact: true);
-            leftButton.Clicked += (_, _) => Toggle(leftMenu);
-            rightButton.Clicked += (_, _) => Toggle(rightMenu);
-            Populate(leftMenu, leftButton, setRight, choices, "Слева направо →");
-            Populate(rightMenu, rightButton, setLeft, choices, "← Справа налево");
+            BindChoice(leftButton, right, setRight, choices, "Слева направо →");
+            BindChoice(rightButton, left, setLeft, choices, "← Справа налево");
 
             var track = new Grid
             {
@@ -138,25 +120,25 @@ public sealed partial class PlayerSettingsPanel
             return new VerticalStackLayout
             {
                 Spacing = 5,
-                Children = { MixerStyle.Label(title, 15, MixerColor.Accent, bold: true), sample, leftMenu, rightMenu }
+                Children = { MixerStyle.Label(title, 15, MixerColor.Accent, bold: true), sample }
             };
         }
 
-        void Populate(VerticalStackLayout menu, Button current, Action<ListSwipeAction> update,
+        void BindChoice(Button current, ListSwipeAction selected, Action<ListSwipeAction> update,
             ListSwipeAction[] choices, string direction)
         {
-            menu.Add(MixerStyle.Label(direction, 11, MixerColor.Muted));
-            foreach (var action in choices)
+            current.Clicked += async (_, _) =>
             {
-                var option = CreateSwipeChoice(action, compact: false);
-                option.Clicked += (_, _) =>
-                {
-                    update(action);
-                    ApplySwipeChoice(current, action);
-                    Close();
-                };
-                menu.Add(option);
-            }
+                var palette = PlayerColors.For(_settings);
+                var options = choices.Select(action => new ActionMenuOption(action.ToString(),
+                    ListActionText.Label(action), ListActionText.Icon(action), action == selected,
+                    ListActionText.Tint(action, palette))).ToArray();
+                string? value = await PlayerView.ChooseDropdownAsync(current, direction, options);
+                if (value is null || !Enum.TryParse<ListSwipeAction>(value, out var action) || !choices.Contains(action)) return;
+                selected = action;
+                update(action);
+                ApplySwipeChoice(current, action);
+            };
         }
 
         return Section("Свайпы в списках",

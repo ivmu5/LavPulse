@@ -44,6 +44,13 @@ public sealed partial class MainPage
         _ => throw new ArgumentOutOfRangeException(nameof(action))
     };
 
+    private static ActionMenuOption[] ContextOptions(IEnumerable<string> labels)
+    {
+        var actions = Enum.GetValues<ListEditAction>();
+        return labels.Select(label => new ActionMenuOption(label, label,
+            ListEditActionPresentation.Icon(actions.First(action => SelectionActionName(action) == label)))).ToArray();
+    }
+
     private Task ExecuteQueueSelectionActionAsync(IReadOnlyList<TrackFile> files, ListEditAction action) =>
         ShowQueueActionsAsync(files, null, SelectionActionName(action));
 
@@ -61,7 +68,7 @@ public sealed partial class MainPage
 #if WINDOWS
         if(files.Count==1 && files[0].LocalPath is not null) options.Insert(0,OpenLocation);
 #endif
-        var choice=direct ?? await _view.ChooseActionAsync(files.Count==1?files[0].Name:$"Выбрано: {files.Count}",options,anchor);
+        var choice=direct ?? await _view.ChooseActionAsync(files.Count==1?files[0].Name:$"Выбрано: {files.Count}",ContextOptions(options),anchor);
         if(_closed||choice is null||!options.Contains(choice)) return;
         await RunListActionAsync(async ()=>
         {
@@ -105,7 +112,7 @@ public sealed partial class MainPage
 #endif
         if(options.Count==0) return;
         string? choice=direct ?? await _view.ChooseActionAsync(selections.Count==1?selections[0].File?.Name??selections[0].Folders[^1].Name:
-            $"Выбрано: {selections.Count}",options,anchor);
+            $"Выбрано: {selections.Count}",ContextOptions(options),anchor);
         if(_closed || choice is null) return;
         if(!options.Contains(choice))
         {

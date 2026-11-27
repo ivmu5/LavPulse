@@ -43,6 +43,17 @@ internal static class TrackListLayout
         return (Axis(x, width, menuWidth), Axis(y, height, menuHeight));
     }
 
+    public static (double X, double Y) DropdownPosition(double x, double top, double triggerHeight,
+        double width, double height, double menuWidth, double menuHeight)
+    {
+        const double edge = 8, gap = 4;
+        double y = top + triggerHeight + gap;
+        if (y + menuHeight > height - edge && top - gap - menuHeight >= edge)
+            y = top - gap - menuHeight;
+        return (Math.Clamp(x, edge, Math.Max(edge, width - edge - menuWidth)),
+            Math.Clamp(y, edge, Math.Max(edge, height - edge - menuHeight)));
+    }
+
     public static double CollapseAnchor(int index, double viewport) =>
         (double)Math.Max(0, index - PinnedCapacity(viewport)) * Stride;
 
