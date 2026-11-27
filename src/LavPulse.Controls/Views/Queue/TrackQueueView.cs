@@ -15,6 +15,14 @@ internal sealed partial class TrackQueueView : Grid
     private readonly View _feedSelector;
     private readonly Grid _right;
     private readonly Grid _editorHeader;
+    private readonly Label _editorTitle;
+    private readonly VerticalStackLayout _editorSideActions = new()
+    {
+        IsVisible = false,
+        Spacing = 8,
+        VerticalOptions = LayoutOptions.Start
+    };
+    private bool _wideEditor;
     private readonly Button _editorDone = MixerStyle.Button("Готово", primary: true, icon: "player_confirm.png");
     private readonly Label _editorHint = MixerStyle.Label("", 11, MixerColor.Muted);
     private readonly Button _clearQueue = MixerStyle.Button("Очистить");
@@ -98,7 +106,7 @@ internal sealed partial class TrackQueueView : Grid
                 await actions(_tracks.Where(_checkedTracks.Contains).ToArray(), null);
         };
         UpdateEditorActions();
-        var title = MixerStyle.Label("Редактор очереди", MixerStyle.PhoneFont(19, 16), bold: true);
+        var title = _editorTitle = MixerStyle.Label("Редактор очереди", MixerStyle.PhoneFont(19, 16), bold: true);
         title.VerticalOptions = LayoutOptions.Center;
         SemanticProperties.SetHeadingLevel(title, SemanticHeadingLevel.Level1);
 #if WINDOWS
@@ -138,11 +146,14 @@ internal sealed partial class TrackQueueView : Grid
         SetTabColors();
         _right = new Grid
         {
+            ColumnDefinitions = [new(0), new(GridLength.Star), new(0)],
             RowDefinitions = [new(GridLength.Star), new(GridLength.Auto)],
-            RowSpacing = 0,
-            Children = { _queue, _incoming }
+            RowSpacing = 0
         };
-        _right.Add(_editorDone, row: 1);
+        _right.Add(_queue, 1, 0);
+        _right.Add(_incoming, 1, 0);
+        _right.Add(_editorDone, 1, 1);
+        _right.Add(_editorSideActions, 2, 0);
         _editorDone.SizeChanged += (_, _) => UpdateQueueViewport();
         _incoming.IsVisible = false;
         this.Add(_current);
@@ -150,6 +161,7 @@ internal sealed partial class TrackQueueView : Grid
         SizeChanged += (_, _) =>
         {
             UpdateQueueViewport();
+            if (IsEditing) return;
             double columnWidth = Math.Max(0, (Width - ColumnSpacing) / 2);
             if (columnWidth <= 0 || Height <= 0) return;
 
@@ -161,9 +173,55 @@ internal sealed partial class TrackQueueView : Grid
         };
     }
 
+    /// <summary>Uses the shared panel rails only while editing, leaving playback geometry unchanged.</summary>
+    internal void SetEditorLayout(AdaptivePanelLayout layout)
+    {
+        bool wide = IsEditing && layout.IsWide;
+        double side = wide ? layout.SideWidth : 0;
+        double gap = wide ? AdaptivePanelLayout.Gap : 0;
+        if (_right.ColumnDefinitions[0].Width.Value != side)
+        {
+            _right.ColumnDefinitions[0].Width = new GridLength(side);
+            _right.ColumnDefinitions[2].Width = new GridLength(side);
+        }
+        if (_right.ColumnSpacing != gap) _right.ColumnSpacing = gap;
+        if (_wideEditor == wide) return;
+
+        // A native drag can outlive its old geometry during a window resize.
+        // Cancel it rather than applying a drop against a different viewport.
+        EndDrag();
+        _wideEditor = wide;
+        if (wide)
+        {
+            _editorHeader.Children.Remove(_clearQueue);
+            _editorHeader.Children.Remove(_deleteMode);
+            _clearQueue.HorizontalOptions = _deleteMode.HorizontalOptions = LayoutOptions.Fill;
+            Grid.SetColumn(_clearQueue, 0);
+            Grid.SetRow(_clearQueue, 0);
+            Grid.SetColumnSpan(_deleteMode, 1);
+            Grid.SetRow(_deleteMode, 0);
+            _editorSideActions.Children.Add(_clearQueue);
+            _editorSideActions.Children.Add(_deleteMode);
+        }
+        else
+        {
+            _editorSideActions.Children.Remove(_clearQueue);
+            _editorSideActions.Children.Remove(_deleteMode);
+            _clearQueue.HorizontalOptions = _deleteMode.HorizontalOptions = LayoutOptions.End;
+            _editorHeader.Add(_clearQueue, column: 1);
+            _editorHeader.Add(_deleteMode, row: 1);
+            Grid.SetColumnSpan(_deleteMode, 2);
+        }
+        _editorSideActions.IsVisible = wide;
+        _editorHeader.IsVisible = IsEditing && (!wide || _editorTitle.IsVisible);
+        UpdateQueueViewport();
+    }
+
     private void UpdateQueueViewport()
     {
-        double header = IsEditing ? Math.Max(44, _editorHeader.Height) + Math.Max(16, _editorHint.Height) + _queue.Spacing
+        double header = IsEditing
+            ? (_editorHeader.IsVisible ? Math.Max(_wideEditor ? 20 : 44, _editorHeader.Height) + _queue.Spacing : 0)
+                + Math.Max(16, _editorHint.Height)
             : Math.Max(0, _feedSelector.Height);
         double footer = IsEditing ? Math.Max(44, _editorDone.Height) + _queue.Spacing : 0;
         double available = Height > 0 ? Math.Max(0, Height - header - footer - _queue.Spacing) : ViewportHeight;
@@ -352,7 +410,8 @@ internal sealed partial class TrackQueueView : Grid
         _deletingTracks = false;
         UpdateEditorActions();
         _feedSelector.IsVisible = !editing;
-        _editorHeader.IsVisible = _editorHint.IsVisible = _editorDone.IsVisible = editing;
+        _editorHeader.IsVisible = editing && (!_wideEditor || _editorTitle.IsVisible);
+        _editorHint.IsVisible = _editorDone.IsVisible = editing;
         _current.IsVisible = !editing;
         Grid.SetColumn(_right, editing ? 0 : 1);
         Grid.SetColumnSpan(_right, editing ? 2 : 1);

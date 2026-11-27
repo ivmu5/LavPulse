@@ -102,7 +102,7 @@ public sealed partial class PlayerView : Grid
         var player = new Grid
         {
             HorizontalOptions = LayoutOptions.Center,
-            MaximumWidthRequest = 760,
+            MaximumWidthRequest = AdaptivePanelLayout.MaximumWidth,
             Padding = new Thickness(sidePadding, topPadding, sidePadding, 12),
             RowSpacing = 8,
             RowDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto)]
@@ -111,8 +111,26 @@ public sealed partial class PlayerView : Grid
         player.Add(deckScroll, row: 1);
         var transport = new VerticalStackLayout { Spacing = 5, Children = { Status, CreateTransport() } };
         player.Add(transport, row: 2);
+        void UpdatePlayerWidth()
+        {
+            if (_body.Width <= 0 || _body.Height <= 0) return;
+            if (_queue.IsEditing)
+            {
+                var layout = AdaptivePanelLayout.Measure(_body.Width, _body.Height);
+                player.Padding = new Thickness(AdaptivePanelLayout.Padding, topPadding, AdaptivePanelLayout.Padding, 12);
+                player.WidthRequest = layout.Width;
+                _queue.SetEditorLayout(layout);
+            }
+            else
+            {
+                player.Padding = new Thickness(sidePadding, topPadding, sidePadding, 12);
+                player.WidthRequest = Math.Min(760, _body.Width);
+                _queue.SetEditorLayout(default);
+            }
+        }
         _queue.EditingChanged += editing =>
         {
+            UpdatePlayerWidth();
             SectionTitleChanged?.Invoke();
             Grid.SetRowSpan(_queue, editing ? 3 : 1);
             _queue.ZIndex = editing ? 1 : 0;
@@ -134,7 +152,7 @@ public sealed partial class PlayerView : Grid
         {
             if (_body.Width > 0 && _body.Height > 0)
             {
-                player.WidthRequest = Math.Min(760, _body.Width);
+                UpdatePlayerWidth();
 #if IOS
                 bool shortPhone = MixerStyle.IsPhone && _body.Height < 430;
                 deckScroll.MaximumHeightRequest = _body.Height * (shortPhone ? .43 : .56);
