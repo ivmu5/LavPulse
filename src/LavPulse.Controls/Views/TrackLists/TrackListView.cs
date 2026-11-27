@@ -16,6 +16,12 @@ internal sealed class TrackListView<TItem, TRow> : ScrollView where TItem : clas
     private readonly Stack<TRow> _recycled = new();
     private readonly List<TItem> _leaving = [];
     private IReadOnlyList<TItem> _items = [];
+    private int[]? _hierarchyParents;
+    private readonly Dictionary<TItem, int> _stickySlots = new(ReferenceEqualityComparer.Instance);
+    private readonly int[] _pinnedIndexes = new int[TrackListLayout.MaximumPinnedParents];
+    private int _pinnedCount;
+
+    public bool IsPinned(TItem item) => _stickySlots.ContainsKey(item);
     private int _first = -1;
     private int _end = -1;
     private bool _refreshing;
@@ -64,8 +70,18 @@ internal sealed class TrackListView<TItem, TRow> : ScrollView where TItem : clas
         UpdateContentHeight();
     }
 
-    public void SetItems(IReadOnlyList<TItem> items, string? emptyText = null)
+    public void SetItems(IReadOnlyList<TItem> items, string? emptyText = null, int[]? hierarchyParents = null)
     {
+        if (hierarchyParents is not null && hierarchyParents.Length != items.Count)
+            throw new ArgumentException("Parent indexes must match the flattened list.", nameof(hierarchyParents));
+        if (_hierarchyParents is not null && hierarchyParents is null)
+        {
+            foreach (var item in _stickySlots.Keys)
+                if (_realized.TryGetValue(item, out var row)) ResetSticky(row);
+            _stickySlots.Clear();
+            _pinnedCount = 0;
+        }
+        _hierarchyParents = hierarchyParents;
         _items = items;
         if (_empty.Text != emptyText) _empty.Text = emptyText;
         bool showEmpty = items.Count == 0 && !string.IsNullOrEmpty(emptyText);
@@ -111,7 +127,7 @@ internal sealed class TrackListView<TItem, TRow> : ScrollView where TItem : clas
         double height = Height > 0 ? Height : Math.Max(TrackListLayout.RowHeight, HeightRequest);
         double scroll = Math.Clamp(ScrollY, 0, Math.Max(0, ContentHeight - height));
         var (first, end) = TrackListLayout.RealizedRange(_items.Count, scroll, height);
-        if (!force && first == _first && end == _end) return;
+        if (_hierarchyParents is null && !force && first == _first && end == _end) return;
         int previousFirst = _first;
         int previousEnd = _end;
         _first = first;
@@ -120,6 +136,19 @@ internal sealed class TrackListView<TItem, TRow> : ScrollView where TItem : clas
         _visible.Clear();
         for (int i = first; i < end; i++)
             _visible.Add(_items[i]);
+        if (_hierarchyParents is { } parents)
+        {
+            _stickySlots.Clear();
+            int capacity = Math.Clamp((int)((height - TrackListLayout.RowHeight) / TrackListLayout.Stride),
+                0, _pinnedIndexes.Length);
+            _pinnedCount = TrackListLayout.PinnedParents(parents, scroll, _pinnedIndexes.AsSpan(0, capacity));
+            for (int slot = 0; slot < _pinnedCount; slot++)
+            {
+                var item = _items[_pinnedIndexes[slot]];
+                _stickySlots.Add(item, slot);
+                _visible.Add(item);
+            }
+        }
         foreach (var (item, row) in _realized)
         {
             if (!_visible.Contains(item) && _keepAttached?.Invoke(item, row) != true)
@@ -130,28 +159,51 @@ internal sealed class TrackListView<TItem, TRow> : ScrollView where TItem : clas
             var row = _realized[item];
             _realized.Remove(item);
             _content.Children.Remove(row);
+            if (_hierarchyParents is not null) ResetSticky(row);
             _release(row);
             _recycled.Push(row);
         }
         _leaving.Clear();
 
         for (int i = first; i < end; i++)
+            RealizeRow(i, force || i < previousFirst || i >= previousEnd, scroll);
+        // Keep the actual row in the same layout, even outside the normal overscan.
+        for (int slot = 0; slot < _pinnedCount; slot++)
         {
-            var item = _items[i];
-            bool add = !_realized.TryGetValue(item, out var row);
-            if (add)
-            {
-                row = _recycled.TryPop(out var recycled) ? recycled : _create();
-                AbsoluteLayout.SetLayoutFlags(row, AbsoluteLayoutFlags.WidthProportional);
-                _realized.Add(item, row);
-            }
-
-            var bounds = new Rect(0, (double)i * TrackListLayout.Stride, 1, TrackListLayout.RowHeight);
-            if (AbsoluteLayout.GetLayoutBounds(row!) != bounds) AbsoluteLayout.SetLayoutBounds(row!, bounds);
-            // Rows shared by both ranges already represent these items. Keep full rebinding
-            // for model updates, including a dragged row returning from outside the range.
-            if (force || add || i < previousFirst || i >= previousEnd) _bind(row!, item, i);
-            if (add) _content.Children.Add(row!);
+            int index = _pinnedIndexes[slot];
+            if (index < first || index >= end) RealizeRow(index, force, scroll);
         }
+    }
+
+    private void RealizeRow(int index, bool rebind, double scroll)
+    {
+        var item = _items[index];
+        bool add = !_realized.TryGetValue(item, out var row);
+        if (add)
+        {
+            row = _recycled.TryPop(out var recycled) ? recycled : _create();
+            AbsoluteLayout.SetLayoutFlags(row, AbsoluteLayoutFlags.WidthProportional);
+            _realized.Add(item, row);
+        }
+        double naturalTop = (double)index * TrackListLayout.Stride;
+        var bounds = new Rect(0, naturalTop, 1, TrackListLayout.RowHeight);
+        if (AbsoluteLayout.GetLayoutBounds(row!) != bounds) AbsoluteLayout.SetLayoutBounds(row!, bounds);
+        if (rebind || add) _bind(row!, item, index);
+        if (add) _content.Children.Add(row!);
+        if (_hierarchyParents is not null)
+        {
+            if (_stickySlots.TryGetValue(item, out int slot))
+            {
+                row!.ZIndex = 100 + slot;
+                row.TranslationY = scroll + slot * TrackListLayout.Stride - naturalTop;
+            }
+            else ResetSticky(row!);
+        }
+    }
+
+    private static void ResetSticky(TRow row)
+    {
+        row.TranslationY = 0;
+        row.ZIndex = 0;
     }
 }

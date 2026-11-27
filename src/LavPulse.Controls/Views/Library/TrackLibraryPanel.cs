@@ -138,7 +138,6 @@ public sealed partial class TrackLibraryPanel : ContentView
             double previous = _scrollOffset;
             if (args.ScrollY != previous) DismissDeleteAction();
             _scrollOffset = Math.Max(0, args.ScrollY);
-            RefreshPinnedParents();
             if (!_busy && _scrollOffset < previous && _tree.EndPadding > 0)
                 KeepScrollOffset(_rows.Count);
         };
@@ -163,14 +162,7 @@ public sealed partial class TrackLibraryPanel : ContentView
         layout.Add(header);
         layout.Add(actions, row: 1);
         layout.Add(_scanActions, row: 2);
-        var treeHost = new Grid
-        {
-            RowDefinitions = [new(GridLength.Auto), new(GridLength.Star)],
-            RowSpacing = 4
-        };
-        treeHost.Add(CreatePinnedParents());
-        treeHost.Add(_tree, row: 1);
-        layout.Add(new Grid { Children = { treeHost, _scanPanel } }, row: 3);
+        layout.Add(new Grid { Children = { _tree, _scanPanel } }, row: 3);
         layout.Add(footer, row: 4);
         var host = new Grid { Children = { layout } };
         host.SizeChanged += (_, _) =>
@@ -217,8 +209,6 @@ public sealed partial class TrackLibraryPanel : ContentView
         ResetEditing();
         ClearScanRows();
         _tree.SetItems([]);
-        _parents = [];
-        RefreshPinnedParents();
         _session.Dispose();
     }
 
@@ -327,7 +317,6 @@ public sealed partial class TrackLibraryPanel : ContentView
         _back.Text = _editing ? "Готово" : "Назад";
         _back.IsEnabled = !_busy;
         _back.IsVisible = _scanBatch is null;
-        RefreshPinnedParents();
         _bulk.IsVisible = _editing;
         _bulk.IsEnabled = !_busy && _checkedRows.Count > 0;
         _bulk.Text = $"Действия ({_checkedRows.Count})";

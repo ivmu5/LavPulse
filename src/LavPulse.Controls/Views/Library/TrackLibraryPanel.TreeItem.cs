@@ -30,7 +30,6 @@ public sealed partial class TrackLibraryPanel
         };
         private readonly Label _size = TrackLabel(MixerStyle.PhoneFont(11, 10), MixerColor.Muted);
         private readonly HorizontalStackLayout _folder;
-        private readonly ImageButton _add = MixerStyle.IconButton("player_queue_add.png", 36);
         private readonly ImageButton _import = MixerStyle.IconButton("player_import.png", 36);
         private TreeRow? _row;
         private CancellationTokenSource? _preview;
@@ -84,10 +83,6 @@ public sealed partial class TrackLibraryPanel
                 });
                 return;
             }
-            _add.Clicked += async (_, _) =>
-            {
-                if (_row is { } row) await _panel.ImportItemAsync(row, addToQueue: true);
-            };
             _import.Clicked += async (_, _) =>
             {
                 if (_row is { } row) await _panel.ImportItemAsync(row, addToQueue: false);
@@ -107,7 +102,7 @@ public sealed partial class TrackLibraryPanel
             {
                 Spacing = 4,
                 VerticalOptions = LayoutOptions.Center,
-                Children = { status, _add, _import }
+                Children = { status, _import }
             });
             EnableDelete();
             DeleteRequested += async () =>
@@ -205,17 +200,12 @@ public sealed partial class TrackLibraryPanel
             _title.Opacity = _details.Opacity = unscanned ? .56 : 1;
             CoverOpacity = unscanned ? .56 : 1;
             SetDeleteEnabled(!_panel._busy);
-            _import.IsVisible = !_panel._local;
-            _add.IsEnabled = _import.IsEnabled = !_panel._busy && !_panel._editing;
-            _add.IsVisible = !_panel._editing;
+            _import.IsEnabled = !_panel._busy && !_panel._editing;
             _import.IsVisible = !_panel._local && !_panel._editing;
             bool folder = row.File is null;
-            string add = folder ? "Добавить папку в очередь" : "Добавить трек в очередь";
             DescribeDelete(folder ? "Убрать папку и её треки из медиатеки" : "Убрать трек из медиатеки");
             string import = folder ? "Импортировать папку в медиатеку" : "Импортировать трек в медиатеку";
-            SemanticProperties.SetDescription(_add, add);
             SemanticProperties.SetDescription(_import, import);
-            ToolTipProperties.SetText(_add, add);
             ToolTipProperties.SetText(_import, import);
         }
 
