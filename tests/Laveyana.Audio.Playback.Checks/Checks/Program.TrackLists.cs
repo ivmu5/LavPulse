@@ -119,6 +119,23 @@ internal static partial class Program
 
     private static void CheckAdaptivePanelLayout()
     {
+        Require(AdaptivePanelLayout.UseSplitPlayer(740, 360) &&
+            !AdaptivePanelLayout.UseSplitPlayer(390, 780) &&
+            !AdaptivePanelLayout.UseSplitPlayer(600, 360) &&
+            !AdaptivePanelLayout.UseSplitPlayer(1000, 700) &&
+            AdaptivePanelLayout.UseSingleRowTransport(600) &&
+            !AdaptivePanelLayout.UseSingleRowTransport(599),
+            "Responsive player modes did not follow the available viewport.");
+        Require(AdaptivePanelLayout.EqualizerColumns(320, 11) == 4 &&
+            AdaptivePanelLayout.EqualizerColumns(480, 11) == 6 &&
+            AdaptivePanelLayout.EqualizerColumns(704, 11) == 11,
+            "Equalizer column balancing did not fit the fader widths.");
+        for (int width = 64; width < 1200; width++)
+        {
+            int columns = AdaptivePanelLayout.EqualizerColumns(width, 11);
+            Require(columns is >= 1 and <= 11 && columns * 64 - 4 <= width,
+                "Equalizer faders overflowed the available width.");
+        }
         Require(IconContrast.DarkIcon(1, "player_next.png") &&
             !IconContrast.DarkIcon(0, "player_next.png") &&
             IconContrast.DarkIcon(1, "player_delete.png") &&

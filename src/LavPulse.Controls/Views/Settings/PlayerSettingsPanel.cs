@@ -141,6 +141,10 @@ public sealed partial class PlayerSettingsPanel : ContentView
         {
             var size = AdaptivePanelLayout.Measure(host.Width, host.Height);
             if (size.Width <= 0) return;
+            bool shortWindow = AdaptivePanelLayout.IsShortLandscape(host.Width, host.Height);
+            _settingsLayout.Padding = new Thickness(AdaptivePanelLayout.Padding,
+                shortWindow ? Math.Max(4, topInset - 8) : topInset, AdaptivePanelLayout.Padding, shortWindow ? 6 : 16);
+            _settingsLayout.RowSpacing = shortWindow ? 5 : 12;
             _settingsLayout.WidthRequest = size.Width;
             _settingsLayout.ColumnDefinitions[0].Width = new GridLength(size.LeftColumnWidth(navigation: true));
             _settingsLayout.ColumnDefinitions[2].Width = new GridLength(size.RightColumnWidth(navigation: true));
@@ -290,8 +294,6 @@ public sealed partial class PlayerSettingsPanel : ContentView
         pair.Add(second, row: 1);
         Grid.SetColumnSpan(first, 2);
         Grid.SetColumnSpan(second, 2);
-        if (MixerStyle.IsPhone) return pair;
-
         bool wide = false;
         pair.SizeChanged += (_, _) =>
         {

@@ -190,7 +190,12 @@ public sealed partial class PlayerView
             if (card.WidthRequest != width) card.WidthRequest = width;
             double maximumHeight = overlay.Height - 32;
             if (card.MaximumHeightRequest != maximumHeight) card.MaximumHeightRequest = maximumHeight;
-            double bodyHeight = Math.Max(24, overlay.Height - (compact && anchored ? 84 : 160));
+            // Reserve actual header/footer sizes, including wrapped titles
+            // and large text, instead of allowing the footer to be clipped.
+            double fixedHeight = Math.Max(heading.Height, compact ? 22 : 28) +
+                (showFooter ? Math.Max(44, layout.Children.OfType<Grid>().LastOrDefault()?.Height ?? 0) : 0) +
+                card.Padding.VerticalThickness + layout.RowSpacing * (showFooter ? 2 : 1) + 4;
+            double bodyHeight = Math.Max(24, maximumHeight - fixedHeight);
             if (scroll.MaximumHeightRequest != bodyHeight) scroll.MaximumHeightRequest = bodyHeight;
             if (!anchored || card.Width <= 0 || card.Height <= 0) return;
             var point = dropdown ? new Point(dropdownAnchor!.Value.X, dropdownAnchor.Value.Bottom) : anchor!.Value;
