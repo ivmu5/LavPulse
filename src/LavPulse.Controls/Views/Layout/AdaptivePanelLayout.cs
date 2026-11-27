@@ -40,6 +40,11 @@ internal readonly record struct AdaptivePanelLayout(double Width, double SideWid
 
     public static bool UseSingleRowTransport(double width) => width >= 600;
 
+    // Reserve the majority of a landscape viewport for the central waves
+    // and queue, not the artwork rail.
+    public static double PlaybackCoverWidth(double width) =>
+        double.IsFinite(width) && width > 0 ? Math.Clamp(width * .22, 116, 220) : 116;
+
     // Spread faders over a balanced number of rows, rather than leaving
     // only the output control in a third row on a five-column grid.
     public static int EqualizerColumns(double width, int count)

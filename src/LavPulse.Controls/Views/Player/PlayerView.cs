@@ -105,14 +105,12 @@ public sealed partial class PlayerView : Grid
             MaximumWidthRequest = AdaptivePanelLayout.MaximumWidth,
             Padding = new Thickness(sidePadding, topPadding, sidePadding, 12),
             RowSpacing = 8,
-            ColumnDefinitions = [new(GridLength.Star), new(0)],
             RowDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto)]
         };
         player.Add(_queue);
         player.Add(deckScroll, row: 1);
         var transport = new VerticalStackLayout { Spacing = 5, Children = { Status, CreateTransport() } };
         player.Add(transport, row: 2);
-        Grid.SetColumnSpan(transport, 2);
         bool split = false;
         void UpdatePlayerWidth()
         {
@@ -124,16 +122,22 @@ public sealed partial class PlayerView : Grid
             if (split != nextSplit)
             {
                 split = nextSplit;
-                player.ColumnDefinitions[0].Width = split ? new GridLength(1.1, GridUnitType.Star) : GridLength.Star;
-                player.ColumnDefinitions[1].Width = split ? GridLength.Star : new GridLength(0);
-                player.ColumnSpacing = split ? 12 : 0;
+                // Move the existing deck container; waveforms and playback
+                // state are never recreated on orientation changes.
+                if (split)
+                {
+                    player.Children.Remove(deckScroll);
+                    _queue.SetCenterDeck(deckScroll);
+                }
+                else
+                {
+                    _queue.SetCenterDeck(null);
+                    player.Add(deckScroll, row: 1);
+                }
                 player.RowDefinitions[1].Height = split ? new GridLength(0) : GridLength.Auto;
-                Grid.SetColumn(deckScroll, split ? 1 : 0);
-                Grid.SetRow(deckScroll, split ? 0 : 1);
             }
             player.RowSpacing = shortWindow ? 4 : 8;
-            Grid.SetColumnSpan(_queue, _queue.IsEditing ? 2 : 1);
-            if (_queue.IsEditing)
+             if (_queue.IsEditing)
             {
                 var layout = AdaptivePanelLayout.Measure(_body.Width, _body.Height);
                 player.Padding = new Thickness(AdaptivePanelLayout.Padding, inset, AdaptivePanelLayout.Padding, bottom);

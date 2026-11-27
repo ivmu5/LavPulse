@@ -4,6 +4,8 @@ namespace Laveyana.LavPulse.Controls;
 internal static class PlayerMotion
 {
     public const double OverlayOpenSeconds = .12;
+    public const int TrackHandoffMilliseconds = 280;
+    public const double TrackHandoffSeconds = TrackHandoffMilliseconds / 1000d;
 
     public static double SwipeTint(double distance, double secondThreshold) =>
         secondThreshold > 0 ? Ease(distance / secondThreshold) : 0;

@@ -119,7 +119,9 @@ public sealed partial class PlayerView
             (CurrentDeck, IncomingDeck) = (IncomingDeck, CurrentDeck);
             IncomingDeck.FreezeForExit();
             _leavingDeck = IncomingDeck;
-            _deckExit = new(IncomingDeck, -SlideDistance, 0, .98, .42);
+            // Shrink the outgoing slot while the surviving deck rises into
+            // its final position. Avoid a full-window horizontal translation.
+            _deckExit = new(IncomingDeck, -12, 0, .98, PlayerMotion.TrackHandoffSeconds, collapse: true);
             SyncUiFrames();
         }
 
@@ -158,7 +160,7 @@ public sealed partial class PlayerView
         bool firstFrame = !ReferenceEquals(entering.DisplayedTrack, track.Track);
         if (firstFrame)
         {
-            entering.TranslationX = SlideDistance;
+            entering.TranslationY = 16;
             entering.Opacity = 0;
             entering.Scale = .98;
         }
@@ -167,30 +169,30 @@ public sealed partial class PlayerView
         {
             if (_deckEntrance is { } previousEntrance && !ReferenceEquals(previousEntrance.Deck, entering))
             {
-                previousEntrance.Deck.TranslationX = 0;
+                previousEntrance.Deck.TranslationY = 0;
                 previousEntrance.Deck.Opacity = previousEntrance.Deck.Scale = 1;
             }
-            _deckEntrance = new(entering, 0, 1, 1, .46);
+            _deckEntrance = new(entering, 0, 1, 1, PlayerMotion.TrackHandoffSeconds);
             SyncUiFrames();
         }
     }
 
-    private double SlideDistance => Math.Max(280, Window?.Width ?? _body.Width);
-
-    private void CompleteDeckExit(DeckView deck)
+     private void CompleteDeckExit(DeckView deck)
     {
         _deckExit = null;
         _leavingDeck = null;
         deck.Show(null, false, showOverview: false);
-        deck.TranslationX = 0;
+        deck.TranslationX = deck.TranslationY = 0;
+        deck.HeightRequest = -1;
         deck.Opacity = deck.Scale = 1;
         _decks.Children.Remove(deck);
         _decks.Children.Add(deck);
     }
 
-    private sealed class DeckSlide(DeckView deck, double to, double toOpacity, double toScale, double duration)
+    private sealed class DeckSlide(DeckView deck, double to, double toOpacity, double toScale, double duration, bool collapse = false)
     {
-        private readonly double _from = deck.TranslationX;
+        private readonly double _from = deck.TranslationY;
+        private readonly double _height = Math.Max(0, deck.Height);
         private readonly double _fromOpacity = deck.Opacity;
         private readonly double _fromScale = deck.Scale;
         private double? _start;
@@ -201,7 +203,9 @@ public sealed partial class PlayerView
             _start ??= time;
             double progress = Math.Clamp((time - _start.Value) / duration, 0, 1);
             double eased = PlayerMotion.Ease(progress);
-            Deck.TranslationX = _from + (to - _from) * eased;
+            Deck.TranslationY = _from + (to - _from) * eased;
+            if (collapse && _height > 0)
+                Deck.HeightRequest = Math.Max(0, _height * (1 - eased));
             Deck.Opacity = _fromOpacity + (toOpacity - _fromOpacity) * eased;
             Deck.Scale = _fromScale + (toScale - _fromScale) * eased;
             return progress >= 1;
@@ -236,6 +240,8 @@ public sealed partial class PlayerView
         IncomingDeck.CancelOverviewAnimation();
         _deckEntrance = null;
         CurrentDeck.TranslationX = IncomingDeck.TranslationX = 0;
+        CurrentDeck.TranslationY = IncomingDeck.TranslationY = 0;
+        CurrentDeck.HeightRequest = IncomingDeck.HeightRequest = -1;
         CurrentDeck.Opacity = IncomingDeck.Opacity = 1;
         CurrentDeck.Scale = IncomingDeck.Scale = 1;
     }

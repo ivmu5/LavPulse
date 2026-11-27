@@ -109,135 +109,113 @@ internal sealed partial class TrackQueueView
         public TaskCompletionSource<bool> Done { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
-    /// <summary>Updates the stable left-side cover outside of a handoff.</summary>
     private bool _playingCards;
-    public void ShowCurrent(CachedTrack? track) => _current.Show(track,
-        track is not null && _playingCards ? "Воспроизводится" : "");
+    private CachedTrack? _preparedCover;
+
+    public void ShowCurrent(CachedTrack? track)
+    {
+        // Direct skips use the same local handoff as completed mixes.
+        _ = ChangeCoverAsync(track, null);
+    }
 
     internal void SetPlaybackState(bool playing)
     {
-        if(_playingCards==playing)return;
-        _playingCards=playing;
-        _current.SetState(playing ? _incoming.IsVisible ? "Воспроизводится · завершение" : "Воспроизводится" : "");
-        if(_incoming.IsVisible)_incoming.SetState(playing ? "Воспроизводится · начало" : "Пауза");
+        if (_playingCards == playing) return;
+        _playingCards = playing;
+        UpdateCoverState();
     }
 
-    /// <summary>Expands the selected row into the full incoming card over the queue.</summary>
-    public async Task BeginMixAsync(CachedTrack track, TrackFile? file)
+    private void UpdateCoverState() => _current.SetState(_playingCards
+        ? _preparedCover is not null ? "Сведение" : "Воспроизводится" : "");
+
+    /// <summary>Prepares the next artwork without hiding or moving the queue.</summary>
+    public Task BeginMixAsync(CachedTrack track, TrackFile? file)
     {
-        if (IsEditing || !PlayerQueueIdle) return;
-        var row = file is null ? null : _queueScroll.FindRow(file);
-        double originY = row is null ? 0 : Math.Clamp(_queueScroll.Y + (double)row.Index * RowStride - _queueScroll.ScrollY, 0, Math.Max(0, _right.Height - 44));
-        double rowHeight = Math.Max(44, row?.Height ?? 0);
         ShowIncoming(track);
-        // ShowIncoming establishes the stable final layout. Without a display
-        // clock, never overwrite it with an entrance pose that cannot advance.
-        if (!IsLoaded || !_rowAnimationsEnabled) return;
-        _incoming.TranslationY = originY;
-        _incoming.ScaleX = .96;
-        _incoming.ScaleY = Math.Clamp(rowHeight / Math.Max(1, _right.Height), .15, 1);
-        double startingScale = _incoming.ScaleY;
-        if (IsLoaded && _rowAnimationsEnabled) _queue.Opacity = 1;
-        bool completed = await AnimateAsync(420, progress =>
-        {
-            double eased = PlayerMotion.Ease(progress);
-            _incoming.TranslationY = originY * (1 - eased);
-            _incoming.ScaleX = .96 + .04 * eased;
-            _incoming.ScaleY = startingScale + (1 - startingScale) * eased;
-            _queue.Opacity = 1 - PlayerMotion.Ease(Math.Min(1, progress / .75));
-        });
-        if (completed) _queue.Opacity = 0;
+        return Task.CompletedTask;
     }
 
-    /// <summary>Shows the incoming card at rest, including when the app returns during a mix.</summary>
     public void ShowIncoming(CachedTrack track)
     {
-        if (IsEditing || !PlayerQueueIdle) return;
-        DismissDeleteAction();
-        _animation++;
-        CancelTransition();
-        _queue.InputTransparent = true;
-        _queue.Opacity = 0;
-        _current.SetState("Воспроизводится · завершение");
-        _incoming.Show(track, "Воспроизводится · начало");
-        EndDrag();
-        _incoming.TranslationX = _incoming.TranslationY = 0;
-        _incoming.ScaleX = _incoming.ScaleY = 1;
-        _incoming.AnchorY = 0;
-        _incoming.Opacity = 1;
-        _incoming.IsVisible = true;
-        SyncRowClock();
+        if (IsEditing || ReferenceEquals(_preparedCover, track)) return;
+        ResetCoverTransition();
+        _preparedCover = track;
+        _incoming.Show(track);
+        UpdateCoverState();
     }
 
-    /// <summary>Replaces the outgoing cover, then brings the next list in from the right edge.</summary>
-    public async Task FinishMixAsync(CachedTrack track, Action refreshQueue)
+    public Task FinishMixAsync(CachedTrack track, Action refreshQueue) =>
+        ChangeCoverAsync(track, refreshQueue);
+
+    private async Task ChangeCoverAsync(CachedTrack? track, Action? refreshQueue)
     {
-        if (IsEditing || !_incoming.IsVisible || !IsLoaded || !_rowAnimationsEnabled)
+        if (ReferenceEquals(_current.Displayed, track))
         {
-            if (_incoming.IsVisible && !IsEditing)
-            {
-                _animation++;
-                CancelTransition();
-                _handoff = false;
-                _incoming.IsVisible = false;
-                _incoming.TranslationX = _incoming.TranslationY = 0;
-                _incoming.ScaleX = _incoming.ScaleY = 1;
-                _current.Scale = _current.Opacity = 1;
-                _queue.TranslationX = 0;
-                _queue.Opacity = 1;
-                _queue.InputTransparent = false;
-                SyncRowClock();
-            }
-            ShowCurrent(track);
-            refreshQueue();
+            refreshQueue?.Invoke();
             return;
         }
-        int animation = ++_animation;
-        _handoff = true;
-        _incoming.Show(track,_playingCards ? "Воспроизводится" : "");
-        _incoming.ScaleX = _incoming.ScaleY = 1;
-        _incoming.TranslationY = 0;
+        bool animate = track is not null && _current.Displayed is not null &&
+            !IsEditing && IsLoaded && _rowAnimationsEnabled && _coverHost.Width > 0;
+        ResetCoverTransition();
+        _preparedCover = null;
+        if (!animate)
+        {
+            _current.Show(track);
+            UpdateCoverState();
+            refreshQueue?.Invoke();
+            return;
+        }
+
+        // Both cards are in the same clipped artwork rail and share geometry.
+        // Swap ownership at the start, so cancellation always keeps the latest
+        // track. No artwork travels across the decks or covers the queue.
+        (_current, _incoming) = (_incoming, _current);
+        _current.Show(track);
+        UpdateCoverState();
+        _current.ZIndex = 1;
+        _incoming.ZIndex = 0;
+        _current.Opacity = 0;
+        _current.TranslationX = 12;
+        _current.Scale = .98;
+        _current.IsVisible = true;
         _incoming.IsVisible = true;
-        _queue.Opacity = 0;
-        // The right-aligned artwork has its own inset within the second column.
-        double offset = -(_right.X - _current.X + Math.Max(0, _right.Width - _incoming.CoverWidth));
-        bool completed = await AnimateAsync(460, progress =>
+        _handoff = true;
+        int generation = _animation;
+        refreshQueue?.Invoke();
+
+        bool completed = await AnimateAsync(PlayerMotion.TrackHandoffMilliseconds, progress =>
         {
             double eased = PlayerMotion.Ease(progress);
-            _current.Scale = 1 - .08 * eased;
-            _current.Opacity = 1 - eased;
-            _incoming.TranslationX = offset * eased;
+            _incoming.Opacity = 1 - eased;
+            _incoming.TranslationX = -12 * eased;
+            _current.Opacity = eased;
+            _current.TranslationX = 12 * (1 - eased);
+            _current.Scale = .98 + .02 * eased;
         });
-        if (!completed || animation != _animation)
+        if (completed && generation == _animation)
         {
-            return;
-        }
-
-        ShowCurrent(track);
-        _current.Scale = _current.Opacity = 1;
-        _current.TranslationX = _current.TranslationY = 0;
-        _incoming.IsVisible = false;
-        _incoming.TranslationX = 0;
-        refreshQueue();
-
-        // The parent page clips the content beyond the device's right edge.
-        double entrance = Math.Max(0, (Window?.Width ?? Width) - _right.X);
-        _queue.TranslationX = entrance;
-        _queue.Opacity = .2;
-        PositionQueue();
-        SyncRowClock();
-        completed = await AnimateAsync(460, progress =>
-        {
-            double eased = PlayerMotion.Ease(progress);
-            _queue.TranslationX = entrance * (1 - eased);
-            _queue.Opacity = .2 + .8 * eased;
-        });
-        if (completed && animation == _animation)
-        {
-            _queue.InputTransparent = false;
-            _handoff = false;
+            ResetCoverTransition();
             ScheduleQueuePosition();
         }
+    }
+
+    private void ResetCoverTransition()
+    {
+        _animation++;
+        CancelTransition();
+        _handoff = false;
+        _preparedCover = null;
+        _current.IsVisible = true;
+        _incoming.IsVisible = false;
+        _current.Opacity = _incoming.Opacity = 1;
+        _current.Scale = _incoming.Scale = 1;
+        _current.TranslationX = _incoming.TranslationX = 0;
+        _current.TranslationY = _incoming.TranslationY = 0;
+        _queue.Opacity = 1;
+        _queue.TranslationX = 0;
+        _queue.InputTransparent = false;
+        UpdateCoverState();
+        SyncRowClock();
     }
 
     /// <summary>Clears running animations while the window is hidden or closing.</summary>
@@ -248,15 +226,8 @@ internal sealed partial class TrackQueueView
         DismissDeleteAction();
         EndDrag();
         ExitDeleteMode();
-        CancelTransition();
+        ResetCoverTransition();
         RequestFrames(false);
-        _animation++;
-        _current.Scale = _current.Opacity = 1;
-        _incoming.IsVisible = false;
-        _queue.Opacity = 1;
-        _queue.TranslationX = 0;
-        _queue.InputTransparent = false;
-        _handoff = false;
     }
 
     public void ResumeAnimations()

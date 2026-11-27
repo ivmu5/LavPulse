@@ -9,8 +9,10 @@ internal sealed partial class TrackQueueView : Grid
     private const int RowStride = TrackListLayout.Stride;
     private const int ViewportHeight = 236;
     private const int CoverInfoGap = 8;
-    private readonly TrackCard _current = new(TextAlignment.Start, showAudioInfo: true);
-    private readonly TrackCard _incoming = new(TextAlignment.End);
+    private TrackCard _current = new(TextAlignment.Start, showAudioInfo: true);
+    private TrackCard _incoming = new(TextAlignment.Start, showAudioInfo: true);
+    private readonly Grid _coverHost = new() { IsClippedToBounds = true };
+    private View? _centerDeck;
     private readonly VerticalStackLayout _queue;
     private readonly View _feedSelector;
     private readonly Grid _right;
@@ -52,7 +54,7 @@ internal sealed partial class TrackQueueView : Grid
 
     public TrackQueueView()
     {
-        ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)];
+        ColumnDefinitions = [new(GridLength.Star), new(0), new(GridLength.Star)];
         ColumnSpacing = MixerStyle.IsPhone ? 12 : 16;
         IsClippedToBounds = true;
         _queueScroll = new TrackListView<TrackFile, QueueTrackRow>(CreateRow, BindRow, ReleaseRow,
@@ -149,34 +151,66 @@ internal sealed partial class TrackQueueView : Grid
             RowSpacing = 0
         };
         _right.Add(_queue, 1, 0);
-        _right.Add(_incoming, 1, 0);
-        _right.Add(_editorDone, 1, 1);
+         _right.Add(_editorDone, 1, 1);
         _right.Add(_editorSideActions, 2, 0);
         _editorDone.SizeChanged += (_, _) => UpdateQueueViewport();
         _incoming.IsVisible = false;
-        this.Add(_current);
-        this.Add(_right, 1);
+        _coverHost.Children.Add(_current);
+        _coverHost.Children.Add(_incoming);
+        this.Add(_coverHost);
+        this.Add(_right, 2);
         SizeChanged += (_, _) =>
         {
+            UpdatePlaybackColumns();
             UpdateQueueViewport();
-            if (IsEditing) return;
-            // The feed may be narrower than half a phone screen in a split
-            // landscape player. Keep its full accessible names as tooltips.
-            bool iconOnly = Width / 2 < 205;
+        };
+        _right.SizeChanged += (_, _) =>
+        {
+            if (IsEditing || _right.Width <= 0) return;
+            bool iconOnly = _right.Width < 205;
             _queueTab.Text = iconOnly ? "" : "Очередь";
             _recommendationsTab.Text = iconOnly ? "" : "Рекомендации";
-            double columnWidth = Math.Max(0, (Width - ColumnSpacing) / 2);
-            if (columnWidth <= 0 || Height <= 0) return;
-
-            double preferred = Math.Clamp(Width * .29, 116, 202) * 1.1;
-            double infoWidth = Math.Min(columnWidth * .48, MixerStyle.PhoneFont(94, 70));
-            double side = Math.Max(1, Math.Min(preferred, Math.Min(columnWidth - infoWidth - CoverInfoGap, Height - 52)));
-            _current.ResizeCover(side, columnWidth);
-            _incoming.ResizeCover(side, columnWidth);
         };
+        _coverHost.SizeChanged += (_, _) => ResizePlaybackCovers();
     }
 
-    /// <summary>Uses the shared panel rails only while editing, leaving playback geometry unchanged.</summary>
+    internal void SetCenterDeck(View? deck)
+    {
+        if (ReferenceEquals(_centerDeck, deck)) return;
+        if (_centerDeck is not null) Children.Remove(_centerDeck);
+        _centerDeck = deck;
+        if (deck is not null) this.Add(deck, 1);
+        UpdatePlaybackColumns();
+    }
+
+    private void UpdatePlaybackColumns()
+    {
+        if (IsEditing) return;
+        bool split = _centerDeck is not null;
+        ColumnSpacing = split ? 10 : 0;
+        double cover = split ? AdaptivePanelLayout.PlaybackCoverWidth(Width) : 0;
+        ColumnDefinitions[0].Width = split ? new GridLength(cover) : GridLength.Star;
+        ColumnDefinitions[1].Width = split ? new GridLength(1.35, GridUnitType.Star) : new GridLength(0);
+        ColumnDefinitions[2].Width = GridLength.Star;
+        // With a collapsed middle column, add only one real gutter.
+        _right.Margin = split ? new Thickness(0) : new Thickness(MixerStyle.IsPhone ? 12 : 16, 0, 0, 0);
+        ResizePlaybackCovers();
+    }
+
+    private void ResizePlaybackCovers()
+    {
+        if (IsEditing || _coverHost.Width <= 0 || _coverHost.Height <= 0) return;
+        double width = _coverHost.Width;
+        bool compact = _centerDeck is not null;
+        double infoWidth = compact ? 0 : Math.Min(width * .48, MixerStyle.PhoneFont(94, 70));
+        double preferred = compact ? Math.Min(202, width) : Math.Clamp(Width * .29, 116, 202) * 1.1;
+        double side = Math.Max(1, Math.Min(preferred,
+            Math.Min(width - infoWidth - (compact ? 0 : CoverInfoGap), _coverHost.Height - (compact ? 64 : 52))));
+        _current.ResizeCover(side, width, compact);
+        _incoming.ResizeCover(side, width, compact);
+    }
+
+    /// <summary>Uses the shared panel rails only while editing.</summary>
     internal void SetEditorLayout(AdaptivePanelLayout layout, bool shortWindow = false)
     {
         bool wide = IsEditing && layout.IsWide;
@@ -457,9 +491,12 @@ internal sealed partial class TrackQueueView : Grid
         _feedSelector.IsVisible = !editing;
         _editorHeader.IsVisible = editing;
         _editorHint.IsVisible = _editorDone.IsVisible = editing;
-        _current.IsVisible = !editing;
-        Grid.SetColumn(_right, editing ? 0 : 1);
-        Grid.SetColumnSpan(_right, editing ? 2 : 1);
+        if (editing) ResetCoverTransition();
+        _coverHost.IsVisible = !editing;
+        Grid.SetColumn(_right, editing ? 0 : 2);
+        Grid.SetColumnSpan(_right, editing ? 3 : 1);
+        if (editing) _right.Margin = new Thickness(0);
+        else UpdatePlaybackColumns();
         EditingChanged?.Invoke(editing);
         UpdateQueueViewport();
         _queueScroll.Refresh(force: true);

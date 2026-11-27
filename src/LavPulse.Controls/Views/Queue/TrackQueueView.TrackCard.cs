@@ -16,6 +16,7 @@ internal sealed partial class TrackQueueView
         private readonly Grid _coverRow;
         private readonly VerticalStackLayout _details;
         private CachedTrack? _displayed;
+        private bool _compact;
         private PlayerColors _palette = MixerTheme.Default.Artwork;
 
         public TrackCard(TextAlignment align, bool showAudioInfo = false)
@@ -86,7 +87,8 @@ internal sealed partial class TrackQueueView
                 if (_audioInfo is { } details)
                 {
                     details.Text = track?.AudioInfo is { } audio ? FormatAudioInfo(audio) : "";
-                    details.IsVisible = track?.AudioInfo is not null;
+                    details.IsVisible = !_compact && track?.AudioInfo is not null;
+                    SemanticProperties.SetDescription(_cover, details.Text);
                 }
             }
             _title.Text = track?.Title ?? "Трек не выбран";
@@ -117,10 +119,21 @@ internal sealed partial class TrackQueueView
         }
 
         /// <summary>Fits the artwork and leaves the full column width for the title and artist.</summary>
-        public void ResizeCover(double side, double columnWidth)
+        public CachedTrack? Displayed => _displayed;
+
+        public void ResizeCover(double side, double columnWidth, bool compact)
         {
+            _compact = compact;
             _cover.WidthRequest = _cover.HeightRequest = side;
             _coverRow.WidthRequest = _details.WidthRequest = columnWidth;
+            if (_audioInfo is not null)
+            {
+                // In the narrow artwork rail, the cover takes precedence.
+                // Keep the metadata accessible without squeezing it alongside.
+                _audioInfo.IsVisible = !compact && _displayed?.AudioInfo is not null;
+                _coverRow.ColumnDefinitions[1].Width = compact ? new GridLength(0) : GridLength.Star;
+                SemanticProperties.SetDescription(_cover, _displayed?.AudioInfo is { } info ? FormatAudioInfo(info) : "Обложка");
+            }
         }
 
         public double CoverWidth => _cover.Width > 0 ? _cover.Width : _cover.WidthRequest;
