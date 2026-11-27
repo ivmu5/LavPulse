@@ -68,6 +68,7 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         int framesInRhythmHop = 0;
         Vector4 rhythmSum = Vector4.Zero;
         var rhythmEnergy = new List<RhythmEnergy>();
+        var spectralFlux = new RhythmSpectralFlux();
         long totalFrames = 0;
         var key = pipeline is null ? new MusicalKeyAnalyzer(source.SampleRate) : null;
         var loudness = pipeline is null && source.SampleRate == PlaybackFormat.SampleRate
@@ -91,6 +92,7 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
             // nonfinite sample from poisoning both recursive band filters.
             var block = pcm.AsSpan(0, frames * channels);
             PcmNormalization.Copy(block,block);
+            spectralFlux.Add(block, token);
             loudness?.Add(block);
             if (pipeline is null) key!.Add(block, token);
             else pipeline.Submit(block);
@@ -153,6 +155,8 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         double readMs = watch.Elapsed.TotalMilliseconds;
         var waveform = new TrackWaveform(points.AsReadOnly(), totalFrames, framesPerPoint);
         var rhythm = TrackRhythmAnalyzer.AnalyzeEnergy(rhythmEnergy, rhythmHopFrames, totalFrames, token, trace);
+        if (trace is not null) trace.SpectralFlux = spectralFlux.Frames;
+        rhythm = rhythm with { RhythmHypotheses = RhythmHypothesisAnalyzer.Analyze(spectralFlux.Frames, rhythm, totalFrames, token) };
         double rhythmMs = watch.Elapsed.TotalMilliseconds - readMs;
         var musicalKey = pipeline is null ? key!.Finish() : pipeline.Join();
         var localKeys = pipeline is null ? key!.FinishLocal() : pipeline.LocalKeys;

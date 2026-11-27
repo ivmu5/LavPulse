@@ -28,6 +28,15 @@ public readonly record struct TrackOnsetDiagnostic(long Frame, float Strength, f
 public readonly record struct TrackBeatEstimate(long Frame, float Confidence, int CorrectionFrames,
     bool MatchedOnset, bool EnergyBreak, bool Confirmed);
 
+/// <summary>Unconfirmed local spectral pulse hypothesis, independent of the playback grid.
+///</summary>
+public sealed record TrackRhythmHypothesis(long StartFrame, long EndFrame, double Bpm, double ReferenceBpm,
+    float TempoConfidence, float PhaseConfidence, float Stability, float Coverage, float Score, long[] CandidateFrames)
+{
+    /// <summary>Highest relative spectral score in this local block, not a verified beat.</summary>
+    public bool IsPreferred { get; init; }
+}
+
 /// <summary>Estimated tempo, measured attacks and a variable-tempo sequence of beat positions.</summary>
 /// <remarks>Beats are estimated musical pulses, not verified bar downbeats or phrase boundaries.</remarks>
 public sealed record TrackBeatGrid(double Bpm, long FirstBeatFrame, float Confidence, long[] TransientFrames)
@@ -39,6 +48,8 @@ public sealed record TrackBeatGrid(double Bpm, long FirstBeatFrame, float Confid
     /// <summary>Evidence for individual predictions, including rejected regions.</summary>
     public TrackBeatEstimate[] BeatEstimates { get; init; } = [];
     public TrackTempoSection[] Sections { get; init; } = [];
+    /// <summary>Independent candidates; never use as confirmed mixing beats.</summary>
+    public TrackRhythmHypothesis[] RhythmHypotheses { get; init; } = [];
     public TrackTempoWindow[] Windows { get; init; } = [];
     public int CandidateOnsets { get; init; }
     public TrackOnsetDiagnostic[] OnsetDiagnostics { get; init; } = [];
