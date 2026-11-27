@@ -1,5 +1,5 @@
-using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using MauiButton = global::Microsoft.Maui.Controls.Button;
 
 namespace Laveyana.LavPulse.Controls;
 
@@ -42,8 +42,8 @@ internal static partial class MixerStyle
                 binding.ThemeFallback = true;
                 view.SetDynamicResource(property, IconKey(fallback));
             }
-            if (binding.ReadableText && view is Button transparentButton)
-                UseColor(transparentButton, Button.TextColorProperty, MixerColor.Text);
+            if (binding.ReadableText && view is MauiButton transparentButton)
+                UseColor(transparentButton, MauiButton.TextColorProperty, MixerColor.Text);
             return;
         }
 
@@ -54,16 +54,16 @@ internal static partial class MixerStyle
             binding.ThemeFallback = false;
             SetContrastIcon(view, iconProperty, file, luminance);
         }
-        if (binding.ReadableText && view is Button button)
+        if (binding.ReadableText && view is MauiButton button)
         {
-            button.RemoveDynamicResource(Button.TextColorProperty);
+            button.RemoveDynamicResource(MauiButton.TextColorProperty);
             SetContrastText(button, luminance);
         }
     }
 
     private static bool TryBindContrastIcon(VisualElement view, BindableProperty property, string file)
     {
-        if (view is not (Button or ImageButton) || !file.StartsWith("player_", StringComparison.Ordinal) ||
+        if (view is not (MauiButton or ImageButton) || !file.StartsWith("player_", StringComparison.Ordinal) ||
             !file.EndsWith(".png", StringComparison.Ordinal) ||
             !Icons.Contains(file[7..^4], StringComparer.Ordinal)) return false;
         var binding = BindContrast(view);
@@ -77,7 +77,7 @@ internal static partial class MixerStyle
         return true;
     }
 
-    internal static void UseReadableButtonText(Button button)
+    internal static void UseReadableButtonText(MauiButton button)
     {
         var binding = BindContrast(button);
         binding.ReadableText = true;
@@ -101,7 +101,7 @@ internal static partial class MixerStyle
         view.SetValue(property, new FileImageSource { File = variant });
     }
 
-    internal static void SetContrastText(Button button, double luminance)
+    internal static void SetContrastText(MauiButton button, double luminance)
     {
         Color color = IconContrast.DarkText(luminance) ? Colors.Black : Colors.White;
         if (button.TextColor != color) button.TextColor = color;
