@@ -53,7 +53,7 @@ public sealed partial class TrackLibraryPanel : ContentView
     private readonly List<TreeRow> _rows = [];
     private readonly Label _message = MixerStyle.Label("", 11, MixerColor.Muted);
     private readonly Label _heading = MixerStyle.Label("Медиатека", MixerStyle.PhoneFont(23, 20), bold: true);
-    private readonly Button _pick = MixerStyle.Button("Папка", icon: "player_folder.png");
+    private readonly Button _pick = MixerStyle.Button("Открыть папку", icon: "player_folder.png");
     private readonly Button _edit = MixerStyle.Button("Редактирование", icon: "player_edit.png");
     private readonly Button _back = MixerStyle.Button("Назад", primary: true);
     private readonly TapGestureRecognizer _outsideSwipe = new();
@@ -89,6 +89,7 @@ public sealed partial class TrackLibraryPanel : ContentView
 
         _back.Clicked += (_, _) =>
         {
+            if (CloseScanModeMenu()) return;
             if (_editing) { SetEditing(false); return; }
             if (TryReturnToSavedLibrary()) return;
             close();
@@ -288,6 +289,7 @@ public sealed partial class TrackLibraryPanel : ContentView
 
     public bool TryCloseEditing()
     {
+        if (CloseScanModeMenu()) return true;
         if (DismissDeleteAction()) return true;
         if (!_editing || _busy) return false;
         SetEditing(false);
@@ -321,10 +323,10 @@ public sealed partial class TrackLibraryPanel : ContentView
         _bulk.IsEnabled = !_busy && _checkedRows.Count > 0;
         _bulk.Text = $"Действия ({_checkedRows.Count})";
         MixerStyle.SetListEditButton(_edit, _editing);
-        bool folder = _selected?.File is null;
         _scanActions.IsVisible = _local && _scanBatch is null;
         _scanActions.IsEnabled = !_busy && _selected is not null;
+        if (!_scanActions.IsVisible || !_scanActions.IsEnabled) CloseScanModeMenu();
+        UpdateScanModeDescription();
         foreach (var view in _tree.RealizedRows) view.UpdateRow();
-        SemanticProperties.SetDescription(_rescan, folder ? "Повторный анализ папки" : "Повторный анализ трека");
     }
 }
