@@ -14,6 +14,8 @@ public sealed partial class TrackLibraryPanel
     private readonly Grid _scanPanel;
     private readonly Button _scanRun = MixerStyle.Button("Анализ", primary: true);
     private readonly Button _scanMode = MixerStyle.Button("");
+    private Grid? _scanSegments;
+    private bool _compactScanActions;
     private bool _scanModeOpen;
     private bool _replaceScanAnalysis;
     private readonly Label _scanPosition = MixerStyle.Label("", 13, MixerColor.Accent, bold: true);
@@ -95,9 +97,10 @@ public sealed partial class TrackLibraryPanel
 
         // One split action: running a batch and selecting its mode are
         // independent. The mode menu floats above the themed library panel.
-        var segments = new Grid
+        var segments = _scanSegments = new Grid
         {
             ColumnDefinitions = [new(GridLength.Star), new(new GridLength(1.4, GridUnitType.Star))],
+            RowDefinitions = [new(GridLength.Auto), new(0)],
             ColumnSpacing = 2
         };
         _scanRun.CornerRadius = _scanMode.CornerRadius = 6;
@@ -119,6 +122,19 @@ public sealed partial class TrackLibraryPanel
         actions.Add(split);
         UpdateScanModeDescription();
         return actions;
+    }
+
+    private void SetCompactScanActions(bool compact)
+    {
+        if (_scanSegments is not { } segments || compact == _compactScanActions) return;
+        _compactScanActions = compact;
+        segments.ColumnDefinitions[1].Width = compact ? new GridLength(0) : new GridLength(1.4, GridUnitType.Star);
+        segments.RowDefinitions[1].Height = compact ? GridLength.Auto : new GridLength(0);
+        segments.RowSpacing = compact ? 2 : 0;
+        Grid.SetColumn(_scanMode, compact ? 0 : 1);
+        Grid.SetRow(_scanMode, compact ? 1 : 0);
+        _scanMode.Padding = compact ? new Thickness(3, 4) : new Thickness(8, 8);
+        _scanRun.FontSize = compact ? 12 : MixerStyle.PhoneFont(14, 13);
     }
 
     private void UpdateScanModeDescription()

@@ -1,5 +1,7 @@
 namespace Laveyana.LavPulse.Controls;
 
+internal enum ListTouchIntent { Pending, Horizontal, Vertical }
+
 internal static class TrackListLayout
 {
     public const int RowHeight = 54;
@@ -14,6 +16,16 @@ internal static class TrackListLayout
         int first = Math.Min(count, Math.Max(0, (int)(scroll / Stride) - OverscanRows));
         int end = Math.Clamp((int)Math.Ceiling((scroll + viewport) / Stride) + OverscanRows, first, count);
         return (first, end);
+    }
+
+    // Classify once at touch slop; vertical movement belongs to scrolling.
+    public static ListTouchIntent ClassifyTouch(double x, double y, double threshold)
+    {
+        if (!double.IsFinite(x) || !double.IsFinite(y)) return ListTouchIntent.Vertical;
+        double horizontal = Math.Abs(x), vertical = Math.Abs(y);
+        if (horizontal >= Math.Max(threshold, vertical * 1.3)) return ListTouchIntent.Horizontal;
+        if (vertical >= threshold) return ListTouchIntent.Vertical;
+        return ListTouchIntent.Pending;
     }
 
     public const int MaximumPinnedParents = 3;

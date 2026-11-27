@@ -41,8 +41,7 @@ internal sealed partial class TrackQueueView
             if (ReferenceEquals(row, _swipeRow)) DismissDeleteAction();
         };
         row.SetSpectrum(_masterSpectrum);
-        var tap = new TapGestureRecognizer();
-        tap.Tapped += (_, _) =>
+        row.AttachPrimaryTap(() =>
         {
             RecordQueueInteraction();
             if (row.ConsumedGesture || DismissDeleteAction() || !CanEditRows) return;
@@ -56,8 +55,7 @@ internal sealed partial class TrackQueueView
                 else if (row.IsPlayed) HistoryRequested?.Invoke(file);
                 else if (!ReferenceEquals(_currentTrack, file)) TrackRequested?.Invoke(file);
             }
-        };
-        row.TouchBody.GestureRecognizers.Add(tap);
+        });
         row.AttachActions(() => row.File, () => CanEditRows && !IsEditing && _dragging is null,
             right => right ? ListSettings.QueueSwipeRight : ListSettings.QueueSwipeLeft,
             action => row.File is { } file && SwipeRequested is { } swipe ? swipe(file,action) : Task.CompletedTask,

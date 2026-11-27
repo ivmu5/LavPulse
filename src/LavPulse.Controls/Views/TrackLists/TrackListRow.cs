@@ -54,6 +54,23 @@ internal partial class TrackListRow : Border
         _content.ColumnDefinitions[2].Width = new GridLength(visible ? 36 : 0);
     }
 
+#if ANDROID
+    private Action? _primaryTap;
+#endif
+
+    internal void AttachPrimaryTap(Action tap)
+    {
+#if ANDROID
+        // The native row listener also handles taps. Registering a MAUI
+        // recognizer on this same view would compete for Android touches.
+        _primaryTap = tap;
+#else
+        var recognizer = new TapGestureRecognizer();
+        recognizer.Tapped += (_, _) => tap();
+        Body.GestureRecognizers.Add(recognizer);
+#endif
+    }
+
     internal void AttachActions(Func<object?> item, Func<bool> enabled,
         Func<bool, ListSwipeAction> resolve, Func<ListSwipeAction, Task> execute,
         Func<Point?, Task> context, Func<PlayerColors> colors, Action? closeOtherSwipes = null)
@@ -102,6 +119,7 @@ internal partial class TrackListRow : Border
                     if (_swipeItem is null || !ReferenceEquals(_swipeItem,item()) || !enabled()) { ResetSwipe(); return; }
                     if (!_horizontalSwipe && Math.Abs(x) < Math.Max(12, Math.Abs(y)*1.3)) return;
                     _horizontalSwipe = true;
+                    _lastGesture = System.Diagnostics.Stopwatch.GetTimestamp();
                     right = x >= 0;
                     action = resolve(right);
                     if (action == ListSwipeAction.None) { ResetSwipe(); return; }
@@ -132,17 +150,26 @@ internal partial class TrackListRow : Border
                     _horizontalSwipe = false;
                     break;
                 case GestureStatus.Canceled:
+                    if (_horizontalSwipe) _lastGesture = System.Diagnostics.Stopwatch.GetTimestamp();
                     ResetSwipe();
                     break;
             }
         }
-#if WINDOWS
+#if ANDROID
+        // Android's vertical ScrollView and MAUI PanGestureRecognizer compete
+        // for the same touch stream. Use a single native directional owner.
+        AttachAndroidGestures(Body, item, enabled, ProcessPan, () => _primaryTap?.Invoke(), point =>
+        {
+            if (enabled() && !_horizontalSwipe) _ = InvokeAsync(ListSwipeAction.Menu,item(),point);
+        });
+#elif WINDOWS
         AttachDesktopPan(Body,enabled,ProcessPan);
 #else
         var pan = new PanGestureRecognizer();
         pan.PanUpdated += (_,args) => ProcessPan(args.StatusType,args.TotalX,args.TotalY);
         GestureRecognizers.Add(pan);
 #endif
+#if !ANDROID
         var secondary = new TapGestureRecognizer { Buttons = ButtonsMask.Secondary };
         secondary.Tapped += async (_, args) =>
             await InvokeAsync(ListSwipeAction.Menu, item(), FindPlayer(Body) is { } player ? args.GetPosition(player) : null);
@@ -151,6 +178,7 @@ internal partial class TrackListRow : Border
         {
             if (enabled() && !_horizontalSwipe) _ = InvokeAsync(ListSwipeAction.Menu,item(),point);
         });
+#endif
     }
 
     private static PlayerView? FindPlayer(View view)
@@ -161,6 +189,8 @@ internal partial class TrackListRow : Border
     }
 
     static partial void AttachHold(View view, Action<Point?> invoke);
+    static partial void AttachAndroidGestures(View view, Func<object?> item, Func<bool> enabled,
+        Action<GestureStatus,double,double> pan, Action tap, Action<Point?> hold);
     static partial void AttachDesktopPan(View view,Func<bool> enabled,Action<GestureStatus,double,double> pan);
 
     private void DrawSwipe(double distance, bool right, ListSwipeAction action, double first, double second, PlayerColors colors)
