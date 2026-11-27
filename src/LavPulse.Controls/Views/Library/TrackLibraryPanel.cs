@@ -344,6 +344,7 @@ public sealed partial class TrackLibraryPanel : ContentView
         _bulk.IsEnabled = !_busy && _checkedRows.Count > 0;
         _bulk.Text = $"Действия ({_checkedRows.Count})";
         MixerStyle.SetListEditButton(_edit, _editing);
+        if (!_editing) _edit.Text = "Редактировать";
         _scanActions.IsVisible = _local && _scanBatch is null;
         _scanActions.IsEnabled = !_busy && _selected is not null;
         if (!_scanActions.IsVisible || !_scanActions.IsEnabled) CloseScanModeMenu();
