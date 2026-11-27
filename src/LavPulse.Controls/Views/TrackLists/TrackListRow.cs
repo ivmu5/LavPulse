@@ -22,6 +22,9 @@ internal partial class TrackListRow : Border
     private string? _artworkFile;
     private ReadOnlyMemory<byte> _artwork;
     private CheckBox? _selectionMark;
+    private bool _updatingMark;
+    internal event Action? SelectionToggled;
+    internal bool HasRevealedSwipe => _revealedItem is not null;
     private Button? _swipeActionButton;
     private BoxView? _swipeTint;
     private object? _swipeItem;
@@ -37,19 +40,22 @@ internal partial class TrackListRow : Border
     {
         if (_selectionMark is null && visible)
         {
-            _selectionMark = new CheckBox { InputTransparent = true, VerticalOptions = LayoutOptions.Center };
+            _selectionMark = new CheckBox { VerticalOptions = LayoutOptions.Center };
+            _selectionMark.CheckedChanged += (_,_) => { if(!_updatingMark) SelectionToggled?.Invoke(); };
             MixerStyle.UseColor(_selectionMark, CheckBox.ColorProperty, MixerColor.Accent);
             _content.Add(_selectionMark, 2);
         }
         if (_selectionMark is null) return;
         _selectionMark.IsVisible = visible;
-        _selectionMark.IsChecked = selected;
+        _updatingMark=true;
+        try { _selectionMark.IsChecked = selected; }
+        finally { _updatingMark=false; }
         _content.ColumnDefinitions[2].Width = new GridLength(visible ? 36 : 0);
     }
 
     internal void AttachActions(Func<object?> item, Func<bool> enabled,
         Func<bool, ListSwipeAction> resolve, Func<ListSwipeAction, Task> execute,
-        Func<Task> context, Func<PlayerColors> colors)
+        Func<Task> context, Func<PlayerColors> colors, Action? closeOtherSwipes = null)
     {
         var tint = _swipeTint = new BoxView { IsVisible = false, InputTransparent = true };
         var button = _swipeActionButton = MixerStyle.Button("");
@@ -78,34 +84,40 @@ internal partial class TrackListRow : Border
         }
 
         button.Clicked += async (_, _) => await InvokeAsync(action, _revealedItem);
-        var pan = new PanGestureRecognizer();
-        pan.PanUpdated += async (_, args) =>
+        async void ProcessPan(GestureStatus status,double x,double y)
         {
-            switch (args.StatusType)
+            switch (status)
             {
                 case GestureStatus.Started:
+                    closeOtherSwipes?.Invoke();
                     ResetSwipe();
                     _swipeItem = enabled() ? item() : null;
                     _horizontalSwipe = false;
                     break;
                 case GestureStatus.Running:
                     if (_swipeItem is null || !ReferenceEquals(_swipeItem,item()) || !enabled()) { ResetSwipe(); return; }
-                    if (!_horizontalSwipe && Math.Abs(args.TotalX) < Math.Max(12, Math.Abs(args.TotalY)*1.3)) return;
+                    if (!_horizontalSwipe && Math.Abs(x) < Math.Max(12, Math.Abs(y)*1.3)) return;
                     _horizontalSwipe = true;
-                    right = args.TotalX >= 0;
+                    right = x >= 0;
                     action = resolve(right);
                     if (action == ListSwipeAction.None) { ResetSwipe(); return; }
                     double width = Math.Max(1, Width - Padding.HorizontalThickness);
                     first = Math.Min(76, width*.28);
                     second = Math.Max(first+1,width*.68);
-                    _swipeDistance = Math.Min(width,Math.Abs(args.TotalX));
+                    _swipeDistance = Math.Min(width,Math.Abs(x));
                     DrawSwipe(_swipeDistance, right, action, first, second, colors());
                     break;
                 case GestureStatus.Completed:
                     if (!_horizontalSwipe) { ResetSwipe(); return; }
                     _lastGesture = System.Diagnostics.Stopwatch.GetTimestamp();
                     var expected = _swipeItem;
-                    if (_swipeDistance >= second && second > 0) await InvokeAsync(action, expected);
+                    if (_swipeDistance >= second && second > 0)
+                    {
+                        _swipeItem=null;
+                        _horizontalSwipe=false;
+                        await InvokeAsync(action, expected);
+                        return;
+                    }
                     else if (_swipeDistance >= first && first > 0 && ReferenceEquals(expected,item()) && enabled())
                     {
                         _revealedItem = expected;
@@ -119,8 +131,14 @@ internal partial class TrackListRow : Border
                     ResetSwipe();
                     break;
             }
-        };
-        Body.GestureRecognizers.Add(pan);
+        }
+#if WINDOWS
+        AttachDesktopPan(Body,enabled,ProcessPan);
+#else
+        var pan = new PanGestureRecognizer();
+        pan.PanUpdated += (_,args) => ProcessPan(args.StatusType,args.TotalX,args.TotalY);
+        GestureRecognizers.Add(pan);
+#endif
         var secondary = new TapGestureRecognizer { Buttons = ButtonsMask.Secondary };
         secondary.Tapped += async (_, _) => await InvokeAsync(ListSwipeAction.Menu,item());
         Body.GestureRecognizers.Add(secondary);
@@ -128,6 +146,7 @@ internal partial class TrackListRow : Border
     }
 
     static partial void AttachHold(View view, Action invoke);
+    static partial void AttachDesktopPan(View view,Func<bool> enabled,Action<GestureStatus,double,double> pan);
 
     private void DrawSwipe(double distance, bool right, ListSwipeAction action, double first, double second, PlayerColors colors)
     {

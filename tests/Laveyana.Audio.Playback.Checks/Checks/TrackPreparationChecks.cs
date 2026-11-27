@@ -830,6 +830,10 @@ internal static class TrackPreparationChecks
             Math.Abs(grid.BpmAt(96000) - 120) < .01 &&
             Math.Abs(grid.BpmAt(450000) - 60d * PlaybackFormat.SampleRate / 22000) < .01 &&
             grid.BpmAt(570000) == 0, "Local tempo used the section median or extrapolated across a gap.");
+        Require(grid.DisplayBpmAt(96000)==125 && grid.DisplayBpmAt(450000)==125 &&
+            grid.DisplayBpmAt(570000)==0 &&
+            (grid with {Sections=[section with {Bpm=124.6}]}).DisplayBpmAt(96000)==125,
+            "Display tempo flickered with local intervals or crossed a rhythmic gap.");
         Require(!TrackRhythmAnalyzer.IsValid(grid with { Sections = [section with { StartFrame = 1 }] }, 600000),
             "A beat outside its confirmed section was accepted.");
         Require(!TrackRhythmAnalyzer.IsValid(grid with { Sections = [section, section] }, 600000),

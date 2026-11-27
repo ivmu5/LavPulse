@@ -64,10 +64,11 @@ public sealed partial class TrackLibraryPanel
 
     public void RefreshTrackStorageSize(string localPath)
     {
-        if (_closed || !_local || _readLocalStorageSize is null ||
+        if (_closed || !_local) return;
+        foreach(var row in _tree.RealizedRows) row.UpdateRow();
+        if (_readLocalStorageSize is null ||
             (_localTrackSizes is not null && !_localTrackSizes.ContainsKey(localPath))) return;
         _changedStoragePaths.Add(localPath);
-        foreach(var row in _tree.RealizedRows) row.UpdateRow();
         QueueStorageSizeRefresh();
     }
 

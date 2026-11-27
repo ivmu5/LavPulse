@@ -169,6 +169,16 @@ internal static class LocalTrackStoreChecks
         snapshot[0].Folders[0] = new("other","Other");
         Require(store.LibrarySnapshot()[0].Folders[0].Id == "original",
             "External array mutation corrupted the library membership.");
+        var preparation=new TrackPreparation(store.PcmDirectory);
+        var decoded=await preparation.ImportAsync(file,default);
+        await store.SaveAnalysisAsync(file,decoded.Waveform,decoded.AudioInfo,decoded.Path,default);
+        await store.ClearDerivedAsync(file,false,default);
+        Require(File.Exists(file.LocalPath!)&&!File.Exists(decoded.Path)&&!store.HasAnalysis(file)&&
+            await store.ReadAnalysisAsync(file,default) is null && store.LibrarySnapshot().Length==1,
+            "Clearing analysis removed original/catalog or retained derived data.");
+        await store.ClearDerivedAsync(file,true,default);
+        Require(!File.Exists(file.LocalPath!)&&store.LibrarySnapshot().Length==0,
+            "Deleting managed media retained the original or catalog membership.");
     }
 
     private static async Task CheckStorageMigrationAsync(string directory)

@@ -101,6 +101,9 @@ internal sealed partial class TrackQueueView : Grid
         var title = MixerStyle.Label("Редактор очереди", MixerStyle.PhoneFont(19, 16), bold: true);
         title.VerticalOptions = LayoutOptions.Center;
         SemanticProperties.SetHeadingLevel(title, SemanticHeadingLevel.Level1);
+#if WINDOWS
+        title.IsVisible=false;
+#endif
         _editorHeader = new Grid
         {
             ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)],

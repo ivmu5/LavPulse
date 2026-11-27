@@ -15,6 +15,9 @@ public sealed class EqualizerPanel : ContentView
         Settings = settings;
         _apply = apply;
         var title = MixerStyle.Label("Эквалайзер", 23, bold: true);
+#if WINDOWS
+        title.IsVisible=false;
+#endif
         SemanticProperties.SetHeadingLevel(title, SemanticHeadingLevel.Level1);
         var toggle = new Switch { IsToggled = settings.Enabled };
         MixerStyle.StyleSwitch(toggle);

@@ -33,7 +33,7 @@ public sealed partial class MainPage
     private async Task ShowQueueActionsAsync(IReadOnlyList<TrackFile> files)
     {
         if(_closed||files.Count==0) return;
-        var options=new List<string>{PlayNow,NextQueue,RemoveQueue,ClearDerived,Rescan,RemoveCatalog,RemoveStorage};
+        var options=new List<string>{PlayNow,NextQueue,RemoveQueue,ClearDerived,Rescan,RemoveCatalog};
         if(files.Count!=1) options.Remove(PlayNow);
 #if WINDOWS
         if(files.Count==1 && files[0].LocalPath is not null) options.Insert(0,OpenLocation);
@@ -111,9 +111,11 @@ public sealed partial class MainPage
     private async Task<IReadOnlyList<TrackFile>> SelectionFilesAsync(IReadOnlyList<TrackLibrarySelection> selections)
     {
         var result=new List<TrackFile>();
+        var paths=new HashSet<string>(OperatingSystem.IsWindows()?StringComparer.OrdinalIgnoreCase:StringComparer.Ordinal);
+        var other=new HashSet<TrackFile>();
         foreach(var selection in selections)
             foreach(var file in await ListLibraryScanTracksAsync(selection,_lifetime.Token))
-                if(!result.Any(f=>SameMedia(f,file))) result.Add(file);
+                if(file.LocalPath is { } path?paths.Add(path):other.Add(file))result.Add(file);
         return result;
     }
 

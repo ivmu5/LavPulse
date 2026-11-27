@@ -111,6 +111,7 @@ public sealed partial class PlayerView : Grid
         player.Add(transport, row: 2);
         _queue.EditingChanged += editing =>
         {
+            SectionTitleChanged?.Invoke();
             Grid.SetRowSpan(_queue, editing ? 3 : 1);
             _queue.ZIndex = editing ? 1 : 0;
             deckScroll.IsVisible = transport.IsVisible = !editing;
@@ -151,6 +152,16 @@ public sealed partial class PlayerView : Grid
     internal event Action<MixerTheme>? ThemeChanged;
     public bool IsLightAppearance => Theme.IsLight;
     public View? Panel => _panelHost.Content;
+    internal string SectionTitle => Panel switch
+    {
+        TrackLibraryPanel => "Медиатека",
+        PlayerSettingsPanel => "Настройки",
+        EqualizerPanel => "Эквалайзер",
+        null when _queue.IsEditing => "Редактор очереди",
+        null => "",
+        _ => "LavPulse"
+    };
+    internal event Action? SectionTitleChanged;
 
     public event Action? PlayRequested;
     public event Action? PreviousRequested;
@@ -364,6 +375,7 @@ public sealed partial class PlayerView : Grid
         _panelHost.IsVisible = panel is not null;
         _body.IsVisible = panel is null;
         if (panel is TrackLibraryPanel library) library.ScanAnimationChanged += SyncUiFrames;
+        SectionTitleChanged?.Invoke();
         SyncUiFrames();
     }
 

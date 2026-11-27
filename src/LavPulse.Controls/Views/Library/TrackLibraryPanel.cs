@@ -95,6 +95,9 @@ public sealed partial class TrackLibraryPanel : ContentView
         var header = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
         _heading.VerticalOptions = LayoutOptions.Center;
         SemanticProperties.SetHeadingLevel(_heading, SemanticHeadingLevel.Level1);
+#if WINDOWS
+        _heading.IsVisible=false;
+#endif
         header.Add(_heading);
         header.Add(back, 1);
         var actions = new Grid
@@ -252,8 +255,10 @@ public sealed partial class TrackLibraryPanel : ContentView
 
     private bool DismissDeleteAction()
     {
-        foreach (var realized in _tree.RealizedRows) realized.ResetSwipe();
-        if (_revealed is not { } row) return false;
+        bool revealed=false;
+        foreach (var realized in _tree.RealizedRows)
+        { revealed|=realized.HasRevealedSwipe;realized.ResetSwipe(); }
+        if (_revealed is not { } row) return revealed;
         _revealed = null;
         GestureRecognizers.Remove(_outsideSwipe);
         row.SetDeleteReveal(0);

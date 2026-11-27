@@ -19,6 +19,7 @@ public sealed partial class TrackLibraryPanel
         private readonly Label _chevron = MixerStyle.Label("", 14, MixerColor.Accent);
         private readonly Label _title = TrackLabel(MixerStyle.PhoneFont(13, 12), MixerColor.Text, bold: true);
         private readonly Label _details = TrackLabel(MixerStyle.PhoneFont(11, 10), MixerColor.Muted);
+        private readonly Label _analysisState = TrackLabel(9,MixerColor.Muted);
         private readonly Label _size = TrackLabel(MixerStyle.PhoneFont(11, 10), MixerColor.Muted);
         private readonly HorizontalStackLayout _folder;
         private readonly ImageButton _add = MixerStyle.IconButton("player_queue_add.png", 36);
@@ -30,6 +31,12 @@ public sealed partial class TrackLibraryPanel
         {
             _panel = panel;
             _scanRow = skip is not null;
+            _analysisState.IsVisible=false;
+            _analysisState.Text="Не проанализирован";
+            SelectionToggled += () =>
+            {
+                if(panel._editing&&!panel._busy&&_row is { } selected)panel.ToggleChecked(selected);
+            };
 
             var icon = new Image { WidthRequest = 20, HeightRequest = 20, VerticalOptions = LayoutOptions.Center };
             MixerStyle.UseIcon(icon, Image.SourceProperty, "player_folder.png");
@@ -41,7 +48,7 @@ public sealed partial class TrackLibraryPanel
             {
                 VerticalOptions = LayoutOptions.Center,
                 Spacing = 2,
-                Children = { _title, _details }
+                Children = { _title, _details, _analysisState }
             });
             SetActionWidth(GridLength.Auto);
             _size.VerticalOptions = LayoutOptions.Center;
@@ -98,7 +105,8 @@ public sealed partial class TrackLibraryPanel
                     panel._local ? panel._listSettings.LibrarySwipeLeft : ListSwipeAction.None,
                 action => _row is { } row ? panel.ExecuteListActionAsync(row,action) : Task.CompletedTask,
                 () => _row is { } row ? panel.ExecuteListActionAsync(row,ListSwipeAction.Menu) : Task.CompletedTask,
-                () => PlayerColors.For(panel._listSettings));
+                () => PlayerColors.For(panel._listSettings),
+                () => { foreach(var other in panel._tree.RealizedRows)if(!ReferenceEquals(other,this))other.ResetSwipe(); });
             var tap = new TapGestureRecognizer();
             tap.Tapped += async (_, _) =>
             {
@@ -174,7 +182,9 @@ public sealed partial class TrackLibraryPanel
             _chevron.Text = row.Expanded ? "▾" : "▸";
             SetInlineDelete(false);
             SetSelectionMark(_panel._editing,_panel._checkedRows.Contains(row));
-            Opacity = _panel._local && row.File is { } file && !_panel._hasAnalysis(file) ? .56 : 1;
+            bool unscanned=_panel._local && row.File is { } file && !_panel._hasAnalysis(file);
+            _analysisState.IsVisible=unscanned;
+            Opacity=unscanned?.56:1;
             SetDeleteEnabled(!_panel._busy);
             _import.IsVisible = !_panel._local;
             _add.IsEnabled = _import.IsEnabled = !_panel._busy && !_panel._editing;
