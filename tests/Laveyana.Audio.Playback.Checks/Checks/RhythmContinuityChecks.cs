@@ -22,10 +22,22 @@ internal static partial class Program
             Set(w, 64, .18f, .12f);
             Set(w, 128, .23f, .17f);
         }
+        // Both candidates initially cover every window. Stronger raw and
+        // periodicity scores alone cannot satisfy the coverage-gain gate.
+        RhythmTempoContinuity.Resolve(path, raw, periodicity, phase, 40, .5, default);
+        Require(path.All(c => c == Index(64)),
+            "Equal coverage bypassed the required support gain for a slow alias.");
+        // Two unsupported old windows give the alternative 1/6 more coverage
+        // (> .08), while preserving the required raw and periodicity margins.
+        for (int w = 0; w < 2; w++) Set(w, 64, .18f, .10f);
         RhythmTempoContinuity.Resolve(path, raw, periodicity, phase, 40, .5, default);
         Require(path.All(c => c == Index(128)), "A supported doubled beat did not replace its slow alias.");
         Array.Fill(path, Index(64));
-        for (int w = 0; w < windows; w++) Set(w, 128, .25f, .04f);
+        for (int w = 0; w < windows; w++)
+        {
+            Set(w, 64, .18f, .12f);
+            Set(w, 128, .25f, .04f);
+        }
         RhythmTempoContinuity.Resolve(path, raw, periodicity, phase, 40, .5, default);
         Require(path.All(c => c == Index(64)), "Weak harmonic evidence overwrote a genuine slow beat.");
         Array.Clear(raw); Array.Clear(periodicity); Array.Clear(phase);
