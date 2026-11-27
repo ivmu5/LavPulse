@@ -54,6 +54,23 @@ internal partial class TrackListRow : Border
         _content.ColumnDefinitions[2].Width = new GridLength(visible ? 36 : 0);
     }
 
+#if ANDROID
+    private Action? _primaryTap;
+#endif
+
+    internal void AttachPrimaryTap(Action tap)
+    {
+#if ANDROID
+        // The native row listener also handles taps. Registering a MAUI
+        // recognizer on this same view would compete for Android touches.
+        _primaryTap = tap;
+#else
+        var recognizer = new TapGestureRecognizer();
+        recognizer.Tapped += (_, _) => tap();
+        Body.GestureRecognizers.Add(recognizer);
+#endif
+    }
+
     internal void AttachActions(Func<object?> item, Func<bool> enabled,
         Func<bool, ListSwipeAction> resolve, Func<ListSwipeAction, Task> execute,
         Func<Point?, Task> context, Func<PlayerColors> colors, Action? closeOtherSwipes = null)
@@ -141,7 +158,7 @@ internal partial class TrackListRow : Border
 #if ANDROID
         // Android's vertical ScrollView and MAUI PanGestureRecognizer compete
         // for the same touch stream. Use a single native directional owner.
-        AttachAndroidGestures(Body, item, enabled, ProcessPan, point =>
+        AttachAndroidGestures(Body, item, enabled, ProcessPan, () => _primaryTap?.Invoke(), point =>
         {
             if (enabled() && !_horizontalSwipe) _ = InvokeAsync(ListSwipeAction.Menu,item(),point);
         });
@@ -173,7 +190,7 @@ internal partial class TrackListRow : Border
 
     static partial void AttachHold(View view, Action<Point?> invoke);
     static partial void AttachAndroidGestures(View view, Func<object?> item, Func<bool> enabled,
-        Action<GestureStatus,double,double> pan, Action<Point?> hold);
+        Action<GestureStatus,double,double> pan, Action tap, Action<Point?> hold);
     static partial void AttachDesktopPan(View view,Func<bool> enabled,Action<GestureStatus,double,double> pan);
 
     private void DrawSwipe(double distance, bool right, ListSwipeAction action, double first, double second, PlayerColors colors)

@@ -120,14 +120,12 @@ public sealed partial class TrackLibraryPanel
                 point => _row is { } row ? panel.ExecuteListActionAsync(row,ListSwipeAction.Menu,point) : Task.CompletedTask,
                 () => PlayerColors.For(panel._listSettings),
                 () => { foreach(var other in panel._tree.RealizedRows)if(!ReferenceEquals(other,this))other.ResetSwipe(); });
-            var tap = new TapGestureRecognizer();
-            tap.Tapped += async (_, _) =>
+            AttachPrimaryTap(async () =>
             {
                 if (ConsumedGesture || panel.DismissDeleteAction()) return;
                 if (panel._editing && _row is { } selected) { panel.ToggleChecked(selected); return; }
                 if (_row is { } row) await _panel.RunAsync(() => _panel.SelectAsync(row), "Не удалось открыть папку");
-            };
-            Body.GestureRecognizers.Add(tap);
+            });
         }
 
         internal void BindScan(TrackScanHistory.Entry? entry)

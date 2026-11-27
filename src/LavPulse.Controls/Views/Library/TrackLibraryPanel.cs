@@ -172,6 +172,8 @@ public sealed partial class TrackLibraryPanel : ContentView
         layout.Add(footer, 1, 4);
         var host = new Grid { Children = { layout } };
         bool wide = false;
+        double pickFontSize = _pick.FontSize;
+        var pickPadding = _pick.Padding;
         host.SizeChanged += (_, _) =>
         {
             var size = AdaptivePanelLayout.Measure(host.Width, host.Height, MixerStyle.IsPhone);
@@ -180,11 +182,11 @@ public sealed partial class TrackLibraryPanel : ContentView
             layout.ColumnDefinitions[0].Width = new GridLength(size.SideWidth);
             layout.ColumnDefinitions[2].Width = new GridLength(size.SideWidth);
             layout.ColumnSpacing = size.IsWide ? AdaptivePanelLayout.Gap : 0;
-            _pick.FontSize = size.HasCompactRails ? 11 : MixerStyle.PhoneFont(14, 13);
+            _pick.FontSize = size.HasCompactRails ? 11 : pickFontSize;
             _pick.LineBreakMode = LineBreakMode.WordWrap;
             _pick.ContentLayout = new(size.HasCompactRails ? Button.ButtonContentLayout.ImagePosition.Top :
                 Button.ButtonContentLayout.ImagePosition.Left, 3);
-            _pick.Padding = size.HasCompactRails ? new Thickness(3, 4) : new Thickness(8, 8);
+            _pick.Padding = size.HasCompactRails ? new Thickness(3, 4) : pickPadding;
             SetCompactScanActions(size.HasCompactRails);
             if (wide == size.IsWide) return;
             wide = size.IsWide;

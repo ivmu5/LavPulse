@@ -133,6 +133,9 @@ public sealed partial class PlayerSettingsPanel : ContentView
         _settingsLayout.Add(detail, 1, 1);
         _settingsLayout.Add(actions, 1, 2);
         var host = new Grid { Children = { _settingsLayout, _paletteEditorHost } };
+        double navFontSize = _sectionButtons[0].FontSize;
+        double resetFontSize = reset.FontSize;
+        var navPadding = _sectionButtons[0].Padding;
         host.SizeChanged += (_, _) =>
         {
             var size = AdaptivePanelLayout.Measure(host.Width, host.Height, MixerStyle.IsPhone);
@@ -143,11 +146,11 @@ public sealed partial class PlayerSettingsPanel : ContentView
             _settingsLayout.ColumnSpacing = size.IsWide ? AdaptivePanelLayout.Gap : 0;
             foreach (var button in _sectionButtons)
             {
-                button.FontSize = size.HasCompactRails ? 11 : MixerStyle.PhoneFont(14, 13);
+                button.FontSize = size.HasCompactRails ? 11 : navFontSize;
                 button.LineBreakMode = LineBreakMode.WordWrap;
-                button.Padding = size.HasCompactRails ? new Thickness(4, 5) : new Thickness(8, 8);
+                button.Padding = size.HasCompactRails ? new Thickness(4, 5) : navPadding;
             }
-            reset.FontSize = size.HasCompactRails ? 11 : MixerStyle.PhoneFont(14, 13);
+            reset.FontSize = size.HasCompactRails ? 11 : resetFontSize;
             reset.LineBreakMode = LineBreakMode.WordWrap;
             if (_wide == size.IsWide) return;
 

@@ -176,6 +176,7 @@ internal sealed partial class TrackQueueView : Grid
         bool wide = IsEditing && layout.IsWide;
         double side = wide ? layout.SideWidth : 0;
         double gap = wide ? AdaptivePanelLayout.Gap : 0;
+        _clearQueue.LineBreakMode = LineBreakMode.WordWrap;
         if (_right.ColumnDefinitions[0].Width.Value != side)
         {
             _right.ColumnDefinitions[0].Width = new GridLength(side);
