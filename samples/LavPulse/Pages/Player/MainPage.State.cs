@@ -68,6 +68,7 @@ public sealed partial class MainPage
         }
 
         _closed = true;
+        _view.TryDismissActionOverlay();
         _trackStore.TrackStorageChanged -= OnTrackStorageChanged;
         try { SaveOpenEqualizer(); }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }

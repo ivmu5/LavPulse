@@ -200,7 +200,7 @@ public sealed partial class MainPage
 
     private async Task<string> ClearReportsAsync()
     {
-        if (!await DisplayAlertAsync("Очистить отчёты?",
+        if (!await _view.ConfirmActionAsync("Очистить отчёты?",
             "Будут удалены все комментарии и ручные отметки. Аудиофайлы сохранятся.",
             "Очистить", "Отмена"))
             return "Очистка отменена.";

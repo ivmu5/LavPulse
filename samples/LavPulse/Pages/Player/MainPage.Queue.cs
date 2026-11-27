@@ -123,7 +123,7 @@ public sealed partial class MainPage
         _confirmingQueueClear = true;
         try
         {
-            bool confirmed = await DisplayAlertAsync("Очистить очередь?", "Все треки будут удалены из очереди. Медиатека сохранится.",
+            bool confirmed = await _view.ConfirmActionAsync("Очистить очередь?", "Все треки будут удалены из очереди. Медиатека сохранится.",
                 "Очистить", "Отмена");
             if (!confirmed || _closed || _queue.Tracks.Count == 0) return;
 

@@ -11,6 +11,7 @@ public sealed partial class MainPage
 
     protected override void OnDisappearing()
     {
+        _view.TryDismissActionOverlay();
         _view.TryCloseQueueEditor();
         if (_view.Panel is TrackLibraryPanel library) library.ResetEditing();
         _forwardNavigation.Clear();
@@ -20,6 +21,7 @@ public sealed partial class MainPage
     internal bool TryNavigateBack()
     {
         if (_closed) return false;
+        if (_view.TryDismissActionOverlay()) return true;
         if (_view.Panel is null) return _view.TryNavigateQueueBack();
         if (_view.Panel is TrackLibraryPanel library && (library.TryCloseEditing() || library.TryReturnToSavedLibrary()))
             return true;
@@ -30,7 +32,7 @@ public sealed partial class MainPage
 
     internal bool TryNavigateForward()
     {
-        if (_closed || !_windowVisible || !_forwardNavigation.TryPeek(out var open)) return false;
+        if (_closed || !_windowVisible || _view.HasActionOverlay || !_forwardNavigation.TryPeek(out var open)) return false;
         _navigatingForward = true;
         try
         {
