@@ -58,6 +58,21 @@ internal static partial class Program
     private static void CheckTrackListLayout()
     {
         CheckAdaptivePanelLayout();
+        for (int width = 80; width <= 1200; width += 7)
+        for (int step = 0; step <= 100; step++)
+        foreach (bool right in new[] { false, true })
+        {
+            double distance = width * step / 100d;
+            var (surface, icon, row) = TrackListLayout.SwipeOffsets(width, distance, right);
+            double start = Math.Max(0, surface), end = Math.Min(width, surface + width);
+            Require(Math.Abs(end - start - distance) < .0001 &&
+                Math.Abs(surface + width / 2d + icon - (start + end) / 2d) < .0001 &&
+                Math.Abs(row - (right ? distance : -distance)) < .0001,
+                "Swipe transform exposed the wrong strip or lost icon centering.");
+        }
+        Require(TrackListLayout.SwipeOffsets(100, -5, true) == (-100d, 50d, 0d) &&
+            TrackListLayout.SwipeOffsets(100, 110, false) == (0d, 0d, -100d),
+            "Swipe transform did not clamp the gesture distance.");
         const int stride = TrackListLayout.Stride;
         const int viewport = 4 * stride;
         int[] parents = TrackListLayout.ParentIndexes([0,1,2,3,4,3,2,1,2]);
