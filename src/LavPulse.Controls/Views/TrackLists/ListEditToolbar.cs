@@ -7,6 +7,23 @@ public enum ListEditAction
     RemoveFromLibrary, RemoveFromStorage, Reveal
 }
 
+public static class ListEditActionPresentation
+{
+    public static string Icon(ListEditAction action) => action switch
+    {
+        ListEditAction.PlayNow => "player_play.png",
+        ListEditAction.PlayNext => "player_next.png",
+        ListEditAction.AddToQueue => "player_queue_add.png",
+        ListEditAction.RemoveFromQueue => "player_queue.png",
+        ListEditAction.ClearAnalysis => "player_reset.png",
+        ListEditAction.Rescan => "player_automix.png",
+        ListEditAction.RemoveFromLibrary => "player_folder.png",
+        ListEditAction.RemoveFromStorage => "player_delete.png",
+        ListEditAction.Reveal => "player_file.png",
+        _ => throw new ArgumentOutOfRangeException(nameof(action))
+    };
+}
+
 internal sealed class ListEditToolbar : Grid
 {
     private readonly ImageButton _cancel = MixerStyle.IconButton("player_cancel.png", 44);
@@ -36,21 +53,21 @@ internal sealed class ListEditToolbar : Grid
             AlignContent = Microsoft.Maui.Layouts.FlexAlignContent.Start
         };
         this.Add(right, 1);
-        Add(ListEditAction.PlayNow, "Воспроизвести сейчас", "player_play.png");
-        Add(ListEditAction.PlayNext, "Воспроизвести следующими", "player_next.png");
-        if (library) Add(ListEditAction.AddToQueue, "Добавить в очередь", "player_queue_add.png");
-        Add(ListEditAction.RemoveFromQueue, "Убрать из очереди", "player_queue.png");
-        Add(ListEditAction.ClearAnalysis, "Очистить данные анализа", "player_reset.png");
-        Add(ListEditAction.Rescan, "Очистить и пересканировать", "player_automix.png");
-        Add(ListEditAction.RemoveFromLibrary, "Убрать из медиатеки", "player_folder.png");
-        if (library) Add(ListEditAction.RemoveFromStorage, "Удалить копию из хранилища", "player_delete.png");
+        Add(ListEditAction.PlayNow, "Воспроизвести сейчас");
+        Add(ListEditAction.PlayNext, "Воспроизвести следующими");
+        if (library) Add(ListEditAction.AddToQueue, "Добавить в очередь");
+        Add(ListEditAction.RemoveFromQueue, "Убрать из очереди");
+        Add(ListEditAction.ClearAnalysis, "Очистить данные анализа");
+        Add(ListEditAction.Rescan, "Очистить и пересканировать");
+        Add(ListEditAction.RemoveFromLibrary, "Убрать из медиатеки");
+        if (library) Add(ListEditAction.RemoveFromStorage, "Удалить копию из хранилища");
 #if WINDOWS
-        Add(ListEditAction.Reveal, "Показать в проводнике", "player_file.png");
+        Add(ListEditAction.Reveal, "Показать в проводнике");
 #endif
 
-        void Add(ListEditAction action, string label, string icon)
+        void Add(ListEditAction action, string label)
         {
-            var button = MixerStyle.IconButton(icon, 40);
+            var button = MixerStyle.IconButton(ListEditActionPresentation.Icon(action), 40);
             button.CornerRadius = 8;
             button.Margin = new Thickness(2);
             SemanticProperties.SetDescription(button, label);

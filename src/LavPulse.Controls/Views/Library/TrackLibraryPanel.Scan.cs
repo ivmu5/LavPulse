@@ -14,9 +14,7 @@ public sealed partial class TrackLibraryPanel
     private readonly Grid _scanPanel;
     private readonly Button _scanRun = MixerStyle.Button("Анализ", primary: true);
     private readonly Button _scanMode = MixerStyle.Button("");
-    private readonly Button _scanNewOption = MixerStyle.Button("");
-    private readonly Button _rescanOption = MixerStyle.Button("");
-    private readonly VerticalStackLayout _scanModeMenu = new() { IsVisible = false, Spacing = 4 };
+    private bool _scanModeOpen;
     private bool _replaceScanAnalysis;
     private readonly Label _scanPosition = MixerStyle.Label("", 13, MixerColor.Accent, bold: true);
     private readonly ProgressBar _scanProgress = new() { HeightRequest = 6 };
@@ -70,22 +68,33 @@ public sealed partial class TrackLibraryPanel
         _scanRun.Clicked += async (_, _) =>
         {
             bool replace = _replaceScanAnalysis;
-            CloseScanModeMenu();
             await RunAsync(() => ScanAsync(replace),
                 replace ? "Не удалось повторить анализ" : "Не удалось выполнить анализ");
         };
-        _scanMode.Clicked += (_, _) =>
+        _scanMode.Clicked += async (_, _) =>
         {
-            _scanModeMenu.IsVisible = !_scanModeMenu.IsVisible;
+            if (_scanModeOpen || _busy || _closed) return;
+            _scanModeOpen = true;
             UpdateScanModeDescription();
+            try
+            {
+                string? choice = await PlayerView.ChooseDropdownAsync(_scanMode, "Режим анализа",
+                [
+                    new("new", "Только новые", "player_file.png", !_replaceScanAnalysis),
+                    new("rescan", "Повторный анализ", "player_automix.png", _replaceScanAnalysis)
+                ]);
+                if (!_closed && !_token.IsCancellationRequested && choice is not null)
+                    _replaceScanAnalysis = choice == "rescan";
+            }
+            finally
+            {
+                _scanModeOpen = false;
+                if (!_closed) UpdateScanModeDescription();
+            }
         };
-        _scanNewOption.Clicked += (_, _) => SelectScanMode(false);
-        _rescanOption.Clicked += (_, _) => SelectScanMode(true);
-        _scanModeMenu.Add(_scanNewOption);
-        _scanModeMenu.Add(_rescanOption);
 
         // One split action: running a batch and selecting its mode are
-        // independent. The mode menu expands inside the themed library panel.
+        // independent. The mode menu floats above the themed library panel.
         var segments = new Grid
         {
             ColumnDefinitions = [new(GridLength.Star), new(new GridLength(1.4, GridUnitType.Star))],
@@ -106,48 +115,22 @@ public sealed partial class TrackLibraryPanel
         MixerStyle.UseBrush(split, Border.StrokeProperty, MixerColor.Border);
         MixerStyle.UseColor(split, BackgroundColorProperty, MixerColor.Surface);
 
-        var actions = new Grid
-        {
-            RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)],
-            RowSpacing = 4
-        };
+        var actions = new Grid();
         actions.Add(split);
-        actions.Add(_scanModeMenu, row: 1);
-        SelectScanMode(false);
+        UpdateScanModeDescription();
         return actions;
-    }
-
-    private void SelectScanMode(bool replace)
-    {
-        _replaceScanAnalysis = replace;
-        _scanNewOption.Text = replace ? "Только новые" : "✓  Только новые";
-        _rescanOption.Text = replace ? "✓  Повторный анализ" : "Повторный анализ";
-        MixerStyle.UseColor(_scanNewOption, BackgroundColorProperty, replace ? MixerColor.Button : MixerColor.Selected);
-        MixerStyle.UseColor(_rescanOption, BackgroundColorProperty, replace ? MixerColor.Selected : MixerColor.Button);
-        _scanModeMenu.IsVisible = false;
-        UpdateScanModeDescription();
-    }
-
-    private bool CloseScanModeMenu()
-    {
-        if (!_scanModeMenu.IsVisible) return false;
-        _scanModeMenu.IsVisible = false;
-        UpdateScanModeDescription();
-        return true;
     }
 
     private void UpdateScanModeDescription()
     {
         string mode = _replaceScanAnalysis ? "Повторный анализ" : "Только новые";
-        _scanMode.Text = mode + (_scanModeMenu.IsVisible ? "  ▴" : "  ▾");
+        _scanMode.Text = mode + (_scanModeOpen ? "  ▴" : "  ▾");
         SemanticProperties.SetDescription(_scanMode, $"Режим анализа: {mode}. " +
-            (_scanModeMenu.IsVisible ? "Свернуть список" : "Выбрать режим"));
+            (_scanModeOpen ? "Свернуть список" : "Выбрать режим"));
         string scope = _selected?.File is null ? "выбранной папки" : "выбранного трека";
         SemanticProperties.SetDescription(_scanRun, _replaceScanAnalysis
             ? $"Повторный анализ {scope}"
             : $"Анализ новых файлов: {scope}");
-        SemanticProperties.SetDescription(_scanNewOption, "Анализ треков без сохранённых результатов");
-        SemanticProperties.SetDescription(_rescanOption, "Повторный анализ всех выбранных треков");
     }
 
     private Grid CreateScanPanel()

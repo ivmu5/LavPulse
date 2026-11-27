@@ -75,6 +75,10 @@ internal static partial class Program
             TrackListLayout.PinnedCapacity(2 * stride + TrackListLayout.RowHeight)==2 &&
             TrackListLayout.PinnedCapacity(TrackListLayout.RowHeight)==0,
             "Sticky rows consumed the entire viewport.");
+        Require(TrackListLayout.DropdownPosition(40,20,44,800,600,240,100)==(40d,68d) &&
+            TrackListLayout.DropdownPosition(720,510,44,800,600,240,100)==(552d,406d) &&
+            TrackListLayout.DropdownPosition(2,40,44,240,180,224,152)==(8d,20d),
+            "Dropdown did not align to its trigger, flip above, or clamp.");
         Require(TrackListLayout.ContextMenuPosition(30,40,800,600,300,250)==(34d,44d) &&
             TrackListLayout.ContextMenuPosition(790,590,800,600,300,250)==(486d,336d) &&
             TrackListLayout.ContextMenuPosition(160,150,320,300,288,268)==(24d,24d),
