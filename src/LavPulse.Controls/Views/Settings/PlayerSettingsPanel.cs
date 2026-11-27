@@ -42,6 +42,9 @@ public sealed partial class PlayerSettingsPanel : ContentView
         _previewAppearance = previewAppearance;
         var heading = MixerStyle.Label("Настройки", MixerStyle.PhoneFont(23, 20), bold: true);
         SemanticProperties.SetHeadingLevel(heading, SemanticHeadingLevel.Level1);
+#if WINDOWS
+        heading.IsVisible=false;
+#endif
         var reset = MixerStyle.Button("Сбросить", icon: "player_reset.png");
         reset.Clicked += (_, _) =>
         {

@@ -97,6 +97,12 @@ internal sealed partial class TrackQueueView
         }
 
         /// <summary>Formats the source properties as four compact lines next to the cover.</summary>
+        public void SetState(string state)
+        {
+            _state.Text=state;
+            _state.IsVisible=state.Length>0;
+        }
+
         private static string FormatAudioInfo(TrackAudioInfo audio)
         {
             string mode = audio.ChannelMode switch

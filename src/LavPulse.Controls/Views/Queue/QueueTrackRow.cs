@@ -5,10 +5,13 @@ using Font = Microsoft.Maui.Graphics.Font;
 namespace Laveyana.LavPulse.Controls;
 
 /// <summary>Provides the tags and preparation state displayed in one queue row.</summary>
+public enum QueuePlaybackState { None, Playing, Starting, Ending }
+
 public readonly record struct QueueTrackItem(string Title, string? Artist, ReadOnlyMemory<byte> Artwork, bool IsAnalyzing)
 {
     /// <summary>Whether the track is ready for playback.</summary>
     public bool IsLoaded { get; init; } = true;
+    public QueuePlaybackState PlaybackState { get; init; }
 }
 
 internal sealed class QueueTrackRow : TrackListRow
@@ -46,6 +49,7 @@ internal sealed class QueueTrackRow : TrackListRow
 
     public View DragHandle { get; }
     public bool IsPlayed => _played;
+    public bool IsActivePlayback => _shown is { PlaybackState: not QueuePlaybackState.None };
     public bool NeedsAnimation => File is not null && (_loading || _text.IsOverflowing);
     public TrackFile? File { get; private set; }
     public int Index { get; private set; }
@@ -63,6 +67,7 @@ internal sealed class QueueTrackRow : TrackListRow
 
     public void Bind(TrackFile file, int index)
     {
+        if (!ReferenceEquals(File,file)) ResetSwipe();
         File = file;
         Index = index;
     }
@@ -70,6 +75,7 @@ internal sealed class QueueTrackRow : TrackListRow
     public void Unbind()
     {
         File = null;
+        ResetSwipe();
         _shown = null;
         _current = _played = _loading = false;
         _spectrum.IsVisible = false;
@@ -88,6 +94,7 @@ internal sealed class QueueTrackRow : TrackListRow
     /// <summary>Updates only changed tags or colors so pending rows can stay under the pointer.</summary>
     public void Show(QueueTrackItem item, bool current, bool played, MixerTheme theme)
     {
+        current |= item.PlaybackState != QueuePlaybackState.None;
         played &= !current;
         if (_shown == item && _current == current && _played == played && ReferenceEquals(_theme, theme))
         {
@@ -114,7 +121,13 @@ internal sealed class QueueTrackRow : TrackListRow
         var muted = theme[MixerColor.Muted];
         _text.Color = played ? Gray(muted) : theme[MixerColor.Text];
         _text.ArtistColor = played ? Gray(muted) : muted;
-        _text.Status = current ? "Воспроизводится" : null;
+        _text.Status = item.PlaybackState switch
+        {
+            QueuePlaybackState.Starting => "Воспроизводится · начало",
+            QueuePlaybackState.Ending => "Воспроизводится · завершение",
+            QueuePlaybackState.Playing => "Воспроизводится",
+            _ => current ? "Текущий трек" : null
+        };
         _text.StatusColor = accent;
         Stroke = current ? accent : Colors.Transparent;
         BackgroundColor = current ? theme[MixerColor.Selected] :
@@ -122,7 +135,7 @@ internal sealed class QueueTrackRow : TrackListRow
         CoverOpacity = played ? .55 : 1;
         if (!_loading) Opacity = current || played || item.IsLoaded ? 1 : .56;
 
-        string status = current ? "Воспроизводится" :
+        string status = current ? _text.Status ?? "Текущий трек" :
             played ? "Прослушан" :
             _loading ? "Подготовка" :
             item.IsLoaded ? "Готов" : "Не подготовлен";
@@ -183,26 +196,14 @@ internal sealed class QueueTrackRow : TrackListRow
             }
             canvas.SaveState();
             canvas.ClipRectangle(bounds);
-            if (Status is { } status)
-            {
-                float lineHeight = bounds.Height / (string.IsNullOrWhiteSpace(Artist) ? 2 : 3);
-                DrawLine(canvas, new(bounds.X, bounds.Y, bounds.Width, lineHeight), status, ArtistFont, (float)MixerStyle.PhoneFont(10, 9), StatusColor);
-                DrawLine(canvas, new(bounds.X, bounds.Y + lineHeight, bounds.Width, lineHeight), Title, TitleFont, (float)MixerStyle.PhoneFont(12, 11), Color);
-                if (!string.IsNullOrWhiteSpace(Artist))
-                {
-                    DrawLine(canvas, new(bounds.X, bounds.Y + 2 * lineHeight, bounds.Width, lineHeight), Artist, ArtistFont, (float)MixerStyle.PhoneFont(10, 9), ArtistColor);
-                }
-            }
-            else if (string.IsNullOrWhiteSpace(Artist))
-            {
-                DrawLine(canvas, bounds, Title, TitleFont, (float)MixerStyle.PhoneFont(13, 12), Color);
-            }
-            else
-            {
-                float center = bounds.Center.Y;
-                DrawLine(canvas, new(bounds.X, center - 17, bounds.Width, 18), Title, TitleFont, (float)MixerStyle.PhoneFont(13, 12), Color);
-                DrawLine(canvas, new(bounds.X, center + 1, bounds.Width, 17), Artist, ArtistFont, (float)MixerStyle.PhoneFont(11, 10), ArtistColor);
-            }
+            // Fixed three slots even when optional status or artist changes.
+            // Never derive the baseline from the currently visible substring.
+            float lineHeight=bounds.Height/3;
+            if(Status is { } status)
+                DrawLine(canvas,new(bounds.X,bounds.Y,bounds.Width,lineHeight),status,ArtistFont,(float)MixerStyle.PhoneFont(10,9),StatusColor);
+            DrawLine(canvas,new(bounds.X,bounds.Y+lineHeight,bounds.Width,lineHeight),Title,TitleFont,(float)MixerStyle.PhoneFont(12,11),Color);
+            if(!string.IsNullOrWhiteSpace(Artist))
+                DrawLine(canvas,new(bounds.X,bounds.Y+2*lineHeight,bounds.Width,lineHeight),Artist,ArtistFont,(float)MixerStyle.PhoneFont(10,9),ArtistColor);
             canvas.RestoreState();
             if (overflowed != IsOverflowing) OverflowChanged?.Invoke();
         }
@@ -236,7 +237,8 @@ internal sealed class QueueTrackRow : TrackListRow
             foreach (var part in layout.Pieces)
             {
                 if (x + part.Width >= bounds.Left && x <= bounds.Right)
-                    canvas.DrawString(part.Text, x, baseline, HorizontalAlignment.Left);
+                    canvas.DrawString(part.Text,x,baseline-size,Math.Max(1,part.Width+2),size*1.5f,
+                        HorizontalAlignment.Left,VerticalAlignment.Top,TextFlow.ClipBounds);
                 x += part.Width;
                 if (x > bounds.Right) break;
             }

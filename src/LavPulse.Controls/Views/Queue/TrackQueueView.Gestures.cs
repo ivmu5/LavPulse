@@ -24,6 +24,10 @@ internal sealed partial class TrackQueueView
     {
         var row = new QueueTrackRow();
         row.AnimationStateChanged += SyncRowClock;
+        row.SelectionToggled += () =>
+        {
+            if(IsEditing && CanEditRows && row.File is { } file) ToggleChecked(row,file);
+        };
         row.DeleteRequested += () =>
         {
             bool canDelete = IsEditing ? _deletingTracks : ReferenceEquals(row, _swipeRow);
@@ -41,17 +45,25 @@ internal sealed partial class TrackQueueView
         tap.Tapped += (_, _) =>
         {
             RecordQueueInteraction();
-            if (DismissDeleteAction() || !CanEditRows) return;
+            if (row.ConsumedGesture || DismissDeleteAction() || !CanEditRows) return;
             if (row.File is { } file && _dragging is null &&
                 (_lastDrag == 0 || Stopwatch.GetElapsedTime(_lastDrag).TotalMilliseconds >= 300))
             {
-                if (IsEditing) PlayRequested?.Invoke(file);
+                if (IsEditing)
+                {
+                    ToggleChecked(row,file);
+                }
                 else if (row.IsPlayed) HistoryRequested?.Invoke(file);
                 else if (!ReferenceEquals(_currentTrack, file)) TrackRequested?.Invoke(file);
             }
         };
         row.TouchBody.GestureRecognizers.Add(tap);
-        TrackListSwipe.Attach(row, () => row.File, () => CanSwipe, () => BeginSwipe(row));
+        row.AttachActions(() => row.File, () => CanEditRows && !IsEditing && _dragging is null,
+            right => right ? ListSettings.QueueSwipeRight : ListSettings.QueueSwipeLeft,
+            action => row.File is { } file && SwipeRequested is { } swipe ? swipe(file,action) : Task.CompletedTask,
+            () => row.File is { } file && ActionsRequested is { } menu ? menu([file]) : Task.CompletedTask,
+            () => _theme.Artwork,
+            () => { RecordQueueInteraction(); foreach(var other in _queueScroll.RealizedRows) if(!ReferenceEquals(other,row)) other.ResetSwipe(); });
         var drag = new DragGestureRecognizer { CanDrag = true };
         drag.DragStarting += (_, args) =>
         {
@@ -117,6 +129,13 @@ internal sealed partial class TrackQueueView
             row.File is { } file && !ReferenceEquals(source, file) && _queueScroll.FindRow(source) is not null;
     }
 
+    private void ToggleChecked(QueueTrackRow row,TrackFile file)
+    {
+        if(!_checkedTracks.Add(file))_checkedTracks.Remove(file);
+        row.SetSelectionMark(true,_checkedTracks.Contains(file));
+        UpdateEditorActions();
+    }
+
     private void DeferDrop(Action action)
     {
         _pendingDrop ??= action;
@@ -175,7 +194,10 @@ internal sealed partial class TrackQueueView
 
     internal bool DismissDeleteAction()
     {
-        if (_swipeRow is not { } row) return false;
+        bool revealed=false;
+        foreach (var realized in _queueScroll.RealizedRows)
+        { revealed|=realized.HasRevealedSwipe;realized.ResetSwipe(); }
+        if (_swipeRow is not { } row) return revealed;
         _swipeRow = null;
         GestureRecognizers.Remove(_outsideSwipeTap);
         _revealingDelete = false;

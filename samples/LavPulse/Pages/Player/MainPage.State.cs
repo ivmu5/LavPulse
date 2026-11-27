@@ -23,8 +23,19 @@ public sealed partial class MainPage
         return new(track?.Title ?? tags?.Title ?? Path.GetFileNameWithoutExtension(file.Name),
             track?.Artist ?? tags?.Artist, tags?.Artwork ?? default, _library.IsPreparing(file))
         {
-            IsLoaded = track is not null
+            IsLoaded = track is not null,
+            PlaybackState = QueueRowPlaybackState(file,track)
         };
+    }
+
+    private QueuePlaybackState QueueRowPlaybackState(TrackFile file,CachedTrack? track)
+    {
+        if(track is null || _worker is null) return QueuePlaybackState.None;
+        var snapshot=_playback.PresentedSnapshot;
+        if(ReferenceEquals(snapshot.Incoming?.Track,track)) return QueuePlaybackState.Starting;
+        if(ReferenceEquals(snapshot.Current?.Track,track))
+            return snapshot.Incoming is not null ? QueuePlaybackState.Ending : QueuePlaybackState.Playing;
+        return QueuePlaybackState.None;
     }
 
     private void UpdateTransport()

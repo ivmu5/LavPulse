@@ -5,6 +5,33 @@ namespace Laveyana.LavPulse.Tracks;
 
 internal sealed partial class LocalTrackStore
 {
+    internal async Task ClearDerivedAsync(TrackFile file,bool removeOriginal,CancellationToken token)
+    {
+        if(file.LocalPath is not { } media || !ValidId(Id(file)) ||
+            !LibraryStorageMigration.SamePath(media,MediaPath(Id(file),file.Name)))
+            throw new ArgumentException("Файл не принадлежит хранилищу LavPulse.",nameof(file));
+        await _analysisWrites.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            string manifest=AnalysisPath(file);
+            var reference=await ReadAsync(manifest,TrackStoreJson.Default.StoredPcmReference,token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            // Delete only managed PCM. A malformed manifest never authorizes arbitrary paths.
+            if(PcmPath(reference?.PcmFile) is { } pcm)
+                try { File.Delete(pcm); } catch (DirectoryNotFoundException) { }
+            try { File.Delete(manifest); } catch (DirectoryNotFoundException) { }
+            _analyzed.TryRemove(media,out _);
+            _restoredPcm.TryRemove(media,out _);
+            if(removeOriginal)
+            {
+                File.Delete(media);
+                ForgetMedia(file);
+            }
+        }
+        finally { _analysisWrites.Release(); }
+        NotifyStorageChanged(media);
+    }
+
     public bool HasAnalysis(TrackFile file) =>
         file.LocalPath is { } path && _analyzed.ContainsKey(path);
 

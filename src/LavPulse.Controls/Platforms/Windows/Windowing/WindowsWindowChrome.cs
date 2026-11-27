@@ -147,6 +147,7 @@ public sealed partial class WindowsWindowChrome
                         shared.Dispose();
                     };
                 }
+                if (player is not null) AttachSectionTitle(window,root,player);
                 if (systemThemeChanged is not null)
                 {
                     void OnSystemColorsChanged(UISettings sender, object args) =>
@@ -155,6 +156,43 @@ public sealed partial class WindowsWindowChrome
                     window.Destroying += (_, _) => SystemColors.ColorValuesChanged -= OnSystemColorsChanged;
                 }
             }
+        };
+    }
+
+    // Separate the centered section label from the shared caption's auto-hide.
+    // The title remains readable in fullscreen without intercepting drag or buttons.
+    private static void AttachSectionTitle(MauiWindow window,NativePanel root,PlayerView player)
+    {
+        var text=new NativeText
+        {
+            FontSize=15,
+            FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,
+            TextTrimming=Microsoft.UI.Xaml.TextTrimming.CharacterEllipsis,
+            MaxWidth=260,
+            HorizontalAlignment=Microsoft.UI.Xaml.HorizontalAlignment.Center,
+            VerticalAlignment=Microsoft.UI.Xaml.VerticalAlignment.Center,
+            IsHitTestVisible=false
+        };
+        var overlay=new NativeGrid
+        {
+            Height=ContentInset,
+            VerticalAlignment=Microsoft.UI.Xaml.VerticalAlignment.Top,
+            HorizontalAlignment=Microsoft.UI.Xaml.HorizontalAlignment.Stretch,
+            IsHitTestVisible=false
+        };
+        overlay.Children.Add(text);
+        Microsoft.UI.Xaml.Controls.Canvas.SetZIndex(overlay,1001);
+        void UpdateTitle()=>text.Text=player.SectionTitle;
+        void ApplyTitleTheme(MixerTheme theme)=>text.Foreground=Brush(theme[MixerColor.Text]);
+        UpdateTitle();ApplyTitleTheme(player.Theme);
+        root.Children.Add(overlay);
+        player.SectionTitleChanged+=UpdateTitle;
+        player.ThemeChanged+=ApplyTitleTheme;
+        window.Destroying+=(_,_) =>
+        {
+            player.SectionTitleChanged-=UpdateTitle;
+            player.ThemeChanged-=ApplyTitleTheme;
+            root.Children.Remove(overlay);
         };
     }
 

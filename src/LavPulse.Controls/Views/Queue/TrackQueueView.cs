@@ -29,6 +29,10 @@ internal sealed partial class TrackQueueView : Grid
     private IDrawable? _masterSpectrum;
     private bool _showRecommendations;
     private bool _deletingTracks;
+    private readonly HashSet<TrackFile> _checkedTracks = [];
+    internal Func<IReadOnlyList<TrackFile>, Task>? ActionsRequested { get; set; }
+    internal Func<TrackFile, ListSwipeAction, Task>? SwipeRequested { get; set; }
+    internal PlayerSettings ListSettings { get; set; } = new();
 
     internal event Action<bool>? AnimationChanged;
     internal event Action<bool>? EditingChanged;
@@ -88,11 +92,18 @@ internal sealed partial class TrackQueueView : Grid
                 ClearRequested?.Invoke();
         };
         _deleteMode.HorizontalOptions = LayoutOptions.End;
-        _deleteMode.Clicked += (_, _) => SetDeleteMode(!_deletingTracks);
+        _deleteMode.Clicked += async (_, _) =>
+        {
+            if (CanEditRows && _checkedTracks.Count > 0 && ActionsRequested is { } actions)
+                await actions(_tracks.Where(_checkedTracks.Contains).ToArray());
+        };
         UpdateEditorActions();
         var title = MixerStyle.Label("Редактор очереди", MixerStyle.PhoneFont(19, 16), bold: true);
         title.VerticalOptions = LayoutOptions.Center;
         SemanticProperties.SetHeadingLevel(title, SemanticHeadingLevel.Level1);
+#if WINDOWS
+        title.IsVisible=false;
+#endif
         _editorHeader = new Grid
         {
             ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)],
@@ -255,6 +266,8 @@ internal sealed partial class TrackQueueView : Grid
         if (!ReferenceEquals(_currentTrack, current))
             _followingTrack = current is not null && ((_switchingViewport && IsEditing) || CanFollowTrack);
         _tracks = tracks;
+        _checkedTracks.RemoveWhere(file => !tracks.Contains(file));
+        UpdateEditorActions();
         _clearQueue.IsEnabled = tracks.Count > 0;
         _currentTrack = current;
         _playedCount = playedCount;
@@ -266,7 +279,8 @@ internal sealed partial class TrackQueueView : Grid
     private void BindRow(QueueTrackRow row, TrackFile file, int index)
     {
         row.Bind(file, index);
-        row.SetEditorActions(IsEditing && !_deletingTracks, _deletingTracks);
+        row.SetEditorActions(IsEditing, false);
+        row.SetSelectionMark(IsEditing, _checkedTracks.Contains(file));
         if (_readRow is { } read)
             row.Show(read(file), ReferenceEquals(file, _currentTrack), index < _playedCount, _theme);
     }
@@ -281,9 +295,9 @@ internal sealed partial class TrackQueueView : Grid
 
     public void InvalidateMasterSpectrum()
     {
-        if (_showRecommendations || _queue.Opacity == 0 || _currentTrack is not { } file ||
-            _queueScroll.FindRow(file) is not { } row) return;
-        if (_queueScroll.IsInViewport(row.Index)) row.InvalidateSpectrum();
+        if (_showRecommendations || _queue.Opacity == 0) return;
+        foreach(var row in _queueScroll.RealizedRows)
+            if(row.IsActivePlayback && _queueScroll.IsInViewport(row.Index)) row.InvalidateSpectrum();
     }
 
     internal bool OpenEditor()
@@ -316,14 +330,9 @@ internal sealed partial class TrackQueueView : Grid
 
     private void UpdateEditorActions()
     {
-        _deleteMode.Text = _deletingTracks ? "Порядок" : "Удаление";
-        MixerStyle.UseIcon(_deleteMode, Button.ImageSourceProperty, _deletingTracks ? "player_reorder.png" : "player_delete.png");
-        SemanticProperties.SetDescription(_deleteMode, _deletingTracks
-            ? "Изменение порядка треков" : "Режим удаления треков");
-        MixerStyle.UseColor(_deleteMode, BackgroundColorProperty, _deletingTracks ? MixerColor.Selected : MixerColor.Button);
-        _editorHint.Text = _deletingTracks
-            ? "Удаление треков из очереди"
-            : "Выбор трека — воспроизведение. Перетаскивание за ручку — изменение порядка.";
+        _deleteMode.Text = $"Действия ({_checkedTracks.Count})";
+        _deleteMode.IsEnabled = _checkedTracks.Count > 0;
+        _editorHint.Text = "Отметьте треки. Перетаскивание за ручку — изменение порядка.";
     }
 
     private void SetEditing(bool editing)
@@ -331,6 +340,7 @@ internal sealed partial class TrackQueueView : Grid
         DismissDeleteAction();
         PrepareViewportChange(editing);
         IsEditing = editing;
+        _checkedTracks.Clear();
         _deletingTracks = false;
         UpdateEditorActions();
         _feedSelector.IsVisible = !editing;

@@ -106,6 +106,43 @@ internal sealed partial class PlayerLibrary(TrackPreparation preparation, LocalT
 
     public bool HasAnalysis(TrackFile file) => store.HasAnalysis(file);
 
+    internal Task ClearDerivedAsync(TrackFile file, bool removeOriginal, CancellationToken token) =>
+        TrackLibraryWork(() => ClearDerivedCoreAsync(file,removeOriginal,token));
+
+    private async Task ClearDerivedCoreAsync(TrackFile file,bool removeOriginal,CancellationToken token)
+    {
+        using var linked=CancellationTokenSource.CreateLinkedTokenSource(token,lifetime);
+        token=linked.Token;
+        using var gate=await _trackGates.AcquireAsync(file,token).ConfigureAwait(false);
+        lock(_cacheGate)
+        {
+            ThrowIfClosing();
+            if (_prepared.Any(entry => SameFile(entry.Key,file) &&
+                (!entry.Value.Work.IsCompleted || entry.Value.Work.IsCompletedSuccessfully)) ||
+                _decodedFiles.Values.Any(other=>SameFile(other,file)))
+                throw new InvalidOperationException("Трек подготовлен для воспроизведения. Уберите его из очереди и дождитесь освобождения.");
+            if (removeOriginal && (_metadata.Any(e=>SameFile(e.Key,file)&&!e.Value.IsCompleted) ||
+                _queueMetadata.Any(e=>SameFile(e.Key,file)&&!e.Value.IsCompleted)))
+                throw new InvalidOperationException("Дождитесь чтения метаданных трека.");
+        }
+        await store.ClearDerivedAsync(file,removeOriginal,token).ConfigureAwait(false);
+        if (removeOriginal)
+        {
+            lock(_cacheGate)
+            {
+                foreach(var key in _metadata.Keys.Where(k=>SameFile(k,file)).ToArray())
+                { _metadata.Remove(key); _tagAccess.Remove(key); }
+                foreach(var key in _queueMetadata.Keys.Where(k=>SameFile(k,file)).ToArray())
+                { _queueMetadata.Remove(key); _thumbnailAccess.Remove(key); }
+            }
+        }
+    }
+
+    private static bool SameFile(TrackFile a,TrackFile b) =>
+        a.LocalPath is { } p && b.LocalPath is { } q
+            ? string.Equals(p,q,OperatingSystem.IsWindows()?StringComparison.OrdinalIgnoreCase:StringComparison.Ordinal)
+            : a==b;
+
     public void SetAnalysisParallelism(int parallelism) =>
         _analysisSlots.SetParallelism(PlayerSettings.ResolveAnalysisParallelism(parallelism));
 

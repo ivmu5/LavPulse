@@ -111,6 +111,7 @@ public sealed partial class PlayerView : Grid
         player.Add(transport, row: 2);
         _queue.EditingChanged += editing =>
         {
+            SectionTitleChanged?.Invoke();
             Grid.SetRowSpan(_queue, editing ? 3 : 1);
             _queue.ZIndex = editing ? 1 : 0;
             deckScroll.IsVisible = transport.IsVisible = !editing;
@@ -151,6 +152,16 @@ public sealed partial class PlayerView : Grid
     internal event Action<MixerTheme>? ThemeChanged;
     public bool IsLightAppearance => Theme.IsLight;
     public View? Panel => _panelHost.Content;
+    internal string SectionTitle => Panel switch
+    {
+        TrackLibraryPanel => "Медиатека",
+        PlayerSettingsPanel => "Настройки",
+        EqualizerPanel => "Эквалайзер",
+        null when _queue.IsEditing => "Редактор очереди",
+        null => "",
+        _ => "LavPulse"
+    };
+    internal event Action? SectionTitleChanged;
 
     public event Action? PlayRequested;
     public event Action? PreviousRequested;
@@ -189,6 +200,16 @@ public sealed partial class PlayerView : Grid
     {
         add => _queue.RemoveRequested += value;
         remove => _queue.RemoveRequested -= value;
+    }
+    public Func<IReadOnlyList<TrackFile>,Task>? QueueActionsRequested
+    {
+        get => _queue.ActionsRequested;
+        set => _queue.ActionsRequested = value;
+    }
+    public Func<TrackFile,ListSwipeAction,Task>? QueueSwipeRequested
+    {
+        get => _queue.SwipeRequested;
+        set => _queue.SwipeRequested = value;
     }
     public event Action? SettingsRequested;
     public event Action? LibraryRequested;
@@ -354,6 +375,7 @@ public sealed partial class PlayerView : Grid
         _panelHost.IsVisible = panel is not null;
         _body.IsVisible = panel is null;
         if (panel is TrackLibraryPanel library) library.ScanAnimationChanged += SyncUiFrames;
+        SectionTitleChanged?.Invoke();
         SyncUiFrames();
     }
 
@@ -373,6 +395,7 @@ public sealed partial class PlayerView : Grid
             BackgroundColor = theme[MixerColor.Background];
             _queue.SetTheme(theme);
         }
+        _queue.ListSettings = settings;
         CurrentDeck.SetAppearance(settings, theme);
         IncomingDeck.SetAppearance(settings, theme);
         Spectrum.SetAppearance(theme, settings);
@@ -393,6 +416,7 @@ public sealed partial class PlayerView : Grid
     /// <summary>Reflects playback state and the availability of a prepared incoming track.</summary>
     public void SetTransport(bool canPlay, bool playing, bool canMix, bool canGoBack, bool automix)
     {
+        _queue.SetPlaybackState(playing);
         if (_playIconPlaying != playing)
         {
             _playIconPlaying = playing;

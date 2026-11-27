@@ -10,6 +10,38 @@ public sealed record TrackLibrarySelection(IReadOnlyList<TrackFolderSource> Fold
 public sealed partial class TrackLibraryPanel : ContentView
 {
     private bool _editing;
+    private readonly HashSet<TreeRow> _checkedRows = [];
+    private readonly Button _bulk = MixerStyle.Button("Действия (0)");
+    private Func<IReadOnlyList<TrackLibrarySelection>, Task>? _listActions;
+    private Func<TrackLibrarySelection,ListSwipeAction,Task>? _swipeAction;
+    private PlayerSettings _listSettings = new();
+
+    public void ConfigureListActions(PlayerSettings settings,
+        Func<IReadOnlyList<TrackLibrarySelection>,Task> actions,
+        Func<TrackLibrarySelection,ListSwipeAction,Task> swipe)
+    {
+        _listSettings = settings;
+        _listActions = actions;
+        _swipeAction = swipe;
+    }
+
+    private Task ExecuteListActionAsync(TreeRow row, ListSwipeAction action) =>
+        RunAsync(async () =>
+        {
+            if (action == ListSwipeAction.Menu)
+            {
+                if (_listActions is { } menu) await menu([SelectionFor(row)]);
+            }
+            else if (_swipeAction is { } swipe) await swipe(SelectionFor(row),action);
+            if (!_token.IsCancellationRequested && _local)
+                await ShowRootAsync(await _openLibrary(),local:true,preservePosition:true);
+        }, "Не удалось выполнить действие");
+
+    private void ToggleChecked(TreeRow row)
+    {
+        if (!_checkedRows.Add(row)) _checkedRows.Remove(row);
+        UpdateActions();
+    }
     private readonly TrackListView<TreeRow, LibraryTreeItem> _tree;
     private readonly Func<Task<TrackFolderSource?>> _pickFolder;
     private readonly Func<Task<TrackFolderSource>> _openLibrary;
@@ -63,6 +95,9 @@ public sealed partial class TrackLibraryPanel : ContentView
         var header = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
         _heading.VerticalOptions = LayoutOptions.Center;
         SemanticProperties.SetHeadingLevel(_heading, SemanticHeadingLevel.Level1);
+#if WINDOWS
+        _heading.IsVisible=false;
+#endif
         header.Add(_heading);
         header.Add(back, 1);
         var actions = new Grid
@@ -73,6 +108,19 @@ public sealed partial class TrackLibraryPanel : ContentView
         actions.Add(_pick);
         actions.Add(_saved, 1);
         actions.Add(_edit, 1);
+        actions.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+        actions.Add(_bulk, 2);
+        _bulk.Clicked += async (_, _) =>
+        {
+            if (_checkedRows.Count == 0 || _listActions is not { } menu) return;
+            var selections = _checkedRows.Select(SelectionFor).ToArray();
+            await RunAsync(async () =>
+            {
+                await menu(selections);
+                _checkedRows.Clear();
+                if (!_token.IsCancellationRequested) await ShowRootAsync(await _openLibrary(),local:true,preservePosition:true);
+            }, "Не удалось выполнить действие");
+        };
 
         _message.MaxLines = 2;
         _message.LineBreakMode = LineBreakMode.TailTruncation;
@@ -207,7 +255,10 @@ public sealed partial class TrackLibraryPanel : ContentView
 
     private bool DismissDeleteAction()
     {
-        if (_revealed is not { } row) return false;
+        bool revealed=false;
+        foreach (var realized in _tree.RealizedRows)
+        { revealed|=realized.HasRevealedSwipe;realized.ResetSwipe(); }
+        if (_revealed is not { } row) return revealed;
         _revealed = null;
         GestureRecognizers.Remove(_outsideSwipe);
         row.SetDeleteReveal(0);
@@ -225,6 +276,7 @@ public sealed partial class TrackLibraryPanel : ContentView
         if (!_local || _busy) return;
         DismissDeleteAction();
         _editing = editing;
+        _checkedRows.Clear();
         UpdateActions();
     }
 
@@ -233,6 +285,7 @@ public sealed partial class TrackLibraryPanel : ContentView
         DismissDeleteAction();
         if (!_editing) return;
         _editing = false;
+        _checkedRows.Clear();
         if (!_closed) UpdateActions();
     }
 
@@ -264,6 +317,9 @@ public sealed partial class TrackLibraryPanel : ContentView
     {
         _pick.IsEnabled = _saved.IsEnabled = _edit.IsEnabled = !_busy;
         _edit.IsVisible = _local && _selected is not null;
+        _bulk.IsVisible = _editing;
+        _bulk.IsEnabled = !_busy && _checkedRows.Count > 0;
+        _bulk.Text = $"Действия ({_checkedRows.Count})";
         MixerStyle.SetListEditButton(_edit, _editing);
         _saved.IsVisible = !_local && _selected is not null;
         bool folder = _selected?.File is null;

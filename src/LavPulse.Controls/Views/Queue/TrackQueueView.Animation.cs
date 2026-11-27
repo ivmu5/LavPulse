@@ -110,7 +110,17 @@ internal sealed partial class TrackQueueView
     }
 
     /// <summary>Updates the stable left-side cover outside of a handoff.</summary>
-    public void ShowCurrent(CachedTrack? track) => _current.Show(track);
+    private bool _playingCards;
+    public void ShowCurrent(CachedTrack? track) => _current.Show(track,
+        track is not null && _playingCards ? "Воспроизводится" : "");
+
+    internal void SetPlaybackState(bool playing)
+    {
+        if(_playingCards==playing)return;
+        _playingCards=playing;
+        _current.SetState(playing ? _incoming.IsVisible ? "Воспроизводится · завершение" : "Воспроизводится" : "");
+        if(_incoming.IsVisible)_incoming.SetState(playing ? "Воспроизводится · начало" : "Пауза");
+    }
 
     /// <summary>Expands the selected row into the full incoming card over the queue.</summary>
     public async Task BeginMixAsync(CachedTrack track, TrackFile? file)
@@ -148,7 +158,8 @@ internal sealed partial class TrackQueueView
         CancelTransition();
         _queue.InputTransparent = true;
         _queue.Opacity = 0;
-        _incoming.Show(track, "Сведение");
+        _current.SetState("Воспроизводится · завершение");
+        _incoming.Show(track, "Воспроизводится · начало");
         EndDrag();
         _incoming.TranslationX = _incoming.TranslationY = 0;
         _incoming.ScaleX = _incoming.ScaleY = 1;
@@ -177,13 +188,13 @@ internal sealed partial class TrackQueueView
                 _queue.InputTransparent = false;
                 SyncRowClock();
             }
-            _current.Show(track);
+            ShowCurrent(track);
             refreshQueue();
             return;
         }
         int animation = ++_animation;
         _handoff = true;
-        _incoming.Show(track);
+        _incoming.Show(track,_playingCards ? "Воспроизводится" : "");
         _incoming.ScaleX = _incoming.ScaleY = 1;
         _incoming.TranslationY = 0;
         _incoming.IsVisible = true;
@@ -202,7 +213,7 @@ internal sealed partial class TrackQueueView
             return;
         }
 
-        _current.Show(track);
+        ShowCurrent(track);
         _current.Scale = _current.Opacity = 1;
         _current.TranslationX = _current.TranslationY = 0;
         _incoming.IsVisible = false;
