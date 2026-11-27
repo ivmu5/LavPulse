@@ -56,7 +56,9 @@ internal sealed partial class TrackQueueView
                 else if (!ReferenceEquals(_currentTrack, file)) TrackRequested?.Invoke(file);
             }
         });
-        row.AttachActions(() => row.File, () => CanEditRows && !IsEditing && _dragging is null,
+        // Both playback and editor rows use the same configured swipe actions.
+        // The separate drag handle and checkbox remain independent touch targets.
+        row.AttachActions(() => row.File, () => CanSwipe,
             right => right ? ListSettings.QueueSwipeRight : ListSettings.QueueSwipeLeft,
             action => row.File is { } file && SwipeRequested is { } swipe ? swipe(file,action) : Task.CompletedTask,
             point => row.File is { } file && ActionsRequested is { } menu ? menu([file], point) : Task.CompletedTask,
@@ -174,7 +176,7 @@ internal sealed partial class TrackQueueView
 
     private bool CanEditRows => !_selectionActionRunning && !_showRecommendations && !_queue.InputTransparent && _rowAnimationsEnabled;
     private bool CanDragRows => IsEditing && !_deletingTracks && CanEditRows;
-    private bool CanSwipe => !IsEditing && CanEditRows;
+    private bool CanSwipe => CanEditRows && !_deletingTracks && _dragging is null;
 
     private void OnWindowDeactivated(object? sender, EventArgs args) => DismissDeleteAction();
 
