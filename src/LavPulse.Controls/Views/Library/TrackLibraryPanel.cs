@@ -104,15 +104,15 @@ public sealed partial class TrackLibraryPanel : ContentView
 #endif
         header.Add(_heading);
         header.IsVisible = _heading.IsVisible;
-        var actions = new Grid
+        // Editing belongs to the list, independent of the global library actions.
+        var actions = new HorizontalStackLayout
         {
-            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)],
-            ColumnSpacing = 8
+            HorizontalOptions = LayoutOptions.End,
+            Spacing = 8,
+            Children = { _edit, _bulk }
         };
-        actions.Add(_pick);
-        actions.Add(_edit, 1);
-        actions.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
-        actions.Add(_bulk, 2);
+        _edit.HorizontalOptions = LayoutOptions.End;
+        _bulk.HorizontalOptions = LayoutOptions.End;
         _bulk.Clicked += async (_, _) =>
         {
             if (_checkedRows.Count == 0 || _listActions is not { } menu) return;
@@ -131,6 +131,12 @@ public sealed partial class TrackLibraryPanel : ContentView
         var footer = new VerticalStackLayout { Spacing = 6, Children = { _message, _back } };
         _scanActions = CreateScanActions();
         _scanPanel = CreateScanPanel();
+        var operations = new VerticalStackLayout
+        {
+            Spacing = 8,
+            VerticalOptions = LayoutOptions.Start,
+            Children = { _pick, _scanActions }
+        };
 
         _tree = new TrackListView<TreeRow, LibraryTreeItem>(() => new LibraryTreeItem(this),
             (view, item, _) => view.Bind(item), ReleaseRow);
@@ -154,21 +160,36 @@ public sealed partial class TrackLibraryPanel : ContentView
 #endif
         var layout = new Grid
         {
-            Padding = new Thickness(16, top, 16, 16),
+            Padding = new Thickness(AdaptivePanelLayout.Padding, top, AdaptivePanelLayout.Padding, 16),
             RowSpacing = 8,
             HorizontalOptions = LayoutOptions.Center,
-            MaximumWidthRequest = 660,
+            MaximumWidthRequest = AdaptivePanelLayout.MaximumWidth,
+            ColumnDefinitions = [new(0), new(GridLength.Star), new(0)],
             RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)]
         };
-        layout.Add(header);
-        layout.Add(actions, row: 1);
-        layout.Add(_scanActions, row: 2);
-        layout.Add(new Grid { Children = { _tree, _scanPanel } }, row: 3);
-        layout.Add(footer, row: 4);
+        layout.Add(header, 1, 0);
+        layout.Add(operations, 1, 1);
+        layout.Add(actions, 1, 2);
+        layout.Add(new Grid { Children = { _tree, _scanPanel } }, 1, 3);
+        layout.Add(footer, 1, 4);
         var host = new Grid { Children = { layout } };
+        bool wide = false;
         host.SizeChanged += (_, _) =>
         {
-            if (host.Width > 0) layout.WidthRequest = Math.Min(host.Width, 660);
+            var size = AdaptivePanelLayout.Measure(host.Width, host.Height);
+            if (size.Width <= 0) return;
+            layout.WidthRequest = size.Width;
+            layout.ColumnDefinitions[0].Width = new GridLength(size.SideWidth);
+            layout.ColumnDefinitions[2].Width = new GridLength(size.SideWidth);
+            layout.ColumnSpacing = size.IsWide ? AdaptivePanelLayout.Gap : 0;
+            if (wide == size.IsWide) return;
+            wide = size.IsWide;
+            // Move the existing controls without recreating the list, scan
+            // session, current selection or expanded analysis mode menu.
+            Grid.SetColumn(operations, wide ? 2 : 1);
+            Grid.SetRow(operations, wide ? 2 : 1);
+            Grid.SetRowSpan(operations, wide ? 2 : 1);
+            layout.RowDefinitions[1].Height = wide ? new GridLength(0) : GridLength.Auto;
         };
         Content = host;
         UpdateActions();

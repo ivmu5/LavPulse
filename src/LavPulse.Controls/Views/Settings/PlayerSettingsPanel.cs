@@ -15,6 +15,10 @@ public sealed partial class PlayerSettingsPanel : ContentView
     private readonly Func<Task<string?>>? _openDefaultApps;
     private readonly List<NumericSettingInput> _visibleNumbers = [];
     private readonly Grid _settingsLayout;
+    private readonly ContentView _wideSectionHost = new();
+    private bool _wide;
+    private readonly ScrollView _detailScroll = new() { IsVisible = false };
+    private ContentView ActiveSectionHost => _wide ? _wideSectionHost : _sectionHosts[_activeSection];
     private readonly ContentView _paletteEditorHost = new() { IsVisible = false };
     private PlayerSettings _settings;
     private int _activeSection = -1;
@@ -57,6 +61,9 @@ public sealed partial class PlayerSettingsPanel : ContentView
         header.Add(reset, 1);
 
         var sections = new VerticalStackLayout { Spacing = 8 };
+        var navigation = new ScrollView { Content = sections };
+        _detailScroll.Content = _wideSectionHost;
+        var detail = _detailScroll;
         string[] names = ["Воспроизведение", "Деки и волны", "Темы и цвета", "Интерфейс и FPS", "Мастер-спектр",
             "Анализ треков", "Хранилище", "Отчёты"];
         for (int index = 0; index < names.Length; index++)
@@ -80,7 +87,7 @@ public sealed partial class PlayerSettingsPanel : ContentView
             button.HorizontalOptions = LayoutOptions.Fill;
             button.Clicked += (_, _) => ShowSection(section, commit: true);
             _sectionButtons[index] = button;
-            var content = new ContentView();
+            var content = new ContentView { IsVisible = false };
             _sectionHosts[index] = content;
             sections.Children.Add(button);
             sections.Children.Add(content);
@@ -114,19 +121,60 @@ public sealed partial class PlayerSettingsPanel : ContentView
 #endif
         _settingsLayout = new Grid
         {
-            Padding = new Thickness(16, topInset, 16, 16),
+            Padding = new Thickness(AdaptivePanelLayout.Padding, topInset, AdaptivePanelLayout.Padding, 16),
             RowSpacing = 12,
-            MaximumWidthRequest = 660,
+            MaximumWidthRequest = AdaptivePanelLayout.MaximumWidth,
             HorizontalOptions = LayoutOptions.Center,
+            ColumnDefinitions = [new(0), new(GridLength.Star), new(0)],
             RowDefinitions = [new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)]
         };
-        _settingsLayout.Add(header);
-        _settingsLayout.Add(new ScrollView { Content = sections }, row: 1);
-        _settingsLayout.Add(actions, row: 2);
+        _settingsLayout.Add(header, 1, 0);
+        _settingsLayout.Add(navigation, 1, 1);
+        _settingsLayout.Add(detail, 1, 1);
+        _settingsLayout.Add(actions, 1, 2);
         var host = new Grid { Children = { _settingsLayout, _paletteEditorHost } };
         host.SizeChanged += (_, _) =>
         {
-            if (host.Width > 0) _settingsLayout.WidthRequest = Math.Min(host.Width, 660);
+            var size = AdaptivePanelLayout.Measure(host.Width, host.Height);
+            if (size.Width <= 0) return;
+            _settingsLayout.WidthRequest = size.Width;
+            _settingsLayout.ColumnDefinitions[0].Width = new GridLength(size.SideWidth);
+            _settingsLayout.ColumnDefinitions[2].Width = new GridLength(size.SideWidth);
+            _settingsLayout.ColumnSpacing = size.IsWide ? AdaptivePanelLayout.Gap : 0;
+            if (_wide == size.IsWide) return;
+
+            // Reparent only the current section, never rebuild the preference
+            // controls or discard their pending edits on rotation.
+            View? current = null;
+            if (_activeSection >= 0)
+            {
+                CommitVisibleNumbers();
+                current = ActiveSectionHost.Content;
+                ActiveSectionHost.Content = null;
+                _sectionHosts[_activeSection].IsVisible = false;
+            }
+            _wide = size.IsWide;
+            Grid.SetColumn(navigation, _wide ? 0 : 1);
+            detail.IsVisible = _wide;
+            if (_activeSection >= 0)
+            {
+                _sectionHosts[_activeSection].IsVisible = !_wide;
+                ActiveSectionHost.Content = current;
+            }
+            // Reset is an action, not a navigation item.
+            if (_wide)
+            {
+                header.Children.Remove(reset);
+                reset.VerticalOptions = LayoutOptions.Start;
+                _settingsLayout.Add(reset, 2, 1);
+            }
+            else
+            {
+                _settingsLayout.Children.Remove(reset);
+                reset.VerticalOptions = LayoutOptions.Center;
+                header.Add(reset, 1);
+            }
+            header.IsVisible = !_wide || heading.IsVisible;
         };
         Content = host;
 
@@ -141,10 +189,15 @@ public sealed partial class PlayerSettingsPanel : ContentView
         if (index == _activeSection && commit) return;
         if (commit) CommitVisibleNumbers();
         _loading = true;
-        if (_activeSection >= 0) _sectionHosts[_activeSection].Content = null;
+        if (_activeSection >= 0)
+        {
+            ActiveSectionHost.Content = null;
+            _sectionHosts[_activeSection].IsVisible = false;
+        }
         _visibleNumbers.Clear();
         _activeSection = index;
-        _sectionHosts[index].Content = index switch
+        _sectionHosts[index].IsVisible = !_wide;
+        ActiveSectionHost.Content = index switch
         {
             0 => CreatePlaybackSection(),
             1 => CreateDeckSection(),
@@ -162,6 +215,13 @@ public sealed partial class PlayerSettingsPanel : ContentView
             _sectionButtons[section].FontAttributes = selected ? FontAttributes.Bold : FontAttributes.None;
         }
         _loading = false;
+        if (_wide) _ = ScrollSectionToStartAsync();
+    }
+
+    private async Task ScrollSectionToStartAsync()
+    {
+        try { await _detailScroll.ScrollToAsync(0, 0, false); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }
     }
 
     private void CommitVisibleNumbers()
