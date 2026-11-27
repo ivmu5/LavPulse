@@ -119,16 +119,20 @@ internal static partial class Program
 
     private static void CheckAdaptivePanelLayout()
     {
-        Require(AdaptivePanelLayout.PlaybackCoverWidth(640) >= 116 &&
-            AdaptivePanelLayout.PlaybackCoverWidth(1164) == 220 &&
+        Require(AdaptivePanelLayout.PlaybackSideWidth(640) == 160 &&
+            AdaptivePanelLayout.PlaybackSideWidth(1164) == 220 &&
             PlayerMotion.TrackHandoffMilliseconds == 280 &&
             PlayerMotion.Ease(0) == 0 && PlayerMotion.Ease(1) == 1,
             "Playback artwork rail or local handoff endpoints changed.");
+        double previousDeckWidth = 0;
         for (int width = 608; width <= 1164; width++)
         {
-            double remaining = width - AdaptivePanelLayout.PlaybackCoverWidth(width) - 20;
-            Require(remaining / 2.35 >= 190 && remaining * 1.35 / 2.35 >= 250,
-                "Landscape player squeezed the queue or central decks.");
+            double side = AdaptivePanelLayout.PlaybackSideWidth(width);
+            double center = width - 2 * side - 20;
+            Require(side >= 160 && center >= 268 && center >= previousDeckWidth &&
+                Math.Abs(side + 10 + center / 2 - width / 2d) < .001,
+                "Landscape deck was off center, shrank during expansion, or squeezed the side rails.");
+            previousDeckWidth = center;
         }
         Require(AdaptivePanelLayout.UseSplitPlayer(740, 360) &&
             !AdaptivePanelLayout.UseSplitPlayer(390, 780) &&

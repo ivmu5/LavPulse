@@ -105,7 +105,7 @@ internal sealed partial class TrackQueueView
             _state.IsVisible=state.Length>0;
         }
 
-        private static string FormatAudioInfo(TrackAudioInfo audio)
+        public static string FormatAudioInfo(TrackAudioInfo audio, bool compact = false)
         {
             string mode = audio.ChannelMode switch
             {
@@ -115,7 +115,9 @@ internal sealed partial class TrackQueueView
                 _ => audio.ChannelMode.ToString()
             };
             string bitrate = audio.IsVariableBitrate ? $"{audio.BitrateKbps} kbps · VBR" : $"{audio.BitrateKbps} kbps";
-            return $"{audio.Codec}\n{audio.SampleRate / 1000d:0.###} kHz\n{bitrate}\n{mode}";
+            return compact
+                ? $"{audio.Codec} · {audio.SampleRate / 1000d:0.###} kHz\n{bitrate} · {mode}"
+                : $"{audio.Codec}\n{audio.SampleRate / 1000d:0.###} kHz\n{bitrate}\n{mode}";
         }
 
         /// <summary>Fits the artwork and leaves the full column width for the title and artist.</summary>
@@ -129,7 +131,7 @@ internal sealed partial class TrackQueueView
             if (_audioInfo is not null)
             {
                 // In the narrow artwork rail, the cover takes precedence.
-                // Keep the metadata accessible without squeezing it alongside.
+                // The central column displays the technical audio metadata.
                 _audioInfo.IsVisible = !compact && _displayed?.AudioInfo is not null;
                 _coverRow.ColumnDefinitions[1].Width = compact ? new GridLength(0) : GridLength.Star;
              }

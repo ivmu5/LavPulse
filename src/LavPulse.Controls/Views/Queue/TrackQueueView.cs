@@ -13,6 +13,14 @@ internal sealed partial class TrackQueueView : Grid
     private TrackCard _incoming = new(TextAlignment.Start, showAudioInfo: true);
     private readonly Grid _coverHost = new() { IsClippedToBounds = true };
     private View? _centerDeck;
+    private readonly Grid _centerHost = new()
+    {
+        RowDefinitions = [new(GridLength.Auto), new(GridLength.Star)],
+        RowSpacing = 6,
+        IsClippedToBounds = true
+    };
+    private readonly Label _centerAudioInfo = MixerStyle.Label("", MixerStyle.PhoneFont(12, 11), MixerColor.Muted);
+    private CachedTrack? _centerInfoTrack;
     private readonly VerticalStackLayout _queue;
     private readonly View _feedSelector;
     private readonly Grid _right;
@@ -172,15 +180,59 @@ internal sealed partial class TrackQueueView : Grid
             _recommendationsTab.Text = iconOnly ? "" : "Рекомендации";
         };
         _coverHost.SizeChanged += (_, _) => ResizePlaybackCovers();
+        _centerAudioInfo.IsVisible = false;
+        _centerAudioInfo.LineBreakMode = LineBreakMode.WordWrap;
+        _centerAudioInfo.MaxLines = 3;
+        _centerAudioInfo.HorizontalTextAlignment = TextAlignment.Center;
+        _centerAudioInfo.VerticalOptions = LayoutOptions.Start;
+        _centerHost.Add(_centerAudioInfo);
+        _centerHost.SizeChanged += (_, _) => UpdateCenterDeckViewport();
+        _centerAudioInfo.SizeChanged += (_, _) => UpdateCenterDeckViewport();
     }
 
     internal void SetCenterDeck(View? deck)
     {
         if (ReferenceEquals(_centerDeck, deck)) return;
-        if (_centerDeck is not null) Children.Remove(_centerDeck);
+        if (_centerDeck is not null)
+        {
+            _centerHost.Children.Remove(_centerDeck);
+            _centerDeck.VerticalOptions = LayoutOptions.Fill;
+            Children.Remove(_centerHost);
+        }
         _centerDeck = deck;
-        if (deck is not null) this.Add(deck, 1);
+        if (deck is not null)
+        {
+            // The waveform scroll view fills the width of the bounded star
+            // row, anchored at its lower edge above the transport controls.
+            deck.HorizontalOptions = LayoutOptions.Fill;
+            deck.VerticalOptions = LayoutOptions.End;
+            _centerHost.Add(deck, row: 1);
+            this.Add(_centerHost, 1);
+            UpdateCenterAudioInfo();
+        }
         UpdatePlaybackColumns();
+    }
+
+    private void UpdateCenterAudioInfo()
+    {
+        var track = _current.Displayed;
+        if (!ReferenceEquals(_centerInfoTrack, track))
+        {
+            _centerInfoTrack = track;
+            _centerAudioInfo.Text = track is null ? "" : track.AudioInfo is { } audio
+                ? TrackCard.FormatAudioInfo(audio, compact: true)
+                : "Параметры аудиофайла недоступны";
+            _centerAudioInfo.IsVisible = track is not null;
+        }
+        UpdateCenterDeckViewport();
+    }
+
+    private void UpdateCenterDeckViewport()
+    {
+        if (_centerDeck is not { } deck || _centerHost.Height <= 0) return;
+        double header = _centerAudioInfo.IsVisible ? Math.Max(0, _centerAudioInfo.Height) : 0;
+        double available = Math.Max(0, _centerHost.Height - header - _centerHost.RowSpacing);
+        if (deck.MaximumHeightRequest != available) deck.MaximumHeightRequest = available;
     }
 
     private void UpdatePlaybackColumns()
@@ -188,10 +240,12 @@ internal sealed partial class TrackQueueView : Grid
         if (IsEditing) return;
         bool split = _centerDeck is not null;
         ColumnSpacing = split ? 10 : 0;
-        double cover = split ? AdaptivePanelLayout.PlaybackCoverWidth(Width) : 0;
-        SetColumnWidth(0, split ? new GridLength(cover) : GridLength.Star);
-        SetColumnWidth(1, split ? new GridLength(1.35, GridUnitType.Star) : new GridLength(0));
-        SetColumnWidth(2, GridLength.Star);
+        // Equal outer rails guarantee that the center of both waveforms
+        // coincides with the center of the player at every window width.
+        double rail = split ? AdaptivePanelLayout.PlaybackSideWidth(Width) : 0;
+        SetColumnWidth(0, split ? new GridLength(rail) : GridLength.Star);
+        SetColumnWidth(1, split ? GridLength.Star : new GridLength(0));
+        SetColumnWidth(2, split ? new GridLength(rail) : GridLength.Star);
         // With a collapsed middle column, add only one real gutter.
         _right.Margin = split ? new Thickness(0) : new Thickness(MixerStyle.IsPhone ? 12 : 16, 0, 0, 0);
         ResizePlaybackCovers();
