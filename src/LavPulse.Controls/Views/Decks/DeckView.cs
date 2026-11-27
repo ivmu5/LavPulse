@@ -237,10 +237,15 @@ public sealed partial class DeckView : Border
     /// <summary>Keeps the last visible playhead while the deck leaves the screen.</summary>
     internal void FreezeForExit()
     {
-        if (_track is { } track)
-        {
-            Show(new PlayingTrack(track, _position, _deck, _playhead.Speed), false, showOverview: false);
-        }
+        if (_track is null) return;
+        // Preserve the measured outgoing waveform until the containing slot
+        // collapses. Do not abruptly hide the overview on a manual skip.
+        _canSeek = false;
+        _detail.InputTransparent = _overview.InputTransparent = true;
+        CancelScrub();
+        _overviewAnimating = false;
+        _overviewStart = null;
+        _overviewTarget = _overviewProgress;
     }
 
     /// <summary>Updates the playhead and gesture availability with the overview visible.</summary>

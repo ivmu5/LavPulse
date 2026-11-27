@@ -181,10 +181,9 @@ public sealed partial class MainPage
         }
 
         _armed = file;
-        if (!_view.IsHandingOff)
-        {
-            UpdateQueue();
-        }
+        // Cover motion no longer hides the feed; reflect the newly armed
+        // track immediately even while the artwork crossfade is running.
+        UpdateQueue();
         return true;
     }
 

@@ -119,6 +119,17 @@ internal static partial class Program
 
     private static void CheckAdaptivePanelLayout()
     {
+        Require(AdaptivePanelLayout.PlaybackCoverWidth(640) >= 116 &&
+            AdaptivePanelLayout.PlaybackCoverWidth(1164) == 220 &&
+            PlayerMotion.TrackHandoffMilliseconds == 280 &&
+            PlayerMotion.Ease(0) == 0 && PlayerMotion.Ease(1) == 1,
+            "Playback artwork rail or local handoff endpoints changed.");
+        for (int width = 608; width <= 1164; width++)
+        {
+            double remaining = width - AdaptivePanelLayout.PlaybackCoverWidth(width) - 20;
+            Require(remaining / 2.35 >= 190 && remaining * 1.35 / 2.35 >= 250,
+                "Landscape player squeezed the queue or central decks.");
+        }
         Require(AdaptivePanelLayout.UseSplitPlayer(740, 360) &&
             !AdaptivePanelLayout.UseSplitPlayer(390, 780) &&
             !AdaptivePanelLayout.UseSplitPlayer(600, 360) &&
