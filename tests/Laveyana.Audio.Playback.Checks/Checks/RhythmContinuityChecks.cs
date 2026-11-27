@@ -77,7 +77,43 @@ internal static partial class Program
         Require(!evidence.ChoosePhase(0, 40, 150, 0, 1000, true).Alternate,
             "A strong phase anchor was overwritten.");
         CheckBassOctave();
+        CheckSpectralHypotheses();
         Console.WriteLine("OK: evidence-gated octave correction, isolated window recovery and local phase refinement.");
+    }
+
+    private static void CheckSpectralHypotheses()
+    {
+        const int hop = RhythmSpectralFlux.Hop;
+        // 150 BPM fast pulse with alternating accents, 75 BPM reference.
+        var flux = Enumerable.Range(0, 600).Select(i =>
+        {
+            float hit = i % 20 == 4 ? (i % 40 == 4 ? 1 : .8f) : 0;
+            return new RhythmSpectrumFrame(1024 + (long)i * hop, hit, hit, hit, hit, hit);
+        }).ToArray();
+        long total = 1024 + 600L * hop;
+        var reference = new TrackBeatGrid(75, 0, .5f, []);
+        var hypotheses = RhythmHypothesisAnalyzer.Analyze(flux, reference, total, default);
+        Require(hypotheses.Any(h => Math.Abs(h.Bpm - 150) < 3) &&
+            hypotheses.Any(h => Math.Abs(h.Bpm - 75) < 3) &&
+            hypotheses.Count(h => h.IsPreferred) == 1 &&
+            RhythmHypothesisAnalyzer.IsValid(hypotheses, total),
+            "Independent spectral candidates lost the tempo family or their frame bounds.");
+        Require(RhythmHypothesisAnalyzer.Analyze(flux.Select(f => f with
+            { Sub = 0, Bass = 0, LowMid = 0, Mid = 0, High = 0 }).ToArray(),
+            reference, total, default).Length == 0, "Silence generated spectral hypotheses.");
+        var stream = new RhythmSpectralFlux();
+        var pcm = new float[8192 * 2];
+        for (int i = 0; i < pcm.Length / 2; i++)
+        {
+            float value = .5f * MathF.Sin(MathF.Tau * 100 * i / PlaybackFormat.SampleRate);
+            pcm[2*i] = value; pcm[2*i+1] = -value;
+        }
+        stream.Add(pcm.AsSpan(0, 2000), default);
+        stream.Add(pcm.AsSpan(2000), default);
+        Require(stream.Frames.Count == 7 && stream.Frames[0].Frame == 1024 &&
+            stream.Frames.Zip(stream.Frames.Skip(1)).All(p => p.Second.Frame - p.First.Frame == hop) &&
+            stream.Frames.Skip(1).Any(f => f.Bass > 0),
+            "Stereo spectral stream lost anti-phase energy or hop alignment.");
     }
 
     private static void CheckBassOctave()

@@ -57,6 +57,7 @@ public static partial class TrackRhythmAnalyzer
             window.Confidence >= 0 && window.Confidence <= 1 && window.OnsetCount >= 0 &&
             window.SubdivisionFactor is >= 1 and <= 4) &&
         SectionsContainBeats(sections, beats) &&
+        RhythmHypothesisAnalyzer.IsValid(rhythm.RhythmHypotheses, totalFrames) &&
         rhythm.CandidateOnsets >= 0 &&
         rhythm.OnsetDiagnostics is { Length: <= MaximumStoredTransients } diagnostics &&
         diagnostics.All(hit => hit.Frame >= 0 && hit.Frame < totalFrames &&
@@ -124,6 +125,7 @@ public static partial class TrackRhythmAnalyzer
         {
             trace.HopFrames = framesPerHop;
             trace.Energy = energy;
+            trace.SpectralFlux = [];
             trace.Onsets = [];
             trace.TempoScores = null;
             trace.RawTempoScores = null;

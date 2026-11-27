@@ -27,6 +27,10 @@ internal static class TrackDiagnosticCsv
         await Write(zip, prefix + "energy.csv",
             Rows("frame,low,mid,high", trace.Energy.Select((e, i) =>
                 FormattableString.Invariant($"{(long)i * trace.HopFrames},{e.Low:R},{e.Mid:R},{e.High:R}"))), token).ConfigureAwait(false);
+        await Write(zip, prefix + "spectral-flux.csv",
+            Rows("frame,sub_20_60,bass_60_150,low_mid_150_400,mid_400_2000,high_2000_16000",
+                trace.SpectralFlux.Select(f => FormattableString.Invariant(
+                    $"{f.Frame},{f.Sub:R},{f.Bass:R},{f.LowMid:R},{f.Mid:R},{f.High:R}"))), token).ConfigureAwait(false);
         await Write(zip, prefix + "onsets.csv",
             Rows("frame,strength,accent", trace.Onsets.Select(o =>
                 FormattableString.Invariant($"{o.Frame},{o.Strength:R},{o.Accent:R}"))), token).ConfigureAwait(false);
@@ -51,6 +55,13 @@ internal static class TrackDiagnosticCsv
         }
         if (grid is not null)
         {
+            await Write(zip, prefix + "rhythm-hypotheses.csv", Rows(
+                "id,start_frame,end_frame_exclusive,bpm,reference_bpm,tempo_confidence,phase_confidence,stability,coverage,score,preferred",
+                grid.RhythmHypotheses.Select((h,i) => FormattableString.Invariant(
+                    $"{i},{h.StartFrame},{h.EndFrame},{h.Bpm:R},{h.ReferenceBpm:R},{h.TempoConfidence:R},{h.PhaseConfidence:R},{h.Stability:R},{h.Coverage:R},{h.Score:R},{(h.IsPreferred ? 1 : 0)}"))), token).ConfigureAwait(false);
+            await Write(zip, prefix + "hypothesis-beats.csv", Rows("id,frame",
+                grid.RhythmHypotheses.SelectMany((h,i) => h.CandidateFrames.Select(f =>
+                    FormattableString.Invariant($"{i},{f}")))), token).ConfigureAwait(false);
             await Write(zip, prefix + "beats.csv", Rows("frame",
                 grid.BeatFrames.Select(Frame)), token).ConfigureAwait(false);
             await Write(zip, prefix + "predicted-beats.csv", Rows("frame",

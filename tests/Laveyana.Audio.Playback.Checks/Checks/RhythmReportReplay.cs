@@ -41,6 +41,28 @@ internal static class RhythmReportReplay
             var watch = System.Diagnostics.Stopwatch.StartNew();
             long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
             var grid = TrackRhythmAnalyzer.AnalyzeEnergy(energy, hop, total);
+            if (zip.GetEntry(prefix + "diagnostics/spectral-flux.csv") is { } spectrum)
+            {
+                using var spectralReader = new StreamReader(spectrum.Open());
+                if (spectralReader.ReadLine() != "frame,sub_20_60,bass_60_150,low_mid_150_400,mid_400_2000,high_2000_16000")
+                    throw new InvalidDataException("Unexpected spectral flux schema.");
+                var flux = new List<RhythmSpectrumFrame>();
+                while (spectralReader.ReadLine() is { } row)
+                {
+                    string[] cells = row.Split(',');
+                    if (cells.Length != 6 || flux.Count >= RhythmSpectralFlux.MaxFrames)
+                        throw new InvalidDataException("Invalid spectral flux row.");
+                    long frame = long.Parse(cells[0], CultureInfo.InvariantCulture);
+                    float Band(int i) => float.Parse(cells[i], CultureInfo.InvariantCulture);
+                    var item = new RhythmSpectrumFrame(frame, Band(1), Band(2), Band(3), Band(4), Band(5));
+                    if (frame < 0 || frame >= total ||
+                        flux.Count > 0 && frame - flux[^1].Frame != RhythmSpectralFlux.Hop ||
+                        Enumerable.Range(0,5).Any(b => !float.IsFinite(item.Band(b)) || item.Band(b) < 0))
+                        throw new InvalidDataException("Invalid spectral flux sequence.");
+                    flux.Add(item);
+                }
+                grid = grid with { RhythmHypotheses = RhythmHypothesisAnalyzer.Analyze(flux, grid, total, default) };
+            }
             watch.Stop();
             long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
             if (!TrackRhythmAnalyzer.IsValid(grid, total)) throw new InvalidDataException("Invalid new grid.");
@@ -65,6 +87,14 @@ internal static class RhythmReportReplay
                             long.Parse(columns[startColumn], CultureInfo.InvariantCulture);
                     }
             }
+            if (grid.RhythmHypotheses.Length > 0)
+            {
+                var preferred = grid.RhythmHypotheses.Where(h => h.IsPreferred).SelectMany(h => h.CandidateFrames)
+                    .Order().Distinct().ToArray();
+                Console.WriteLine(FormattableString.Invariant(
+                    $"  spectral hypotheses {grid.RhythmHypotheses.Length}, preferred candidate taps 100/180ms {Close(preferred)}/{Close180(preferred)} of {taps.Length} (unconfirmed)"));
+            }
+            else Console.WriteLine("  No spectral hypotheses; old report or insufficient evidence.");
             int ClosePredicted = Close(grid.PredictedBeatFrames);
             long covered = grid.Sections.Sum(s => s.EndFrame - s.StartFrame);
             Console.WriteLine(FormattableString.Invariant(
