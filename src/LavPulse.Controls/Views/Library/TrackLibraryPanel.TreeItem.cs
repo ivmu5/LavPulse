@@ -48,7 +48,7 @@ public sealed partial class TrackLibraryPanel
             {
                 VerticalOptions = LayoutOptions.Center,
                 Spacing = 2,
-                Children = { _title, _details, _analysisState }
+                Children = { _title, _details }
             });
             SetActionWidth(GridLength.Auto);
             _size.VerticalOptions = LayoutOptions.Center;
@@ -85,11 +85,22 @@ public sealed partial class TrackLibraryPanel
             {
                 if (_row is { } row) await _panel.ImportItemAsync(row, addToQueue: false);
             };
+            _analysisState.HorizontalTextAlignment = TextAlignment.End;
+            _analysisState.FontSize = MixerStyle.PhoneFont(9, 8);
+            _analysisState.LineBreakMode = LineBreakMode.NoWrap;
+            _analysisState.Padding = new Thickness(4, 1);
+            MixerStyle.UseColor(_analysisState, BackgroundColorProperty, MixerColor.Selected);
+            var status = new VerticalStackLayout
+            {
+                Spacing = 1, VerticalOptions = LayoutOptions.Center,
+                HorizontalOptions = LayoutOptions.End,
+                Children = { _size, _analysisState }
+            };
             SetActions(new HorizontalStackLayout
             {
                 Spacing = 4,
                 VerticalOptions = LayoutOptions.Center,
-                Children = { _size, _add, _import }
+                Children = { status, _add, _import }
             });
             EnableDelete();
             DeleteRequested += async () =>
@@ -154,7 +165,7 @@ public sealed partial class TrackLibraryPanel
             }
             row.Changed += UpdateRow;
             row.MetadataChanged += LoadMetadata;
-            Margin = new Thickness(Math.Min(9, row.Depth) * 12, 0, 0, 0);
+            Margin = new Thickness(Math.Min(MixerStyle.IsPhone ? 3 : 6, row.Depth) * 8, 0, 0, 0);
             bool folder = row.File is null;
             _folder.IsVisible = folder;
             ShowCover(!folder);

@@ -94,7 +94,9 @@ public sealed partial class PlayerSettingsPanel : ContentView
         }
 
         var save = MixerStyle.Button("Сохранить", primary: true, icon: "player_confirm.png");
-        var cancel = MixerStyle.Button("Отмена", icon: "player_cancel.png");
+        var cancel = MixerStyle.IconButton("player_cancel.png", 44);
+            SemanticProperties.SetDescription(cancel, "Отмена");
+            ToolTipProperties.SetText(cancel, "Отмена");
         save.Clicked += (_, _) =>
         {
             CommitVisibleNumbers();
@@ -102,9 +104,9 @@ public sealed partial class PlayerSettingsPanel : ContentView
             dismiss();
         };
         cancel.Clicked += (_, _) => dismiss();
-        var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)], ColumnSpacing = 8 };
-        actions.Add(cancel);
-        actions.Add(save, 1);
+        var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
+        actions.Add(save);
+        actions.Add(cancel, 1);
 
         int topInset = 16;
 #if WINDOWS

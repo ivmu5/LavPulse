@@ -92,7 +92,10 @@ public sealed partial class TrackLibraryPanel
             RowSpacing = 8,
             RowDefinitions = [new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)]
         };
-        panel.Add(new VerticalStackLayout { Spacing = 6, Children = { _scanPosition, _scanProgress } });
+        var scanHeader = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 6 };
+        scanHeader.Add(new VerticalStackLayout { Spacing = 6, Children = { _scanPosition, _scanProgress } });
+        scanHeader.Add(_stopScan, 1);
+        panel.Add(scanHeader);
         _scanScroll = new TrackListView<TrackScanHistory.Entry, LibraryTreeItem>(
             () => new LibraryTreeItem(this, track => _scanBatch?.Skip(track)),
             (row, entry, _) => row.BindScan(entry),
@@ -120,7 +123,17 @@ public sealed partial class TrackLibraryPanel
         _scanScroll.ContentSizeChanged += FollowScanHead;
         _scanScroll.SizeChanged += (_, _) => FollowScanHead();
         panel.Add(_scanScroll, row: 1);
-        panel.Add(_stopScan, row: 2);
+        var done = MixerStyle.Button("Готово", primary: true, icon: "player_confirm.png");
+        done.IsVisible = false;
+        done.Clicked += (_, _) => _scanDone?.TrySetResult();
+        _stopScan.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName != nameof(Button.Text)) return;
+            bool finished = _stopScan.Text == "Готово";
+            _stopScan.IsVisible = !finished;
+            done.IsVisible = finished;
+        };
+        panel.Add(done, row: 2);
         return panel;
     }
 
@@ -132,6 +145,8 @@ public sealed partial class TrackLibraryPanel
         ClearScanRows();
         _stopScan.Text = "Остановить";
         _scanActions.IsVisible = _tree.IsVisible = false;
+        RefreshPinnedParents();
+        _back.IsVisible = false;
         _scanPanel.IsVisible = true;
         _scanScroll.IsEnabled = _stopScan.IsEnabled = true;
         _scanPosition.Text = "Подготовка к анализу…";

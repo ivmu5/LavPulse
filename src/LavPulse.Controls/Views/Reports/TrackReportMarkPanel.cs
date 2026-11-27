@@ -116,7 +116,9 @@ public sealed class TrackReportMarkPanel : ContentView
         main.Add(MixerStyle.Label(mode == TrackMarkMode.Problem ? "Комментарий" : "Наблюдение", 12));
         main.Add(_comment);
         var saveButton = MixerStyle.Button("Добавить в отчёт", primary: true);
-        var cancel = MixerStyle.Button("Отмена");
+        var cancel = MixerStyle.IconButton("player_cancel.png", 44);
+            SemanticProperties.SetDescription(cancel, "Отмена");
+            ToolTipProperties.SetText(cancel, "Отмена");
         cancel.Clicked += (_, _) => dismiss();
         saveButton.Clicked += async (_, _) =>
         {
@@ -156,9 +158,9 @@ public sealed class TrackReportMarkPanel : ContentView
             }
             finally { saveButton.IsEnabled = true; }
         };
-        var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)], ColumnSpacing = 8 };
-        actions.Add(cancel);
-        actions.Add(saveButton, 1);
+        var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
+        actions.Add(saveButton);
+        actions.Add(cancel, 1);
         var container = new Grid
         {
             Padding = new Thickness(16, 18),

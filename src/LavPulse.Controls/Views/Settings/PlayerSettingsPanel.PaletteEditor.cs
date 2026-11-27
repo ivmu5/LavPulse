@@ -52,7 +52,7 @@ public sealed partial class PlayerSettingsPanel
             MinimumWidthRequest = 110
         };
         private readonly Label _validation = MixerStyle.Label("Формат цвета: #RRGGBB", 12, MixerColor.Preview);
-        private readonly Button _apply = MixerStyle.Button("Применить", primary: true);
+        private readonly Button _apply = MixerStyle.Button("Сохранить", primary: true, icon: "player_confirm.png");
         private readonly PlayerSettings _spectrumAppearance;
         private readonly PlayerSettings _appearance;
         private readonly SpectrumDrawable _spectrum;
@@ -131,12 +131,14 @@ public sealed partial class PlayerSettingsPanel
             inputs.Add(MixerStyle.Label("Мастер-спектр", 13));
             inputs.Add(_preview);
 
-            var cancel = MixerStyle.Button("Отмена");
+            var cancel = MixerStyle.IconButton("player_cancel.png", 44);
+            SemanticProperties.SetDescription(cancel, "Отмена");
+            ToolTipProperties.SetText(cancel, "Отмена");
             cancel.Clicked += (_, _) => dismiss();
             _apply.Clicked += (_, _) => apply(_colors);
-            var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)], ColumnSpacing = 8 };
-            actions.Add(cancel);
-            actions.Add(_apply, 1);
+            var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
+            actions.Add(_apply);
+            actions.Add(cancel, 1);
 
             var layout = new Grid { RowDefinitions = [new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)], RowSpacing = 10 };
             layout.Add(heading);

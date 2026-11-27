@@ -56,6 +56,7 @@ public sealed partial class TrackLibraryPanel : ContentView
     private readonly Button _pick = MixerStyle.Button("Папка", icon: "player_folder.png");
     private readonly Button _saved = MixerStyle.Button("Медиатека");
     private readonly Button _edit = MixerStyle.Button("Редактирование", icon: "player_edit.png");
+    private readonly Button _back = MixerStyle.Button("Назад", primary: true, icon: "player_confirm.png");
     private readonly TapGestureRecognizer _outsideSwipe = new();
     private LibraryTreeItem? _revealed;
     private bool _local;
@@ -87,8 +88,12 @@ public sealed partial class TrackLibraryPanel : ContentView
         _session = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
         _token = _session.Token;
 
-        var back = MixerStyle.Button("Назад");
-        back.Clicked += (_, _) => close();
+        _back.Clicked += (_, _) =>
+        {
+            if (_editing) { SetEditing(false); return; }
+            if (TryReturnToSavedLibrary()) return;
+            close();
+        };
         _pick.Clicked += async (_, _) => await RunAsync(PickAsync, "Не удалось открыть папку");
         _saved.Clicked += (_, _) => TryReturnToSavedLibrary();
         _edit.Clicked += (_, _) => SetEditing(!_editing);
@@ -99,14 +104,13 @@ public sealed partial class TrackLibraryPanel : ContentView
         _heading.IsVisible=false;
 #endif
         header.Add(_heading);
-        header.Add(back, 1);
+        header.IsVisible = _heading.IsVisible;
         var actions = new Grid
         {
             ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)],
             ColumnSpacing = 8
         };
         actions.Add(_pick);
-        actions.Add(_saved, 1);
         actions.Add(_edit, 1);
         actions.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
         actions.Add(_bulk, 2);
@@ -125,14 +129,8 @@ public sealed partial class TrackLibraryPanel : ContentView
         _message.MaxLines = 2;
         _message.LineBreakMode = LineBreakMode.TailTruncation;
         _message.VerticalOptions = LayoutOptions.Center;
-        var footer = new Grid
-        {
-            RowDefinitions = [new(32), new(GridLength.Auto)],
-            ColumnDefinitions = [new(GridLength.Star)]
-        };
-        footer.Add(_message);
+        var footer = new VerticalStackLayout { Spacing = 6, Children = { _message, _back } };
         _scanActions = CreateScanActions();
-        footer.Add(_scanActions, row: 1);
         _scanPanel = CreateScanPanel();
 
         _tree = new TrackListView<TreeRow, LibraryTreeItem>(() => new LibraryTreeItem(this),
@@ -142,6 +140,7 @@ public sealed partial class TrackLibraryPanel : ContentView
             double previous = _scrollOffset;
             if (args.ScrollY != previous) DismissDeleteAction();
             _scrollOffset = Math.Max(0, args.ScrollY);
+            RefreshPinnedParents();
             if (!_busy && _scrollOffset < previous && _tree.EndPadding > 0)
                 KeepScrollOffset(_rows.Count);
         };
@@ -161,12 +160,20 @@ public sealed partial class TrackLibraryPanel : ContentView
             RowSpacing = 8,
             HorizontalOptions = LayoutOptions.Center,
             MaximumWidthRequest = 660,
-            RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)]
+            RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)]
         };
         layout.Add(header);
         layout.Add(actions, row: 1);
-        layout.Add(new Grid { Children = { _tree, _scanPanel } }, row: 2);
-        layout.Add(footer, row: 3);
+        layout.Add(_scanActions, row: 2);
+        var treeHost = new Grid
+        {
+            RowDefinitions = [new(GridLength.Auto), new(GridLength.Star)],
+            RowSpacing = 4
+        };
+        treeHost.Add(CreatePinnedParents());
+        treeHost.Add(_tree, row: 1);
+        layout.Add(new Grid { Children = { treeHost, _scanPanel } }, row: 3);
+        layout.Add(footer, row: 4);
         var host = new Grid { Children = { layout } };
         host.SizeChanged += (_, _) =>
         {
@@ -212,6 +219,8 @@ public sealed partial class TrackLibraryPanel : ContentView
         ResetEditing();
         ClearScanRows();
         _tree.SetItems([]);
+        _parents = [];
+        RefreshPinnedParents();
         _session.Dispose();
     }
 
@@ -316,12 +325,16 @@ public sealed partial class TrackLibraryPanel : ContentView
     private void UpdateActions()
     {
         _pick.IsEnabled = _saved.IsEnabled = _edit.IsEnabled = !_busy;
-        _edit.IsVisible = _local && _selected is not null;
+        _edit.IsVisible = _local && _selected is not null && !_editing;
+        _back.Text = _editing ? "Готово" : "Назад";
+        _back.IsEnabled = !_busy;
+        _back.IsVisible = _scanBatch is null;
+        RefreshPinnedParents();
         _bulk.IsVisible = _editing;
         _bulk.IsEnabled = !_busy && _checkedRows.Count > 0;
         _bulk.Text = $"Действия ({_checkedRows.Count})";
         MixerStyle.SetListEditButton(_edit, _editing);
-        _saved.IsVisible = !_local && _selected is not null;
+        _saved.IsVisible = false;
         bool folder = _selected?.File is null;
         _scanActions.IsVisible = _local && _scanBatch is null;
         _scanActions.IsEnabled = !_busy && _selected is not null;

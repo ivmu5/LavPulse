@@ -89,9 +89,7 @@ public sealed class EqualizerPanel : ContentView
         };
         var close = MixerStyle.Button("Готово", primary: true, icon: "player_confirm.png");
         close.Clicked += (_, _) => dismiss();
-        var actions = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)], ColumnSpacing = 8 };
-        actions.Add(reset);
-        actions.Add(close, 1);
+        var topActions = new VerticalStackLayout { Spacing = 6, Children = { header, reset } };
         int topInset = 16;
 #if WINDOWS
         topInset += WindowsWindowChrome.ContentInset;
@@ -103,9 +101,9 @@ public sealed class EqualizerPanel : ContentView
             HorizontalOptions = LayoutOptions.Center,
             RowDefinitions = [new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)]
         };
-        layout.Add(header);
+        layout.Add(topActions);
         layout.Add(new ScrollView { Content = bands }, row: 1);
-        layout.Add(actions, row: 2);
+        layout.Add(close, row: 2);
         var host = new Grid { Children = { layout } };
         host.SizeChanged += (_, _) => { if (host.Width > 0) layout.WidthRequest = Math.Min(host.Width, 848); };
         Content = host;
