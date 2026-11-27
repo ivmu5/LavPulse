@@ -199,6 +199,21 @@ internal sealed partial class LocalTrackStore(string root)
         }
     }
 
+    internal void ForgetAllLibraryMemberships(TrackFile file) => ForgetMedia(file);
+
+    private void ForgetMedia(TrackFile file)
+    {
+        string id=Id(file);
+        lock(_libraryGate)
+        {
+            foreach(var key in _library.Keys.Where(k=>k.Id==id &&
+                LibraryStorageMigration.SamePath(MediaPath(k.Id,k.Name),file.LocalPath!)).ToArray())
+                _library.Remove(key);
+        }
+    }
+
+    internal string MediaFolder => MediaDirectory;
+
     public StoredLibraryTrack[] LibrarySnapshot()
     {
         lock (_libraryGate)

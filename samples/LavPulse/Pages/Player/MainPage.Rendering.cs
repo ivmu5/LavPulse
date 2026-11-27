@@ -28,8 +28,7 @@ public sealed partial class MainPage
         if (IsPlayerVisible) _view.StartPlaybackVisuals(() => _playback.Spectrum);
         _view.Status.Text = "";
         _worker = _playback.RunAsync(new PlatformAudioOutput(), _settings.FadeInMilliseconds, stop.Token);
-        UpdateQueueAnalysis();
-        UpdateTransport();
+        UpdateQueue();
         try
         {
             await _worker;
@@ -52,8 +51,7 @@ public sealed partial class MainPage
             if (!_closed)
             {
                 UpdatePositions();
-                UpdateQueueAnalysis();
-                UpdateTransport();
+                UpdateQueue();
                 ProcessSystemTrackRequests();
             }
         }
@@ -154,7 +152,7 @@ public sealed partial class MainPage
             _shownIncoming = incoming.Track;
             _ = RestoreBassTapsAsync(incoming.Track, _view.IncomingDeck);
             if (IsPlayerVisible) _ = _view.BeginMixAsync(incoming.Track, _library.Find(incoming.Track));
-            UpdateTransport();
+            UpdateQueue();
         }
     }
 

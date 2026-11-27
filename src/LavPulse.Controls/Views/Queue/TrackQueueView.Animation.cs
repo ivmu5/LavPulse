@@ -148,7 +148,8 @@ internal sealed partial class TrackQueueView
         CancelTransition();
         _queue.InputTransparent = true;
         _queue.Opacity = 0;
-        _incoming.Show(track, "Сведение");
+        _current.SetState("Воспроизводится · завершение");
+        _incoming.Show(track, "Воспроизводится · начало");
         EndDrag();
         _incoming.TranslationX = _incoming.TranslationY = 0;
         _incoming.ScaleX = _incoming.ScaleY = 1;
