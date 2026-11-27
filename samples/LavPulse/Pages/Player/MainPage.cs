@@ -90,7 +90,6 @@ public sealed partial class MainPage : ContentPage
         _view.RecommendationsSelected += SelectRecommendations;
         _view.QueueRequested += async file => await ChooseAsync(file);
         _view.HistoryRequested += async file => await ReplayHistoryAsync(file);
-        _view.QueuePlayRequested += async file => await ChooseAsync(file, autoPlay: true);
         _view.QueueClearRequested += async () => await ClearQueueAsync();
         _view.QueueMoveRequested += async (from, to, after) => await MoveQueueAsync(from, to, after);
         _view.QueueRemoveRequested += async file => await RemoveQueueTrackAsync(file);

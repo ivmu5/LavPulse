@@ -354,7 +354,6 @@ internal sealed partial class TrackQueueView : Grid
 
     public event Action<TrackFile>? TrackRequested;
     public event Action<TrackFile>? HistoryRequested;
-    public event Action<TrackFile>? PlayRequested;
     public event Action? ClearRequested;
     public event Action<TrackFile, TrackFile, bool>? MoveRequested;
     public event Action<TrackFile>? RemoveRequested;
