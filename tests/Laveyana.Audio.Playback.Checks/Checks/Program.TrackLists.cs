@@ -119,6 +119,27 @@ internal static partial class Program
 
     private static void CheckAdaptivePanelLayout()
     {
+        Require(IconContrast.DarkIcon(1, "player_next.png") &&
+            !IconContrast.DarkIcon(0, "player_next.png") &&
+            IconContrast.DarkIcon(1, "player_delete.png") &&
+            !IconContrast.DarkIcon(0, "player_delete.png") &&
+            IconContrast.UseLightSuffix("player_next.png", true) &&
+            !IconContrast.UseLightSuffix("player_play.png", true) &&
+            IconContrast.UseLightSuffix("player_play.png", false),
+            "Transport icon contrast did not respect the actual asset variants.");
+        double dark = IconContrast.BlendLuminance(.05,.05,.05,1,1,0,0);
+        double bright = IconContrast.BlendLuminance(.05,.05,.05,1,1,0,1);
+        Require(!IconContrast.DarkIcon(dark, "player_queue_add.png") &&
+            IconContrast.DarkIcon(bright, "player_queue_add.png") &&
+            !IconContrast.DarkText(dark) && IconContrast.DarkText(bright),
+            "Swipe foreground did not change contrast as its tint became bright.");
+        for (int channel=0; channel<=255; channel++)
+        {
+            double value=channel/255d;
+            double l=IconContrast.Luminance(value,value,value);
+            Require(IconContrast.Contrast(l, IconContrast.DarkText(l) ? 0 : 1) >= 4.5,
+                "Swipe caption contrast fell below 4.5:1 on a solid surface.");
+        }
         Require(TrackListLayout.ClassifyTouch(5, 6, 12) == ListTouchIntent.Pending &&
             TrackListLayout.ClassifyTouch(15, 2, 12) == ListTouchIntent.Horizontal &&
             TrackListLayout.ClassifyTouch(-20, 3, 12) == ListTouchIntent.Horizontal &&

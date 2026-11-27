@@ -57,8 +57,11 @@ internal static partial class MixerStyle
     internal static void UseBrush(VisualElement view, BindableProperty property, MixerColor role) =>
         view.SetDynamicResource(property, BrushKey(role));
 
-    internal static void UseIcon(VisualElement view, BindableProperty property, string file) =>
-        view.SetDynamicResource(property, IconKey(file));
+    internal static void UseIcon(VisualElement view, BindableProperty property, string file)
+    {
+        if (!TryBindContrastIcon(view, property, file))
+            view.SetDynamicResource(property, IconKey(file));
+    }
 
     internal static void StyleSwitch(Switch toggle)
     {
