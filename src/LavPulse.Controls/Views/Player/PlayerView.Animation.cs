@@ -149,7 +149,13 @@ public sealed partial class PlayerView
         else
         {
             _waitingForOverviewCollapse = null;
-            if (_leavingDeck is null) IncomingDeck.Show(null, false, showOverview: false);
+            if (_leavingDeck is null)
+            {
+                if (ReferenceEquals(_deckEntrance?.Deck, IncomingDeck)) _deckEntrance = null;
+                IncomingDeck.TranslationY = 0;
+                IncomingDeck.Opacity = IncomingDeck.Scale = 1;
+                IncomingDeck.Show(null, false, showOverview: false);
+            }
         }
     }
 

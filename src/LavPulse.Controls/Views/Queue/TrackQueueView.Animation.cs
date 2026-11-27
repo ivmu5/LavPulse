@@ -125,7 +125,7 @@ internal sealed partial class TrackQueueView
         UpdateCoverState();
     }
 
-    private void UpdateCoverState() => _current.SetState(_playingCards
+    private void UpdateCoverState() => _current.SetState(_playingCards && _current.Displayed is not null
         ? _preparedCover is not null ? "Сведение" : "Воспроизводится" : "");
 
     /// <summary>Prepares the next artwork without hiding or moving the queue.</summary>
@@ -187,7 +187,9 @@ internal sealed partial class TrackQueueView
         _current.Scale = .98;
         _current.IsVisible = true;
         _incoming.IsVisible = true;
-        _handoff = true;
+        // Only a completed audio mix owns the legacy transport lock.
+        // A direct cover change must not block selecting another track.
+        _handoff = refreshQueue is not null;
         int generation = _animation;
         refreshQueue?.Invoke();
 

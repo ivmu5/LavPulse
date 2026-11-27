@@ -199,7 +199,7 @@ internal sealed partial class TrackQueueView : Grid
 
     private void SetColumnWidth(int column, GridLength width)
     {
-        if (ColumnDefinitions[column].Width != width) ColumnDefinitions[column].Width = width;
+        if (!ColumnDefinitions[column].Width.Equals(width)) ColumnDefinitions[column].Width = width;
     }
 
     private void ResizePlaybackCovers()
