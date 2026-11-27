@@ -136,14 +136,16 @@ public sealed partial class PlayerSettingsPanel : ContentView
         double navFontSize = _sectionButtons[0].FontSize;
         double resetFontSize = reset.FontSize;
         var navPadding = _sectionButtons[0].Padding;
+        bool resetOnRail = false;
         host.SizeChanged += (_, _) =>
         {
-            var size = AdaptivePanelLayout.Measure(host.Width, host.Height, MixerStyle.IsPhone);
+            var size = AdaptivePanelLayout.Measure(host.Width, host.Height);
             if (size.Width <= 0) return;
             _settingsLayout.WidthRequest = size.Width;
-            _settingsLayout.ColumnDefinitions[0].Width = new GridLength(size.SideWidth);
-            _settingsLayout.ColumnDefinitions[2].Width = new GridLength(size.SideWidth);
-            _settingsLayout.ColumnSpacing = size.IsWide ? AdaptivePanelLayout.Gap : 0;
+            _settingsLayout.ColumnDefinitions[0].Width = new GridLength(size.LeftColumnWidth(navigation: true));
+            _settingsLayout.ColumnDefinitions[2].Width = new GridLength(size.RightColumnWidth(navigation: true));
+            _settingsLayout.ColumnSpacing = size.ColumnSpacing;
+            navigation.Margin = new Thickness(0, 0, size.RailGutter, 0);
             foreach (var button in _sectionButtons)
             {
                 button.FontSize = size.HasCompactRails ? 11 : navFontSize;
@@ -152,40 +154,46 @@ public sealed partial class PlayerSettingsPanel : ContentView
             }
             reset.FontSize = size.HasCompactRails ? 11 : resetFontSize;
             reset.LineBreakMode = LineBreakMode.WordWrap;
-            if (_wide == size.IsWide) return;
-
-            // Reparent only the current section, never rebuild the preference
-            // controls or discard their pending edits on rotation.
-            View? current = null;
-            if (_activeSection >= 0)
+            if (_wide != size.IsWide)
             {
-                CommitVisibleNumbers();
-                current = ActiveSectionHost.Content;
-                ActiveSectionHost.Content = null;
-                _sectionHosts[_activeSection].IsVisible = false;
+                // Reparent only the current section. Two/three-column changes
+                // do not rebuild controls or discard pending edits.
+                View? current = null;
+                if (_activeSection >= 0)
+                {
+                    CommitVisibleNumbers();
+                    current = ActiveSectionHost.Content;
+                    ActiveSectionHost.Content = null;
+                    _sectionHosts[_activeSection].IsVisible = false;
+                }
+                _wide = size.IsWide;
+                Grid.SetColumn(navigation, _wide ? 0 : 1);
+                detail.IsVisible = _wide;
+                if (_activeSection >= 0)
+                {
+                    _sectionHosts[_activeSection].IsVisible = !_wide;
+                    ActiveSectionHost.Content = current;
+                }
             }
-            _wide = size.IsWide;
-            Grid.SetColumn(navigation, _wide ? 0 : 1);
-            detail.IsVisible = _wide;
-            if (_activeSection >= 0)
+            // In two columns, the additional area is navigation. Reset
+            // stays above the main content, not in a third column.
+            if (resetOnRail != size.IsThreeColumn)
             {
-                _sectionHosts[_activeSection].IsVisible = !_wide;
-                ActiveSectionHost.Content = current;
+                resetOnRail = size.IsThreeColumn;
+                if (resetOnRail)
+                {
+                    header.Children.Remove(reset);
+                    reset.VerticalOptions = LayoutOptions.Start;
+                    _settingsLayout.Add(reset, 2, 1);
+                }
+                else
+                {
+                    _settingsLayout.Children.Remove(reset);
+                    reset.VerticalOptions = LayoutOptions.Center;
+                    header.Add(reset, 1);
+                }
             }
-            // Reset is an action, not a navigation item.
-            if (_wide)
-            {
-                header.Children.Remove(reset);
-                reset.VerticalOptions = LayoutOptions.Start;
-                _settingsLayout.Add(reset, 2, 1);
-            }
-            else
-            {
-                _settingsLayout.Children.Remove(reset);
-                reset.VerticalOptions = LayoutOptions.Center;
-                header.Add(reset, 1);
-            }
-            header.IsVisible = !_wide || heading.IsVisible;
+            header.IsVisible = !resetOnRail || heading.IsVisible;
         };
         Content = host;
 

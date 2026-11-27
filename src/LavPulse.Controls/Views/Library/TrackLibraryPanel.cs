@@ -176,12 +176,13 @@ public sealed partial class TrackLibraryPanel : ContentView
         var pickPadding = _pick.Padding;
         host.SizeChanged += (_, _) =>
         {
-            var size = AdaptivePanelLayout.Measure(host.Width, host.Height, MixerStyle.IsPhone);
+            var size = AdaptivePanelLayout.Measure(host.Width, host.Height);
             if (size.Width <= 0) return;
             layout.WidthRequest = size.Width;
-            layout.ColumnDefinitions[0].Width = new GridLength(size.SideWidth);
-            layout.ColumnDefinitions[2].Width = new GridLength(size.SideWidth);
-            layout.ColumnSpacing = size.IsWide ? AdaptivePanelLayout.Gap : 0;
+            layout.ColumnDefinitions[0].Width = new GridLength(size.LeftColumnWidth(navigation: false));
+            layout.ColumnDefinitions[2].Width = new GridLength(size.RightColumnWidth(navigation: false));
+            layout.ColumnSpacing = size.ColumnSpacing;
+            operations.Margin = new Thickness(size.RailGutter, 0, 0, 0);
             _pick.FontSize = size.HasCompactRails ? 11 : pickFontSize;
             _pick.LineBreakMode = LineBreakMode.WordWrap;
             _pick.ContentLayout = new(size.HasCompactRails ? Button.ButtonContentLayout.ImagePosition.Top :

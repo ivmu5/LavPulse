@@ -125,36 +125,45 @@ internal static partial class Program
             TrackListLayout.ClassifyTouch(4, 18, 12) == ListTouchIntent.Vertical &&
             TrackListLayout.ClassifyTouch(14, 14, 12) == ListTouchIntent.Vertical,
             "Touch intent did not preserve taps, both swipe directions or vertical scrolling.");
-        Require(!AdaptivePanelLayout.Measure(390, 780, phone: true).IsWide &&
-            !AdaptivePanelLayout.Measure(575, 300, phone: true).IsWide,
-            "Portrait or an extremely narrow phone should remain compact.");
-        var phone = AdaptivePanelLayout.Measure(640, 360, phone: true);
-        Require(phone.IsWide && phone.HasCompactRails && phone.ContentWidth >= 320,
-            "Landscape phone did not activate side rails.");
-        for (int width = 576; width <= 1000; width++)
+        Require(!AdaptivePanelLayout.Measure(390, 780).IsWide &&
+            !AdaptivePanelLayout.Measure(479, 300).IsWide,
+            "Portrait or an extremely narrow window should remain compact.");
+        var phone = AdaptivePanelLayout.Measure(640, 360);
+        Require(phone.IsWide && phone.IsTwoColumn && phone.ContentWidth >= 400 &&
+            phone.LeftColumnWidth(navigation: false) == 0 &&
+            phone.RightColumnWidth(navigation: true) == 0,
+            "Landscape phone kept an unused rail.");
+        for (int width = 480; width < 836; width++)
         {
-            var size = AdaptivePanelLayout.Measure(width, 360, phone: true);
-            Require(size.IsWide && size.Width <= width && size.ContentWidth >= 320 &&
-                size.SideWidth >= AdaptivePanelLayout.PhoneMinimumSide,
-                "Phone landscape layout compressed the central list below its minimum.");
+            var size = AdaptivePanelLayout.Measure(width, 360);
+            Require(size.IsTwoColumn && size.Width <= width &&
+                size.ContentWidth >= AdaptivePanelLayout.MinimumCompactContent &&
+                size.SideWidth >= AdaptivePanelLayout.MinimumCompactSide &&
+                size.ColumnSpacing == 0 && size.RailGutter == AdaptivePanelLayout.Gap,
+                "Two-column layout compressed the main list or allocated a phantom gutter.");
+            foreach (bool navigation in new[] { false, true })
+                Require(Math.Abs(size.LeftColumnWidth(navigation) + size.RightColumnWidth(navigation) +
+                    size.ContentWidth + 2 * AdaptivePanelLayout.Padding - size.Width) < .001,
+                    "Two-column width accounting lost available space.");
         }
         var portrait = AdaptivePanelLayout.Measure(900, 1200);
         Require(!portrait.IsWide && portrait.Width == 660 && portrait.ContentWidth == 628,
             "Portrait unexpectedly allocated side rails.");
-        Require(!AdaptivePanelLayout.Measure(820, 400).IsWide &&
+        Require(AdaptivePanelLayout.Measure(820, 400).IsTwoColumn &&
             !AdaptivePanelLayout.Measure(900, 900).IsWide &&
             AdaptivePanelLayout.Measure(double.NaN, 500).Width == 0 &&
             AdaptivePanelLayout.Measure(900, 0).Width == 0,
             "Invalid, square or narrow windows activated the wide layout.");
         var boundary = AdaptivePanelLayout.Measure(AdaptivePanelLayout.MinimumWideWidth, 400);
-        Require(boundary.IsWide && boundary.SideWidth == AdaptivePanelLayout.MinimumSide &&
+        Require(boundary.IsThreeColumn && boundary.SideWidth == AdaptivePanelLayout.MinimumSide &&
             boundary.ContentWidth == AdaptivePanelLayout.MinimumContent,
             "Wide layout boundary compressed the main panel.");
         for (int width = 320; width <= 2400; width++)
         {
             var size = AdaptivePanelLayout.Measure(width, 400);
             Require(size.Width <= width && size.ContentWidth <= 628 &&
-                (!size.IsWide || (size.SideWidth is >= 180 and <= 240 && size.ContentWidth >= 420)),
+                (!size.IsThreeColumn || (size.SideWidth is >= 180 and <= 240 && size.ContentWidth >= 420)) &&
+                (!size.IsTwoColumn || size.ContentWidth >= 320),
                 "Adaptive layout exceeded its window or rail constraints.");
         }
         var large = AdaptivePanelLayout.Measure(1920, 1080);

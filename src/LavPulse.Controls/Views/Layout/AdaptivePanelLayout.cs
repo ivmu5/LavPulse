@@ -1,7 +1,7 @@
 namespace Laveyana.LavPulse.Controls;
 
-/// <summary>Shared width policy for panels with navigation and action rails.</summary>
-internal readonly record struct AdaptivePanelLayout(double Width, double SideWidth)
+/// <summary>Shared width policy for compact, two-column and centered three-column panels.</summary>
+internal readonly record struct AdaptivePanelLayout(double Width, double SideWidth, bool IsTwoColumn = false)
 {
     public const double Padding = 16;
     public const double Gap = 12;
@@ -11,33 +11,43 @@ internal readonly record struct AdaptivePanelLayout(double Width, double SideWid
     public const double MinimumContent = 420;
     public const double MinimumWideWidth = 2 * Padding + 2 * Gap + 2 * MinimumSide + MinimumContent;
     public const double MaximumWidth = CompactWidth + 2 * Gap + 2 * MaximumSide;
-    public const double PhoneMinimumSide = 100;
-    public const double PhoneMinimumContent = 320;
-    public const double PhoneMinimumWideWidth = 2 * Padding + 2 * Gap + 2 * PhoneMinimumSide + PhoneMinimumContent;
+    public const double MinimumCompactSide = 116;
+    public const double MinimumCompactContent = 320;
+    public const double MinimumTwoColumnWidth = 2 * Padding + Gap + MinimumCompactSide + MinimumCompactContent;
 
     public bool IsWide => SideWidth > 0;
+    public bool IsThreeColumn => IsWide && !IsTwoColumn;
     public bool HasCompactRails => IsWide && SideWidth < MinimumSide;
     public double ContentWidth => Math.Max(0, Width - 2 * Padding -
-        (IsWide ? 2 * (SideWidth + Gap) : 0));
+        (IsWide ? (IsTwoColumn ? 1 : 2) * (SideWidth + Gap) : 0));
 
-    public static AdaptivePanelLayout Measure(double width, double height, bool phone = false)
+    // A zero-width Grid column can still consume ColumnSpacing. In the
+    // two-column layout put the sole gutter inside the occupied rail instead.
+    public double ColumnSpacing => IsThreeColumn ? Gap : 0;
+    public double RailGutter => IsTwoColumn ? Gap : 0;
+    public double LeftColumnWidth(bool navigation) =>
+        IsThreeColumn ? SideWidth : IsTwoColumn && navigation ? SideWidth + Gap : 0;
+    public double RightColumnWidth(bool navigation) =>
+        IsThreeColumn ? SideWidth : IsTwoColumn && !navigation ? SideWidth + Gap : 0;
+
+    public static AdaptivePanelLayout Measure(double width, double height)
     {
         if (!double.IsFinite(width) || !double.IsFinite(height) || width <= 0 || height <= 0)
             return default;
-        double minimum = phone ? PhoneMinimumWideWidth : MinimumWideWidth;
-        if (width <= height || width < minimum)
+        if (width <= height || width < MinimumTwoColumnWidth)
             return new(Math.Min(width, CompactWidth), 0);
 
         double total = Math.Min(width, MaximumWidth);
-        if (phone && total < MinimumWideWidth)
+        if (total < MinimumWideWidth)
         {
-            // Smoothly grow mobile rails into the desktop layout at 836 DIP.
-            double progress = (total - PhoneMinimumWideWidth) / (MinimumWideWidth - PhoneMinimumWideWidth);
-            return new(total, PhoneMinimumSide + (MinimumSide - PhoneMinimumSide) * progress);
+            // One real sidebar and a large content region; no empty opposite
+            // rail on phones or narrow landscape desktop windows.
+            double side = Math.Clamp((total - 2 * Padding - Gap) * .30,
+                MinimumCompactSide, Math.Min(MaximumSide, total - 2 * Padding - Gap - MinimumCompactContent));
+            return new(total, side, IsTwoColumn: true);
         }
-        // Keep the center aligned with its compact position and give both
-        // rails equal widths, even when a panel only needs one of them.
-        double side = Math.Clamp((total - CompactWidth - 2 * Gap) / 2, MinimumSide, MaximumSide);
-        return new(total, side);
+
+        double rail = Math.Clamp((total - CompactWidth - 2 * Gap) / 2, MinimumSide, MaximumSide);
+        return new(total, rail);
     }
 }

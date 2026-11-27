@@ -174,15 +174,20 @@ internal sealed partial class TrackQueueView : Grid
     internal void SetEditorLayout(AdaptivePanelLayout layout)
     {
         bool wide = IsEditing && layout.IsWide;
-        double side = wide ? layout.SideWidth : 0;
-        double gap = wide ? AdaptivePanelLayout.Gap : 0;
+        double left = wide ? layout.LeftColumnWidth(navigation: false) : 0;
+        double right = wide ? layout.RightColumnWidth(navigation: false) : 0;
+        double gap = wide ? layout.ColumnSpacing : 0;
         _clearQueue.LineBreakMode = LineBreakMode.WordWrap;
-        if (_right.ColumnDefinitions[0].Width.Value != side)
+        bool geometryChanged = _right.ColumnDefinitions[0].Width.Value != left ||
+            _right.ColumnDefinitions[2].Width.Value != right || _right.ColumnSpacing != gap;
+        if (geometryChanged)
         {
-            _right.ColumnDefinitions[0].Width = new GridLength(side);
-            _right.ColumnDefinitions[2].Width = new GridLength(side);
+            EndDrag();
+            _right.ColumnDefinitions[0].Width = new GridLength(left);
+            _right.ColumnDefinitions[2].Width = new GridLength(right);
+            _right.ColumnSpacing = gap;
         }
-        if (_right.ColumnSpacing != gap) _right.ColumnSpacing = gap;
+        _editorSideActions.Margin = new Thickness(wide ? layout.RailGutter : 0, 0, 0, 0);
         if (_wideEditor == wide) return;
 
         // A native drag can outlive its old geometry during a window resize.
