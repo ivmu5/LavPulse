@@ -79,6 +79,13 @@ internal sealed class RhythmBandEvidence
         _openingReference = levels.Count >= 4 ? levels[levels.Count / 2] : 0;
     }
 
+    internal double MeasureBassPulse(int firstHop, int endHop, double bpm, CancellationToken token)
+    {
+        int start = Math.Clamp(firstHop / _bin, 0, _flux[0].Length);
+        int end = Math.Clamp((int)Math.Ceiling(endHop / (double)_bin), start, _flux[0].Length);
+        return RhythmBassOctave.Measure(_flux[0], start, end, _hopsPerSecond / _bin, bpm, token);
+    }
+
     public bool IsWeakOpening(double hop)
     {
         if (hop < 0 || hop > 12 * _hopsPerSecond || _openingReference <= 1e-9) return false;

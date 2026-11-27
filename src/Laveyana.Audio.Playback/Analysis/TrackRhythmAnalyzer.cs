@@ -261,6 +261,8 @@ public static partial class TrackRhythmAnalyzer
         var path = RhythmTempoPath.Select(tempo.Ranking,BpmResolution,cancellationToken);
         RhythmTempoContinuity.Resolve(path, scores, periodicity, phaseEvidence,
             MinimumBpm, BpmResolution, cancellationToken);
+        RhythmBassOctave.Resolve(path, scores, periodicity, phaseEvidence, bands, stride, radius,
+            MinimumBpm, BpmResolution, cancellationToken);
         var selected = new double[slices];
         var quality = new float[slices];
         var eligibleWindows = new bool[slices];
