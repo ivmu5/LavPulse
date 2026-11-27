@@ -116,7 +116,7 @@ public sealed partial class PlayerView : Grid
             if (_body.Width <= 0 || _body.Height <= 0) return;
             if (_queue.IsEditing)
             {
-                var layout = AdaptivePanelLayout.Measure(_body.Width, _body.Height);
+                var layout = AdaptivePanelLayout.Measure(_body.Width, _body.Height, MixerStyle.IsPhone);
                 player.Padding = new Thickness(AdaptivePanelLayout.Padding, topPadding, AdaptivePanelLayout.Padding, 12);
                 player.WidthRequest = layout.Width;
                 _queue.SetEditorLayout(layout);

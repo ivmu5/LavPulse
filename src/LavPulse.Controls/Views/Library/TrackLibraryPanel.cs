@@ -174,12 +174,18 @@ public sealed partial class TrackLibraryPanel : ContentView
         bool wide = false;
         host.SizeChanged += (_, _) =>
         {
-            var size = AdaptivePanelLayout.Measure(host.Width, host.Height);
+            var size = AdaptivePanelLayout.Measure(host.Width, host.Height, MixerStyle.IsPhone);
             if (size.Width <= 0) return;
             layout.WidthRequest = size.Width;
             layout.ColumnDefinitions[0].Width = new GridLength(size.SideWidth);
             layout.ColumnDefinitions[2].Width = new GridLength(size.SideWidth);
             layout.ColumnSpacing = size.IsWide ? AdaptivePanelLayout.Gap : 0;
+            _pick.FontSize = size.HasCompactRails ? 11 : MixerStyle.PhoneFont(14, 13);
+            _pick.LineBreakMode = LineBreakMode.WordWrap;
+            _pick.ContentLayout = new(size.HasCompactRails ? Button.ButtonContentLayout.ImagePosition.Top :
+                Button.ButtonContentLayout.ImagePosition.Left, 3);
+            _pick.Padding = size.HasCompactRails ? new Thickness(3, 4) : new Thickness(8, 8);
+            SetCompactScanActions(size.HasCompactRails);
             if (wide == size.IsWide) return;
             wide = size.IsWide;
             // Move the existing controls without recreating the list, scan

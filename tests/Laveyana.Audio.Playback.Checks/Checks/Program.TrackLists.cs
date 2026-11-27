@@ -119,6 +119,25 @@ internal static partial class Program
 
     private static void CheckAdaptivePanelLayout()
     {
+        Require(TrackListLayout.ClassifyTouch(5, 6, 12) == ListTouchIntent.Pending &&
+            TrackListLayout.ClassifyTouch(15, 2, 12) == ListTouchIntent.Horizontal &&
+            TrackListLayout.ClassifyTouch(-20, 3, 12) == ListTouchIntent.Horizontal &&
+            TrackListLayout.ClassifyTouch(4, 18, 12) == ListTouchIntent.Vertical &&
+            TrackListLayout.ClassifyTouch(14, 14, 12) == ListTouchIntent.Vertical,
+            "Touch intent did not preserve taps, both swipe directions or vertical scrolling.");
+        Require(!AdaptivePanelLayout.Measure(390, 780, phone: true).IsWide &&
+            !AdaptivePanelLayout.Measure(575, 300, phone: true).IsWide,
+            "Portrait or an extremely narrow phone should remain compact.");
+        var phone = AdaptivePanelLayout.Measure(640, 360, phone: true);
+        Require(phone.IsWide && phone.HasCompactRails && phone.ContentWidth >= 320,
+            "Landscape phone did not activate side rails.");
+        for (int width = 576; width <= 1000; width++)
+        {
+            var size = AdaptivePanelLayout.Measure(width, 360, phone: true);
+            Require(size.IsWide && size.Width <= width && size.ContentWidth >= 320 &&
+                size.SideWidth >= AdaptivePanelLayout.PhoneMinimumSide,
+                "Phone landscape layout compressed the central list below its minimum.");
+        }
         var portrait = AdaptivePanelLayout.Measure(900, 1200);
         Require(!portrait.IsWide && portrait.Width == 660 && portrait.ContentWidth == 628,
             "Portrait unexpectedly allocated side rails.");

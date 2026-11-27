@@ -135,12 +135,20 @@ public sealed partial class PlayerSettingsPanel : ContentView
         var host = new Grid { Children = { _settingsLayout, _paletteEditorHost } };
         host.SizeChanged += (_, _) =>
         {
-            var size = AdaptivePanelLayout.Measure(host.Width, host.Height);
+            var size = AdaptivePanelLayout.Measure(host.Width, host.Height, MixerStyle.IsPhone);
             if (size.Width <= 0) return;
             _settingsLayout.WidthRequest = size.Width;
             _settingsLayout.ColumnDefinitions[0].Width = new GridLength(size.SideWidth);
             _settingsLayout.ColumnDefinitions[2].Width = new GridLength(size.SideWidth);
             _settingsLayout.ColumnSpacing = size.IsWide ? AdaptivePanelLayout.Gap : 0;
+            foreach (var button in _sectionButtons)
+            {
+                button.FontSize = size.HasCompactRails ? 11 : MixerStyle.PhoneFont(14, 13);
+                button.LineBreakMode = LineBreakMode.WordWrap;
+                button.Padding = size.HasCompactRails ? new Thickness(4, 5) : new Thickness(8, 8);
+            }
+            reset.FontSize = size.HasCompactRails ? 11 : MixerStyle.PhoneFont(14, 13);
+            reset.LineBreakMode = LineBreakMode.WordWrap;
             if (_wide == size.IsWide) return;
 
             // Reparent only the current section, never rebuild the preference
