@@ -183,7 +183,10 @@ internal sealed partial class TrackQueueView : Grid
         _centerAudioInfo.IsVisible = false;
         _centerAudioInfo.LineBreakMode = LineBreakMode.WordWrap;
         _centerAudioInfo.MaxLines = 3;
-        _centerAudioInfo.HorizontalTextAlignment = TextAlignment.Center;
+        // Keep file details beside the artwork, not centered over the deck.
+        // The metadata does not participate in horizontal waveform sizing.
+        _centerAudioInfo.HorizontalTextAlignment = TextAlignment.Start;
+        _centerAudioInfo.HorizontalOptions = LayoutOptions.Start;
         _centerAudioInfo.VerticalOptions = LayoutOptions.Start;
         _centerHost.Add(_centerAudioInfo);
         _centerHost.SizeChanged += (_, _) => UpdateCenterDeckViewport();
