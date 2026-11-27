@@ -95,6 +95,7 @@ public sealed partial class MainPage : ContentPage
         _view.QueueMoveRequested += async (from, to, after) => await MoveQueueAsync(from, to, after);
         _view.QueueRemoveRequested += async file => await RemoveQueueTrackAsync(file);
         _view.QueueActionsRequested = ShowQueueActionsAsync;
+        _view.QueueSelectionActionRequested = ExecuteQueueSelectionActionAsync;
         _view.QueueSwipeRequested = ExecuteQueueSwipeAsync;
         _view.BindFileDrops(() => !_closed && IsPlayerVisible, AddFilesAsync);
         _systemPlayback.CommandReceived += OnSystemPlaybackCommand;

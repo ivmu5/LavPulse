@@ -30,7 +30,30 @@ public sealed partial class MainPage
         return false;
     }
 
-    private async Task ShowQueueActionsAsync(IReadOnlyList<TrackFile> files, Point? anchor)
+    private static string SelectionActionName(ListEditAction action) => action switch
+    {
+        ListEditAction.PlayNow => PlayNow,
+        ListEditAction.PlayNext => NextQueue,
+        ListEditAction.AddToQueue => AddQueue,
+        ListEditAction.RemoveFromQueue => RemoveQueue,
+        ListEditAction.ClearAnalysis => ClearDerived,
+        ListEditAction.Rescan => Rescan,
+        ListEditAction.RemoveFromLibrary => RemoveCatalog,
+        ListEditAction.RemoveFromStorage => RemoveStorage,
+        ListEditAction.Reveal => OpenLocation,
+        _ => throw new ArgumentOutOfRangeException(nameof(action))
+    };
+
+    private Task ExecuteQueueSelectionActionAsync(IReadOnlyList<TrackFile> files, ListEditAction action) =>
+        ShowQueueActionsAsync(files, null, SelectionActionName(action));
+
+    private Task ExecuteLibrarySelectionActionAsync(IReadOnlyList<TrackLibrarySelection> selections, ListEditAction action) =>
+        ShowLibraryActionsAsync(selections, null, SelectionActionName(action));
+
+    private Task ShowQueueActionsAsync(IReadOnlyList<TrackFile> files, Point? anchor) =>
+        ShowQueueActionsAsync(files, anchor, null);
+
+    private async Task ShowQueueActionsAsync(IReadOnlyList<TrackFile> files, Point? anchor, string? direct)
     {
         if(_closed||files.Count==0) return;
         var options=new List<string>{PlayNow,NextQueue,RemoveQueue,ClearDerived,Rescan,RemoveCatalog};
@@ -38,7 +61,7 @@ public sealed partial class MainPage
 #if WINDOWS
         if(files.Count==1 && files[0].LocalPath is not null) options.Insert(0,OpenLocation);
 #endif
-        var choice=await _view.ChooseActionAsync(files.Count==1?files[0].Name:$"Выбрано: {files.Count}",options,anchor);
+        var choice=direct ?? await _view.ChooseActionAsync(files.Count==1?files[0].Name:$"Выбрано: {files.Count}",options,anchor);
         if(_closed||choice is null||!options.Contains(choice)) return;
         await RunListActionAsync(async ()=>
         {
@@ -61,7 +84,10 @@ public sealed partial class MainPage
         });
     }
 
-    private async Task ShowLibraryActionsAsync(IReadOnlyList<TrackLibrarySelection> selections, Point? anchor)
+    private Task ShowLibraryActionsAsync(IReadOnlyList<TrackLibrarySelection> selections, Point? anchor) =>
+        ShowLibraryActionsAsync(selections, anchor, null);
+
+    private async Task ShowLibraryActionsAsync(IReadOnlyList<TrackLibrarySelection> selections, Point? anchor, string? direct)
     {
         if(_closed||selections.Count==0) return;
         var files=await SelectionFilesAsync(selections);
@@ -78,9 +104,15 @@ public sealed partial class MainPage
         if(selections.Count==1) options.Insert(0,OpenLocation);
 #endif
         if(options.Count==0) return;
-        string? choice=await _view.ChooseActionAsync(selections.Count==1?selections[0].File?.Name??selections[0].Folders[^1].Name:
+        string? choice=direct ?? await _view.ChooseActionAsync(selections.Count==1?selections[0].File?.Name??selections[0].Folders[^1].Name:
             $"Выбрано: {selections.Count}",options,anchor);
-        if(_closed||choice is null||!options.Contains(choice)) return;
+        if(_closed || choice is null) return;
+        if(!options.Contains(choice))
+        {
+            if (direct is not null)
+                await _view.NotifyActionAsync(choice, "Нет подходящих элементов среди выбранных.", "OK");
+            return;
+        }
         if(choice==OpenLocation)
         {
             var selection=selections[0];
