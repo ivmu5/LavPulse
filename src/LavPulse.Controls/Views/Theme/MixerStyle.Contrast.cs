@@ -55,7 +55,10 @@ internal static partial class MixerStyle
             SetContrastIcon(view, iconProperty, file, luminance);
         }
         if (binding.ReadableText && view is Button button)
+        {
+            button.RemoveDynamicResource(Button.TextColorProperty);
             SetContrastText(button, luminance);
+        }
     }
 
     private static bool TryBindContrastIcon(VisualElement view, BindableProperty property, string file)
@@ -84,8 +87,16 @@ internal static partial class MixerStyle
     internal static void SetContrastIcon(VisualElement view, BindableProperty property, string file, double luminance)
     {
         bool dark = IconContrast.DarkIcon(luminance, file);
-        string variant = IconContrast.UseLightSuffix(file, dark) ? file[..^4] + "_light.png" : file;
-        if (view.GetValue(property) is FileImageSource current && current.File == variant) return;
+        bool suffix = IconContrast.UseLightSuffix(file, dark);
+        if (view.GetValue(property) is FileImageSource { File: { } current })
+        {
+            // Avoid even allocating a variant filename on stable swipe frames.
+            if (!suffix && current == file) return;
+            if (suffix && current.Length == file.Length + 6 &&
+                current.AsSpan().StartsWith(file.AsSpan(0, file.Length - 4), StringComparison.Ordinal) &&
+                current.EndsWith("_light.png", StringComparison.Ordinal)) return;
+        }
+        string variant = suffix ? file[..^4] + "_light.png" : file;
         view.RemoveDynamicResource(property);
         view.SetValue(property, new FileImageSource { File = variant });
     }
@@ -93,7 +104,6 @@ internal static partial class MixerStyle
     internal static void SetContrastText(Button button, double luminance)
     {
         Color color = IconContrast.DarkText(luminance) ? Colors.Black : Colors.White;
-        button.RemoveDynamicResource(Button.TextColorProperty);
         if (button.TextColor != color) button.TextColor = color;
     }
 }
