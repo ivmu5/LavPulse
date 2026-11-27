@@ -17,7 +17,7 @@ The current player has two decks. Recommendation, beat-matched time stretching a
 
 ## Adaptive panel layout
 
-Settings and the library use a shared centered content area. In landscape windows at least 836 device-independent units wide, settings section navigation moves to an independently scrolling left rail, with the selected section in the center and Reset on the right. The library moves Open folder and the split Analysis control to the right rail; Edit and selection actions stay compact above the list on its right. Save/Cancel and Back remain at the bottom of the center. Portrait and narrower windows retain the inline layout. Resizing keeps the current section, edits, library selection and scan session.
+Settings, the library and the queue editor use a shared centered content area. In landscape windows at least 836 device-independent units wide, settings section navigation moves to an independently scrolling left rail, with the selected section in the center and Reset on the right. The library moves Open folder and the split Analysis control to the right rail; Edit and selection actions stay compact above the list on its right. The queue editor places Clear and selection Actions on the right, with its list and Done button in the center; the left rail is reserved for future navigation. Save/Cancel and Back remain at the bottom of the center. Portrait and narrower windows retain the inline layout. Resizing keeps the current section, edits, library selection, scan session and checked queue tracks. A queue drag is cancelled when the layout mode changes, to avoid dropping into stale geometry. The ordinary playback layout is unchanged.
 
 ## List navigation and actions
 
