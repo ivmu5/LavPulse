@@ -20,6 +20,14 @@ public sealed partial class TrackLibraryPanel
         private readonly Label _title = TrackLabel(MixerStyle.PhoneFont(13, 12), MixerColor.Text, bold: true);
         private readonly Label _details = TrackLabel(MixerStyle.PhoneFont(11, 10), MixerColor.Muted);
         private readonly Label _analysisState = TrackLabel(9,MixerColor.Muted);
+        private readonly Border _analysisBadge = new()
+        {
+            IsVisible = false,
+            StrokeThickness = 0,
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 4 },
+            Padding = new Thickness(4, 1),
+            HorizontalOptions = LayoutOptions.End
+        };
         private readonly Label _size = TrackLabel(MixerStyle.PhoneFont(11, 10), MixerColor.Muted);
         private readonly HorizontalStackLayout _folder;
         private readonly ImageButton _add = MixerStyle.IconButton("player_queue_add.png", 36);
@@ -31,7 +39,6 @@ public sealed partial class TrackLibraryPanel
         {
             _panel = panel;
             _scanRow = skip is not null;
-            _analysisState.IsVisible=false;
             _analysisState.Text="Не проанализирован";
             SelectionToggled += () =>
             {
@@ -88,13 +95,13 @@ public sealed partial class TrackLibraryPanel
             _analysisState.HorizontalTextAlignment = TextAlignment.End;
             _analysisState.FontSize = MixerStyle.PhoneFont(9, 8);
             _analysisState.LineBreakMode = LineBreakMode.NoWrap;
-            _analysisState.Padding = new Thickness(4, 1);
-            MixerStyle.UseColor(_analysisState, BackgroundColorProperty, MixerColor.Selected);
+            _analysisBadge.Content = _analysisState;
+            MixerStyle.UseColor(_analysisBadge, BackgroundColorProperty, MixerColor.Selected);
             var status = new VerticalStackLayout
             {
                 Spacing = 1, VerticalOptions = LayoutOptions.Center,
                 HorizontalOptions = LayoutOptions.End,
-                Children = { _size, _analysisState }
+                Children = { _size, _analysisBadge }
             };
             SetActions(new HorizontalStackLayout
             {
@@ -194,8 +201,9 @@ public sealed partial class TrackLibraryPanel
             SetInlineDelete(false);
             SetSelectionMark(_panel._editing,_panel._checkedRows.Contains(row));
             bool unscanned=_panel._local && row.File is { } file && !_panel._hasAnalysis(file);
-            _analysisState.IsVisible=unscanned;
-            Opacity = unscanned ? .56 : 1;
+            _analysisBadge.IsVisible = unscanned;
+            _title.Opacity = _details.Opacity = unscanned ? .56 : 1;
+            CoverOpacity = unscanned ? .56 : 1;
             SetDeleteEnabled(!_panel._busy);
             _import.IsVisible = !_panel._local;
             _add.IsEnabled = _import.IsEnabled = !_panel._busy && !_panel._editing;

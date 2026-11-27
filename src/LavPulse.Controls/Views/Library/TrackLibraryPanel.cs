@@ -54,9 +54,8 @@ public sealed partial class TrackLibraryPanel : ContentView
     private readonly Label _message = MixerStyle.Label("", 11, MixerColor.Muted);
     private readonly Label _heading = MixerStyle.Label("Медиатека", MixerStyle.PhoneFont(23, 20), bold: true);
     private readonly Button _pick = MixerStyle.Button("Папка", icon: "player_folder.png");
-    private readonly Button _saved = MixerStyle.Button("Медиатека");
     private readonly Button _edit = MixerStyle.Button("Редактирование", icon: "player_edit.png");
-    private readonly Button _back = MixerStyle.Button("Назад", primary: true, icon: "player_confirm.png");
+    private readonly Button _back = MixerStyle.Button("Назад", primary: true);
     private readonly TapGestureRecognizer _outsideSwipe = new();
     private LibraryTreeItem? _revealed;
     private bool _local;
@@ -95,7 +94,6 @@ public sealed partial class TrackLibraryPanel : ContentView
             close();
         };
         _pick.Clicked += async (_, _) => await RunAsync(PickAsync, "Не удалось открыть папку");
-        _saved.Clicked += (_, _) => TryReturnToSavedLibrary();
         _edit.Clicked += (_, _) => SetEditing(!_editing);
         var header = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)], ColumnSpacing = 8 };
         _heading.VerticalOptions = LayoutOptions.Center;
@@ -324,7 +322,7 @@ public sealed partial class TrackLibraryPanel : ContentView
 
     private void UpdateActions()
     {
-        _pick.IsEnabled = _saved.IsEnabled = _edit.IsEnabled = !_busy;
+        _pick.IsEnabled = _edit.IsEnabled = !_busy;
         _edit.IsVisible = _local && _selected is not null && !_editing;
         _back.Text = _editing ? "Готово" : "Назад";
         _back.IsEnabled = !_busy;
@@ -334,7 +332,6 @@ public sealed partial class TrackLibraryPanel : ContentView
         _bulk.IsEnabled = !_busy && _checkedRows.Count > 0;
         _bulk.Text = $"Действия ({_checkedRows.Count})";
         MixerStyle.SetListEditButton(_edit, _editing);
-        _saved.IsVisible = false;
         bool folder = _selected?.File is null;
         _scanActions.IsVisible = _local && _scanBatch is null;
         _scanActions.IsEnabled = !_busy && _selected is not null;

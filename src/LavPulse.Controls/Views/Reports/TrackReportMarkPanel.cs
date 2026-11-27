@@ -120,8 +120,8 @@ public sealed class TrackReportMarkPanel : ContentView
         main.Add(_error);
         var saveButton = MixerStyle.Button("Добавить в отчёт", primary: true);
         var cancel = MixerStyle.IconButton("player_cancel.png", 44);
-            SemanticProperties.SetDescription(cancel, "Отмена");
-            ToolTipProperties.SetText(cancel, "Отмена");
+        SemanticProperties.SetDescription(cancel, "Отмена");
+        ToolTipProperties.SetText(cancel, "Отмена");
         cancel.Clicked += (_, _) => dismiss();
         saveButton.Clicked += async (_, _) =>
         {

@@ -4,6 +4,7 @@ public sealed partial class PlayerView
 {
     private readonly ContentView _actionOverlayHost = new() { IsVisible = false, ZIndex = 100 };
     private TaskCompletionSource<string?>? _actionOverlayResult;
+    private bool _bodyWasEnabled, _panelWasEnabled, _bodyWasTransparent, _panelWasTransparent;
 
     /// <summary>Displays themed actions within the player window, without an OS dialog.</summary>
     public Task<string?> ChooseActionAsync(string title, IReadOnlyList<string> choices) =>
@@ -30,7 +31,6 @@ public sealed partial class PlayerView
         // Keep one owner; concurrent actions must not replace an awaiting confirmation.
         if (_actionOverlayResult is not null) return Task.FromResult<string?>(null);
         var result = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _actionOverlayResult = result;
         var heading = MixerStyle.Label(title, 18, bold: true);
         heading.LineBreakMode = LineBreakMode.WordWrap;
         SemanticProperties.SetHeadingLevel(heading, SemanticHeadingLevel.Level1);
@@ -83,8 +83,14 @@ public sealed partial class PlayerView
                 scroll.MaximumHeightRequest = Math.Max(44, overlay.Height - 160);
             }
         };
+        _actionOverlayResult = result;
+        _bodyWasEnabled = _body.IsEnabled;
+        _panelWasEnabled = _panelHost.IsEnabled;
+        _bodyWasTransparent = _body.InputTransparent;
+        _panelWasTransparent = _panelHost.InputTransparent;
         _actionOverlayHost.Content = overlay;
         _body.InputTransparent = _panelHost.InputTransparent = true;
+        _body.IsEnabled = _panelHost.IsEnabled = false;
         _actionOverlayHost.IsVisible = true;
         return result.Task;
     }
@@ -95,7 +101,10 @@ public sealed partial class PlayerView
         _actionOverlayResult = null;
         _actionOverlayHost.IsVisible = false;
         _actionOverlayHost.Content = null;
-        _body.InputTransparent = _panelHost.InputTransparent = false;
+        _body.InputTransparent = _bodyWasTransparent;
+        _panelHost.InputTransparent = _panelWasTransparent;
+        _body.IsEnabled = _bodyWasEnabled;
+        _panelHost.IsEnabled = _panelWasEnabled;
         result.TrySetResult(choice);
     }
 }

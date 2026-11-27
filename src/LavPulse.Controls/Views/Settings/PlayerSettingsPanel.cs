@@ -95,8 +95,8 @@ public sealed partial class PlayerSettingsPanel : ContentView
 
         var save = MixerStyle.Button("Сохранить", primary: true, icon: "player_confirm.png");
         var cancel = MixerStyle.IconButton("player_cancel.png", 44);
-            SemanticProperties.SetDescription(cancel, "Отмена");
-            ToolTipProperties.SetText(cancel, "Отмена");
+        SemanticProperties.SetDescription(cancel, "Отмена");
+        ToolTipProperties.SetText(cancel, "Отмена");
         save.Clicked += (_, _) =>
         {
             CommitVisibleNumbers();
