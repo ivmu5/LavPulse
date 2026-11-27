@@ -151,7 +151,7 @@ internal sealed partial class TrackQueueView : Grid
             RowSpacing = 0
         };
         _right.Add(_queue, 1, 0);
-         _right.Add(_editorDone, 1, 1);
+        _right.Add(_editorDone, 1, 1);
         _right.Add(_editorSideActions, 2, 0);
         _editorDone.SizeChanged += (_, _) => UpdateQueueViewport();
         _incoming.IsVisible = false;
@@ -189,12 +189,17 @@ internal sealed partial class TrackQueueView : Grid
         bool split = _centerDeck is not null;
         ColumnSpacing = split ? 10 : 0;
         double cover = split ? AdaptivePanelLayout.PlaybackCoverWidth(Width) : 0;
-        ColumnDefinitions[0].Width = split ? new GridLength(cover) : GridLength.Star;
-        ColumnDefinitions[1].Width = split ? new GridLength(1.35, GridUnitType.Star) : new GridLength(0);
-        ColumnDefinitions[2].Width = GridLength.Star;
+        SetColumnWidth(0, split ? new GridLength(cover) : GridLength.Star);
+        SetColumnWidth(1, split ? new GridLength(1.35, GridUnitType.Star) : new GridLength(0));
+        SetColumnWidth(2, GridLength.Star);
         // With a collapsed middle column, add only one real gutter.
         _right.Margin = split ? new Thickness(0) : new Thickness(MixerStyle.IsPhone ? 12 : 16, 0, 0, 0);
         ResizePlaybackCovers();
+    }
+
+    private void SetColumnWidth(int column, GridLength width)
+    {
+        if (ColumnDefinitions[column].Width != width) ColumnDefinitions[column].Width = width;
     }
 
     private void ResizePlaybackCovers()

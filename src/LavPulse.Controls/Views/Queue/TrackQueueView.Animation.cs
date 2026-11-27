@@ -144,6 +144,13 @@ internal sealed partial class TrackQueueView
         UpdateCoverState();
     }
 
+    internal void ClearPreparedCover()
+    {
+        if (_preparedCover is null) return;
+        _preparedCover = null;
+        UpdateCoverState();
+    }
+
     public Task FinishMixAsync(CachedTrack track, Action refreshQueue) =>
         ChangeCoverAsync(track, refreshQueue);
 
@@ -151,6 +158,7 @@ internal sealed partial class TrackQueueView
     {
         if (ReferenceEquals(_current.Displayed, track))
         {
+            ClearPreparedCover();
             refreshQueue?.Invoke();
             return;
         }
@@ -183,7 +191,7 @@ internal sealed partial class TrackQueueView
         int generation = _animation;
         refreshQueue?.Invoke();
 
-        bool completed = await AnimateAsync(PlayerMotion.TrackHandoffMilliseconds, progress =>
+        await AnimateAsync(PlayerMotion.TrackHandoffMilliseconds, progress =>
         {
             double eased = PlayerMotion.Ease(progress);
             _incoming.Opacity = 1 - eased;
@@ -192,8 +200,10 @@ internal sealed partial class TrackQueueView
             _current.TranslationX = 12 * (1 - eased);
             _current.Scale = .98 + .02 * eased;
         });
-        if (completed && generation == _animation)
+        if (generation == _animation)
         {
+            // A visibility or handler change may stop the clock before it
+            // draws the last frame. Always settle the current visual owner.
             ResetCoverTransition();
             ScheduleQueuePosition();
         }

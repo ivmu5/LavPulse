@@ -132,10 +132,8 @@ internal sealed partial class TrackQueueView
                 // Keep the metadata accessible without squeezing it alongside.
                 _audioInfo.IsVisible = !compact && _displayed?.AudioInfo is not null;
                 _coverRow.ColumnDefinitions[1].Width = compact ? new GridLength(0) : GridLength.Star;
-                SemanticProperties.SetDescription(_cover, _displayed?.AudioInfo is { } info ? FormatAudioInfo(info) : "Обложка");
-            }
+             }
         }
 
-        public double CoverWidth => _cover.Width > 0 ? _cover.Width : _cover.WidthRequest;
-    }
+     }
 }

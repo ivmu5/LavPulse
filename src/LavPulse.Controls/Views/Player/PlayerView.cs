@@ -137,7 +137,7 @@ public sealed partial class PlayerView : Grid
                 player.RowDefinitions[1].Height = split ? new GridLength(0) : GridLength.Auto;
             }
             player.RowSpacing = shortWindow ? 4 : 8;
-             if (_queue.IsEditing)
+            if (_queue.IsEditing)
             {
                 var layout = AdaptivePanelLayout.Measure(_body.Width, _body.Height);
                 player.Padding = new Thickness(AdaptivePanelLayout.Padding, inset, AdaptivePanelLayout.Padding, bottom);

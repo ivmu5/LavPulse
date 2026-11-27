@@ -110,6 +110,7 @@ public sealed partial class PlayerView
     public void ShowDecks(QueueSnapshot snapshot, bool canSeek, bool showOverview)
     {
         RememberDecks(snapshot, canSeek, showOverview);
+        if (snapshot.Incoming is null) _queue.ClearPreparedCover();
         if (_queue.IsEditing) return;
         if (snapshot.Current is { } current && CurrentDeck.DisplayedTrack is { } previous && !ReferenceEquals(previous, current.Track))
         {
@@ -121,7 +122,9 @@ public sealed partial class PlayerView
             _leavingDeck = IncomingDeck;
             // Shrink the outgoing slot while the surviving deck rises into
             // its final position. Avoid a full-window horizontal translation.
-            _deckExit = new(IncomingDeck, -12, 0, .98, PlayerMotion.TrackHandoffSeconds, collapse: true);
+            if (ReferenceEquals(_deckEntrance?.Deck, IncomingDeck)) _deckEntrance = null;
+            _deckExit = new(IncomingDeck, -12, 0, .98, PlayerMotion.TrackHandoffSeconds, collapse: true,
+                onProgress: eased => _decks.Spacing = 8 * (1 - eased));
             SyncUiFrames();
         }
 
@@ -177,22 +180,26 @@ public sealed partial class PlayerView
         }
     }
 
-     private void CompleteDeckExit(DeckView deck)
+    private void CompleteDeckExit(DeckView deck)
     {
         _deckExit = null;
         _leavingDeck = null;
         deck.Show(null, false, showOverview: false);
         deck.TranslationX = deck.TranslationY = 0;
         deck.HeightRequest = -1;
+        deck.Clip = null;
         deck.Opacity = deck.Scale = 1;
+        _decks.Spacing = 8;
         _decks.Children.Remove(deck);
         _decks.Children.Add(deck);
     }
 
-    private sealed class DeckSlide(DeckView deck, double to, double toOpacity, double toScale, double duration, bool collapse = false)
+    private sealed class DeckSlide(DeckView deck, double to, double toOpacity, double toScale, double duration, bool collapse = false, Action<double>? onProgress = null)
     {
         private readonly double _from = deck.TranslationY;
         private readonly double _height = Math.Max(0, deck.Height);
+        private readonly Microsoft.Maui.Controls.Shapes.RectangleGeometry? _clip = collapse
+            ? new Microsoft.Maui.Controls.Shapes.RectangleGeometry() : null;
         private readonly double _fromOpacity = deck.Opacity;
         private readonly double _fromScale = deck.Scale;
         private double? _start;
@@ -205,7 +212,16 @@ public sealed partial class PlayerView
             double eased = PlayerMotion.Ease(progress);
             Deck.TranslationY = _from + (to - _from) * eased;
             if (collapse && _height > 0)
-                Deck.HeightRequest = Math.Max(0, _height * (1 - eased));
+            {
+                double height = Math.Max(0, _height * (1 - eased));
+                if (_clip is not null)
+                {
+                    _clip.Rect = new Rect(0, 0, Math.Max(0, Deck.Width), height);
+                    if (!ReferenceEquals(Deck.Clip, _clip)) Deck.Clip = _clip;
+                }
+                Deck.HeightRequest = height;
+            }
+            onProgress?.Invoke(eased);
             Deck.Opacity = _fromOpacity + (toOpacity - _fromOpacity) * eased;
             Deck.Scale = _fromScale + (toScale - _fromScale) * eased;
             return progress >= 1;
@@ -242,6 +258,8 @@ public sealed partial class PlayerView
         CurrentDeck.TranslationX = IncomingDeck.TranslationX = 0;
         CurrentDeck.TranslationY = IncomingDeck.TranslationY = 0;
         CurrentDeck.HeightRequest = IncomingDeck.HeightRequest = -1;
+        CurrentDeck.Clip = IncomingDeck.Clip = null;
+        _decks.Spacing = 8;
         CurrentDeck.Opacity = IncomingDeck.Opacity = 1;
         CurrentDeck.Scale = IncomingDeck.Scale = 1;
     }
