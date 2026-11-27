@@ -28,6 +28,17 @@ internal static class TrackListLayout
         return ListTouchIntent.Pending;
     }
 
+    // The parent clips a full-width surface translated past its edge. The
+    // icon counter-translates to remain centered in the exposed strip.
+    internal static (double Surface, double Icon, double Row) SwipeOffsets(double width, double distance, bool right)
+    {
+        width = Math.Max(0, width);
+        distance = Math.Clamp(distance, 0, width);
+        double remaining = width - distance;
+        double sign = right ? 1 : -1;
+        return (-sign * remaining, sign * remaining / 2, sign * distance);
+    }
+
     public const int MaximumPinnedParents = 3;
 
     // Keep room for at least one ordinary row, including in short landscape windows.

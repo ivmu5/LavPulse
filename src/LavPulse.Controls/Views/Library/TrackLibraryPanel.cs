@@ -34,8 +34,12 @@ public sealed partial class TrackLibraryPanel : ContentView
                 if (_listActions is { } menu) await menu([SelectionFor(row)], anchor);
             }
             else if (_swipeAction is { } swipe) await swipe(SelectionFor(row),action);
-            if (!_token.IsCancellationRequested && _local)
+            if (!_token.IsCancellationRequested && _local &&
+                action is not (ListSwipeAction.AddToQueue or ListSwipeAction.PlayNext or ListSwipeAction.RemoveFromQueue))
                 await ShowRootAsync(await _openLibrary(),local:true,preservePosition:true);
+            // Local queue-only actions cannot change folder membership. Keep
+            // the current row identities, pinned parents, artwork and offset.
+            // RunAsync's finally still refreshes enabled/analysis row state.
         }, "Не удалось выполнить действие");
 
     private Task ExecuteSelectionActionAsync(ListEditAction action)

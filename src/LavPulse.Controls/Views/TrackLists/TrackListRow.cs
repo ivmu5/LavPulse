@@ -29,6 +29,7 @@ internal partial class TrackListRow : Border
     private ListSwipeAction? _swipeIconAction;
     private SwipeForeground? _swipeForeground;
     private BoxView? _swipeTint;
+    private Grid? _swipeSurface;
     private object? _swipeItem;
     private object? _revealedItem;
     private double _swipeDistance;
@@ -76,7 +77,15 @@ internal partial class TrackListRow : Border
         Func<bool, ListSwipeAction> resolve, Func<ListSwipeAction, Task> execute,
         Func<Point?, Task> context, Func<PlayerColors> colors, Action? closeOtherSwipes = null)
     {
-        var tint = _swipeTint = new BoxView { IsVisible = false, InputTransparent = true };
+        var tint = _swipeTint = new BoxView { InputTransparent = true, Opacity = 0 };
+        var foreground = _swipeForeground = new SwipeForeground { IsVisible = true, Opacity = 0 };
+        // Attach once. Moving a fixed-size clipped surface avoids measuring the
+        // row and its ancestor scroll layout for every pointer update.
+        var surface = _swipeSurface = new Grid
+        {
+            IsClippedToBounds = true, InputTransparent = true, Opacity = 0,
+            Children = { tint, foreground }
+        };
         var button = _swipeActionButton = MixerStyle.Button("");
         button.IsVisible = false;
         button.RemoveDynamicResource(BackgroundColorProperty);
@@ -88,7 +97,7 @@ internal partial class TrackListRow : Border
         button.MinimumHeightRequest = 0;
         button.ContentLayout = new(Button.ButtonContentLayout.ImagePosition.Left, 3);
         button.LineBreakMode = LineBreakMode.TailTruncation;
-        Layers.Children.Insert(0, tint);
+        Layers.Children.Insert(0, surface);
         Layers.Children.Insert(1, button);
         ListSwipeAction action = ListSwipeAction.None;
         bool right = false;
@@ -113,7 +122,6 @@ internal partial class TrackListRow : Border
             switch (status)
             {
                 case GestureStatus.Started:
-                    closeOtherSwipes?.Invoke();
                     ResetSwipe();
                     _swipeItem = enabled() ? item() : null;
                     _horizontalSwipe = false;
@@ -121,12 +129,13 @@ internal partial class TrackListRow : Border
                 case GestureStatus.Running:
                     if (_swipeItem is null || !ReferenceEquals(_swipeItem,item()) || !enabled()) { ResetSwipe(); return; }
                     if (!_horizontalSwipe && Math.Abs(x) < Math.Max(12, Math.Abs(y)*1.3)) return;
+                    if (!_horizontalSwipe) closeOtherSwipes?.Invoke();
                     _horizontalSwipe = true;
                     _lastGesture = System.Diagnostics.Stopwatch.GetTimestamp();
                     right = x >= 0;
                     action = resolve(right);
                     if (action == ListSwipeAction.None) { ResetSwipe(); return; }
-                    double width = Math.Max(1, Width - Padding.HorizontalThickness);
+                    double width = SwipeWidth;
                     first = Math.Min(76, width*.28);
                     second = Math.Max(first+1,width*.68);
                     _swipeDistance = Math.Min(width,Math.Abs(x));
@@ -196,19 +205,22 @@ internal partial class TrackListRow : Border
         Action<GestureStatus,double,double> pan, Action tap, Action<Point?> hold);
     static partial void AttachDesktopPan(View view,Func<bool> enabled,Action<GestureStatus,double,double> pan);
 
+    private double SwipeWidth => Math.Max(1, Layers.Width > 0 ? Layers.Width : Width - Padding.HorizontalThickness);
+
     private void DrawSwipe(double distance, bool right, ListSwipeAction action, double first, double second, PlayerColors colors)
     {
-        if (_swipeTint is not { } tint || _swipeActionButton is not { } button) return;
-        var side = right ? LayoutOptions.Start : LayoutOptions.End;
-        tint.HorizontalOptions = button.HorizontalOptions = side;
-        tint.WidthRequest = button.WidthRequest = Math.Max(0,distance);
+        if (_swipeTint is not { } tint || _swipeActionButton is not { } button ||
+            _swipeSurface is not { } overlay || _swipeForeground is not { } foreground) return;
+        var (surfaceX, iconX, rowX) = TrackListLayout.SwipeOffsets(SwipeWidth, distance, right);
+        overlay.TranslationX = surfaceX;
+        foreground.TranslationX = iconX;
+        overlay.Opacity = 1;
         Color actionColor = ListActionText.Tint(action, colors);
         tint.Color = actionColor;
         // The surface begins coloring as soon as the row moves, not only
         // after the first action threshold.
         double opacity = PlayerMotion.SwipeTint(distance, second);
         tint.Opacity = opacity;
-        tint.IsVisible = distance > 0;
         // The tint starts transparent, so the effective background is the
         // row's surface blended with the action color, not the theme mode.
         Color surface = BackgroundColor ?? MixerTheme.Default[MixerColor.Button];
@@ -219,31 +231,26 @@ internal partial class TrackListRow : Border
         }
         double luminance = IconContrast.BlendLuminance(surface.Red, surface.Green, surface.Blue,
             actionColor.Red, actionColor.Green, actionColor.Blue, opacity * actionColor.Alpha);
-        if (distance >= first)
-        {
-            if (_swipeForeground is null)
-            {
-                _swipeForeground = new SwipeForeground();
-                // Above the color layer, below the transparent click target.
-                Layers.Children.Insert(1, _swipeForeground);
-            }
-            _swipeForeground.HorizontalOptions = side;
-            _swipeForeground.WidthRequest = Math.Max(0, distance);
-            _swipeForeground.IsVisible = true;
-            _swipeForeground.Update(action, luminance, distance >= 130);
-        }
-        else if (_swipeForeground is not null) _swipeForeground.IsVisible = false;
+        bool showForeground = distance >= first;
+        foreground.Opacity = showForeground ? 1 : 0;
+        if (showForeground) foreground.Update(action, luminance, distance >= 130);
         if (_swipeIconAction != action)
         {
             _swipeIconAction = action;
             SemanticProperties.SetDescription(button, ListActionText.Label(action));
             ToolTipProperties.SetText(button, ListActionText.Label(action));
         }
-        // At the first threshold show a clear icon even on narrow screens.
-        // Longer reveals also have room for the caption.
-        button.IsVisible = distance >= first;
-        button.InputTransparent = _revealedItem is null;
-        Foreground.TranslationX = right ? distance : -distance;
+        // The transparent hit target only needs a layout once a short swipe
+        // settles. A long swipe executes directly and never lays out a button.
+        bool revealed = _revealedItem is not null && distance >= first;
+        if (revealed)
+        {
+            button.HorizontalOptions = right ? LayoutOptions.Start : LayoutOptions.End;
+            button.WidthRequest = distance;
+        }
+        button.InputTransparent = !revealed;
+        button.IsVisible = revealed;
+        Foreground.TranslationX = rowX;
     }
 
     internal void ResetSwipe()
@@ -251,9 +258,14 @@ internal partial class TrackListRow : Border
         _swipeItem = _revealedItem = null;
         _swipeDistance = 0;
         _horizontalSwipe = false;
-        if (_swipeTint is not null) _swipeTint.IsVisible = false;
-        if (_swipeForeground is not null) _swipeForeground.IsVisible = false;
-        if (_swipeActionButton is not null) _swipeActionButton.IsVisible = false;
+        if (_swipeSurface is not null) _swipeSurface.Opacity = 0;
+        if (_swipeTint is not null) _swipeTint.Opacity = 0;
+        if (_swipeForeground is not null) _swipeForeground.Opacity = 0;
+        if (_swipeActionButton is not null)
+        {
+            _swipeActionButton.InputTransparent = true;
+            _swipeActionButton.IsVisible = false;
+        }
         Foreground.TranslationX = 0;
     }
 
