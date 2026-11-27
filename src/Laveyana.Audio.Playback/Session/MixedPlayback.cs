@@ -2,7 +2,8 @@ namespace Laveyana.Audio.Playback;
 
 internal sealed class MixedPlayback : IAudioRenderSource, ISpectrumSource
 {
-    private const int SpectrumWindow = 2048;
+    // Double frequency resolution without changing the 1024-frame hop.
+    internal const int SpectrumWindow = Laveyana.Audio.MasterSpectrum.WindowFrames;
     private const int SpectrumHistorySize = 192;
 
     private readonly DeckVolumes? _levels;

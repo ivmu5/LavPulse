@@ -31,6 +31,58 @@ internal static partial class Program
             "Spectrum did not resume on the absolute render clock.");
     }
 
+    private static void CheckDistinctSpectrumBands()
+    {
+        foreach (int window in new[] { 2048, MasterSpectrum.WindowFrames })
+        {
+            foreach (int bin in new[] { 3, 5, 7, 10, 15, 24, 64, 128 })
+            {
+                double frequency = bin * (double)PlaybackFormat.SampleRate / window;
+                var mixer = new PcmMixer([new PcmInput(new SpectrumTone(frequency))],
+                    PlaybackFormat.SpectrumBars, window);
+                var bands = mixer.Spectrum.Bands;
+                var levels = new float[bands.Count];
+                mixer.Render(new float[window * PlaybackFormat.Channels]);
+                Require(mixer.Spectrum.TryReadLevels(levels, out long end) && end == window,
+                    "Missing complete spectrum tone window.");
+                double binWidth = (double)PlaybackFormat.SampleRate / window;
+                for (int i = 0; i < bands.Count; i++)
+                {
+                    var band = bands[i];
+                    Require(band.UpperHz > band.LowerHz &&
+                        (i == 0 || band.LowerHz == bands[i - 1].UpperHz),
+                        "Spectrum bands must be ordered and contiguous.");
+                    Require(Math.Ceiling(band.UpperHz / binWidth - 1e-9) >
+                        Math.Ceiling(band.LowerHz / binWidth - 1e-9),
+                        "A displayed spectrum band contains no independent FFT bin.");
+                }
+                int strongest = Array.IndexOf(levels, levels.Max());
+                Require(frequency >= bands[strongest].LowerHz && frequency < bands[strongest].UpperHz &&
+                    levels.Count(level => Math.Abs(level - levels[strongest]) < .0001f) == 1,
+                    "A tone was assigned to the wrong band or duplicated at the same peak level.");
+                Require(levels.All(level => float.IsFinite(level) && level >= 0 && level <= 1),
+                    "Spectrum produced an invalid normalized level.");
+            }
+        }
+        Console.WriteLine("OK: distinct FFT bands and low-frequency tone isolation.");
+    }
+
+    private sealed class SpectrumTone(double frequency) : IPcmSource
+    {
+        private long _frame;
+        public int SampleRate => PlaybackFormat.SampleRate;
+        public int Read(Span<float> destination)
+        {
+            for (int i = 0; i < destination.Length; i += 2)
+            {
+                float sample = (float)(.25 * Math.Sin(Math.Tau * frequency * _frame++ / SampleRate));
+                destination[i] = sample;
+                destination[i + 1] = sample;
+            }
+            return destination.Length / 2;
+        }
+    }
+
     /// <summary>Verifies bitrate and mode are read from the audio frames even with misleading tag or seek-table bytes.</summary>
     private static void CheckMp3AudioInfo()
     {

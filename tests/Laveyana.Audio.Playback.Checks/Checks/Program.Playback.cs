@@ -344,7 +344,7 @@ internal static partial class Program
                 // The asynchronous spectrum worker publishes only the newest captured
                 // window. Rendering the entire track in a tight loop makes different
                 // measurements observe different FFT windows, including trailing silence.
-                // Wait for each hop after the initial 2048-frame window. Stop well
+                // Wait for each hop after the initial analysis window. Stop well
                 // before EOF so every profile is measured on the same full-tone block.
                 long version = 0;
                 const int blocks = 40;
@@ -358,7 +358,7 @@ internal static partial class Program
                         sum += block[sample] * block[sample];
                     }
                     rms = Math.Sqrt(sum / BlockSize);
-                    if (i >= 1)
+                    if ((i + 1) * BlockSize >= MixedPlayback.SpectrumWindow)
                     {
                         Require(SpinWait.SpinUntil(() => session.Spectrum!.TryReadSpectrum(levels, ref version),
                             TimeSpan.FromSeconds(5)), $"No master spectrum snapshot for tone block {i + 1}.");
