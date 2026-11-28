@@ -78,7 +78,35 @@ internal static partial class Program
             "A strong phase anchor was overwritten.");
         CheckBassOctave();
         CheckSpectralHypotheses();
+        CheckGlobalHypothesisPath();
         Console.WriteLine("OK: evidence-gated octave correction, isolated window recovery and local phase refinement.");
+    }
+
+    private static void CheckGlobalHypothesisPath()
+    {
+        const long duration = 576000;
+        TrackRhythmHypothesis H(int block, double bpm, float score, bool weak = false, long offset = 0)
+        {
+            long start = block * duration;
+            long period = (long)Math.Round(60 * PlaybackFormat.SampleRate / bpm);
+            var beats = new List<long>();
+            for (long frame = start + offset; frame < start + duration; frame += period) beats.Add(frame);
+            return new(start,start+duration,bpm,120,.8f,.8f,.9f,.8f,score,beats.ToArray())
+            { AttackCoverage = .8f, IsRecoveryCandidate = weak };
+        }
+        var path = RhythmHypothesisPath.Select([H(0,120,.8f),H(0,60,.6f),
+            H(1,120,.6f),H(1,60,.65f),H(1,120,.65f,offset:12000),
+            H(2,120,.8f),H(2,60,.6f)],default);
+        Require(path.Count(h=>h.IsPreferred)==3 && path.Where(h=>h.IsPreferred)
+            .All(h=>h.Bpm==120 && h.CandidateFrames[0]==h.StartFrame),
+            "Global path preferred an isolated octave or phase jump.");
+        path = RhythmHypothesisPath.Select([H(0,120,.8f),H(1,120,.5f,true),H(2,120,.8f)],default);
+        Require(path.All(h=>h.IsPreferred),"A supported isolated weak block was not recovered.");
+        path = RhythmHypothesisPath.Select([H(0,120,.8f),H(1,120,.5f,true),
+            H(2,120,.5f,true),H(3,120,.8f)],default);
+        Require(path.Count(h=>h.IsPreferred)==2,"Weak blocks bootstrapped each other.");
+        path = RhythmHypothesisPath.Select([H(0,120,.8f),H(2,60,.8f)],default);
+        Require(path.Count(h=>h.IsPreferred)==2,"A missing block invalidated independent regions.");
     }
 
     private static void CheckSpectralHypotheses()

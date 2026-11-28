@@ -56,9 +56,9 @@ internal static class TrackDiagnosticCsv
         if (grid is not null)
         {
             await Write(zip, prefix + "rhythm-hypotheses.csv", Rows(
-                "id,start_frame,end_frame_exclusive,bpm,reference_bpm,tempo_confidence,phase_confidence,stability,coverage,score,preferred",
+                "id,start_frame,end_frame_exclusive,bpm,reference_bpm,tempo_confidence,phase_confidence,stability,coverage,score,preferred,local_preferred,recovery_candidate,attack_coverage,reference_agreement,phase_offset,relative_pulse",
                 grid.RhythmHypotheses.Select((h,i) => FormattableString.Invariant(
-                    $"{i},{h.StartFrame},{h.EndFrame},{h.Bpm:R},{h.ReferenceBpm:R},{h.TempoConfidence:R},{h.PhaseConfidence:R},{h.Stability:R},{h.Coverage:R},{h.Score:R},{(h.IsPreferred ? 1 : 0)}"))), token).ConfigureAwait(false);
+                    $"{i},{h.StartFrame},{h.EndFrame},{h.Bpm:R},{h.ReferenceBpm:R},{h.TempoConfidence:R},{h.PhaseConfidence:R},{h.Stability:R},{h.Coverage:R},{h.Score:R},{(h.IsPreferred ? 1 : 0)},{(h.IsLocalPreferred ? 1 : 0)},{(h.IsRecoveryCandidate ? 1 : 0)},{h.AttackCoverage:R},{h.ReferenceAgreement:R},{h.PhaseOffset:R},{h.RelativePulse}"))), token).ConfigureAwait(false);
             await Write(zip, prefix + "hypothesis-beats.csv", Rows("id,frame",
                 grid.RhythmHypotheses.SelectMany((h,i) => h.CandidateFrames.Select(f =>
                     FormattableString.Invariant($"{i},{f}")))), token).ConfigureAwait(false);
