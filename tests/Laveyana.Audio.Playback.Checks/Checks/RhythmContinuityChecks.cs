@@ -319,6 +319,24 @@ internal static partial class Program
             "Phase agreement confused a half-rate grid with a phase shift.");
         Require(RhythmPhaseAgreement.Compare(0,384000,"a","b",regularPhase,[]).Status=="insufficient",
             "Missing reference became phase confidence.");
+        long[] firstHalf = [0, 24000, 48000, 72000, 96000];
+        long[] secondHalf = [192000, 216000, 240000, 264000, 288000];
+        var disjoint = RhythmPhaseAgreement.Compare(0, 384000, "a", "b", firstHalf, secondHalf);
+        Require(disjoint.Status == "insufficient_overlap" && disjoint.Matches70 == 0 &&
+            disjoint.Concentration == 0, "Disjoint grids appeared phase coherent.");
+
+        long[] acrossGap = [0, 24000, 48000, 72000, 240000, 264000, 288000, 312000];
+        long[] insideGap = [96000, 120000, 144000, 168000, 192000, 216000];
+        Require(RhythmPhaseAgreement.Compare(0, 384000, "a", "b", acrossGap, insideGap).Status ==
+            "insufficient_overlap", "A gap supplied interpolated phase observations.");
+
+        var delayedPhase = regularPhase.Select(frame => frame + 2400).ToArray();
+        var forwardPhase = RhythmPhaseAgreement.Compare(0, 384000, "a", "b", regularPhase, delayedPhase);
+        var reversePhase = RhythmPhaseAgreement.Compare(0, 384000, "b", "a", delayedPhase, regularPhase);
+        Require(Math.Abs(forwardPhase.OffsetCycles - .1) < 1e-8 &&
+            Math.Abs(forwardPhase.OffsetCycles + reversePhase.OffsetCycles) < 1e-8 &&
+            Math.Abs(forwardPhase.Concentration - reversePhase.Concentration) < 1e-8,
+            "Reversing the compared grids changed the magnitude or certainty of the offset.");
         var paused=Enumerable.Range(0,2400).Select(i=>
         {
             float hit=i>=800&&i<1600?0:i%50==25?1:0;
