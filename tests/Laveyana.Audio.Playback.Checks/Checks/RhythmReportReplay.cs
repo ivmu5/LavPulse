@@ -129,15 +129,15 @@ internal static class RhythmReportReplay
                 }
             }
             else Console.WriteLine("  No spectral hypotheses; old report or insufficient evidence.");
-            foreach (var (name,path) in new[] { ("audit-baseline",audit.Baseline),("joint",audit.Joint),("joint-alternative",audit.Alternative) })
+            foreach (var (name,auditPath) in new[] { ("audit-baseline",audit.Baseline),("joint",audit.Joint),("joint-alternative",audit.Alternative) })
             {
-                if (path.States.Length==0 || taps.Length==0) continue;
-                long[] frames=path.Beats.Select(b=>b.Frame).ToArray();
+                if (auditPath.States.Length==0 || taps.Length==0) continue;
+                long[] frames=auditPath.Beats.Select(b=>b.Frame).ToArray();
                 foreach (int ms in new[]{50,70,100,180})
                 {
                     var metric=SeriesMetrics(frames,taps,PlaybackFormat.SampleRate*ms/1000);
                     Console.WriteLine(FormattableString.Invariant(
-                        $"  {name} {ms}ms: P/R/F1 {metric.P:F3}/{metric.R:F3}/{metric.F1:F3}, beats {frames.Length}, observed {path.Beats.Count(b=>b.Observed)}"));
+                        $"  {name} {ms}ms: P/R/F1 {metric.P:F3}/{metric.R:F3}/{metric.F1:F3}, beats {frames.Length}, observed {auditPath.Beats.Count(b=>b.Observed)}"));
                 }
             }
             int ClosePredicted = Close(grid.PredictedBeatFrames);

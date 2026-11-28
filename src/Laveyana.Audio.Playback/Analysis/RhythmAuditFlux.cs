@@ -55,6 +55,8 @@ internal sealed class RhythmAuditFlux
         long real=_nativeCount;
         if(real==0||Truncated)return;
         for(int i=0;i<Delay&&_frames.Count<MaxFrames;i++)PushNative(0,0,token);
+        // Finish is idempotent. The last desired center is strictly inside
+        // the original PCM, even if padding extends the analysis window.
         long lastCenter=(real-1)/HopFrames*HopFrames/Decimation;
         while(_sampleCount<lastCenter+Size/2&&_frames.Count<MaxFrames)PushSample(0,0,token);
         Truncated=lastCenter/Hop+1>_frames.Count;

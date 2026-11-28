@@ -63,19 +63,21 @@ internal static partial class RhythmJointDecoder
             }
             history[w]=chosen.ToArray();
         }
-        var primary=Backtrack(history,0,input,total,token);var alternative=RhythmAuditPath.Empty;
+        var primaryStates=Backtrack(history,0,input,token);
+        RhythmAuditState[] alternateStates=[];
         for(int k=1;k<history[^1].Length;k++)
         {
-            var other=Backtrack(history,k,input,total,token);
-            int distinct=primary.States.Zip(other.States).Count(pair=>
+            var other=Backtrack(history,k,input,token);
+            int distinct=primaryStates.Zip(other).Count(pair=>
                 Math.Abs(pair.First.Bpm-pair.Second.Bpm)>.04*pair.First.Bpm||
                 Math.Abs(WrapSigned(pair.First.PhaseCycles-pair.Second.PhaseCycles))>=.20);
-            if(distinct>=Math.Max(1,n/4)){alternative=other;break;}
+            if(distinct>=Math.Max(1,n/4)){alternateStates=other;break;}
         }
-        return(primary,alternative);
+        return (Reconstruct(primaryStates,input,total,token),
+            alternateStates.Length==0?RhythmAuditPath.Empty:Reconstruct(alternateStates,input,total,token));
     }
 
-    private static RhythmAuditPath Backtrack(Node[][] history,int winner,Input input,long total,CancellationToken token)
+    private static RhythmAuditState[] Backtrack(Node[][] history,int winner,Input input,CancellationToken token)
     {
         int n=history.Length;var states=new RhythmAuditState[n];
         for(int w=n-1;w>=0;w--)
@@ -85,6 +87,12 @@ internal static partial class RhythmJointDecoder
             states[w]=new(input.Centers[w]*(long)Hop,node.Bpm,node.Phase/(double)PhaseCount,node.Tempo,node.Evidence,node.Score-other);
             winner=node.Parent;
         }
+        return states;
+    }
+
+    private static RhythmAuditPath Reconstruct(RhythmAuditState[] states,Input input,long total,CancellationToken token)
+    {
+        int n=states.Length;
         var cycles=new double[input.Length];cycles[0]=states[0].PhaseCycles;
         for(int w=0;w<n;w++)
         {

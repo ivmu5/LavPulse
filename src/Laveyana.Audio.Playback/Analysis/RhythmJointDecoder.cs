@@ -16,7 +16,7 @@ internal sealed record RhythmAuditResult(RhythmAuditPath Baseline,RhythmAuditPat
 internal static partial class RhythmJointDecoder
 {
     internal const int Version=1;
-    internal const int Rate=100,Hop=480,Stride=200,PhaseCount=32,MinBpm=40,MaxBpm=240,
+    internal const int Rate=RhythmAuditFlux.Rate,Hop=RhythmAuditFlux.HopFrames,Stride=200,PhaseCount=32,MinBpm=40,MaxBpm=240,
         TempoCount=MaxBpm-MinBpm+1;
     private static readonly double[] Prior=Enumerable.Range(MinBpm,TempoCount)
         .Select(b=>.070*Math.Pow(Math.Log2(b/120d)/.65,2)).ToArray();
@@ -117,7 +117,9 @@ internal static partial class RhythmJointDecoder
         l.Clear();h.Clear();counts.Clear();
         for(int i=start;i<end;i++)
         {
-            double p=Mod(cycles(i))*PhaseCount;int k=Math.Min(PhaseCount-1,(int)p),next=(k+1)%PhaseCount;
+            double p=Mod(cycles(i))*PhaseCount;
+            if (p>=PhaseCount) p=0; // roundoff at the circular boundary
+            int k=(int)p,next=(k+1)%PhaseCount;
             double w=Hann(i-start,n),v=p-k,a=w*(1-v),b=w*v;
             counts[k]+=a;counts[next]+=b;
             l[k]+=a*(input.Low[i]-ml);l[next]+=b*(input.Low[i]-ml);
