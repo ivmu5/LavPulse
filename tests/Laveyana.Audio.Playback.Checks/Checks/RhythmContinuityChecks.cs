@@ -153,6 +153,14 @@ internal static partial class Program
         var metric=RhythmReportReplay.SeriesMetrics([0,48000,240000,480000],
             [0,48000,480000],3360);
         Require(metric.F1==1,"Series metrics counted beats outside annotated runs.");
+        var regular=Enumerable.Range(0,40).Select(i=>i*24000L).ToArray();
+        Require(RhythmReportReplay.PhaseNull(regular,regular,3360)<.5,
+            "Phase-null control did not distinguish a regular exact grid.");
+        using var cancelled=new CancellationTokenSource();cancelled.Cancel();
+        bool threw=false;
+        try { RhythmJointDecoder.Analyze(input,total,cancelled.Token); }
+        catch(OperationCanceledException){threw=true;}
+        Require(threw,"Joint decoder ignored cancellation.");
     }
 
     private static void CheckHarmonicFamily()

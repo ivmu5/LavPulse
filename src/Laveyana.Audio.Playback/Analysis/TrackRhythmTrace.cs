@@ -14,6 +14,7 @@ internal sealed class TrackRhythmTrace
     public bool AuditTruncated { get; set; }
     public double AuditFeatureMs { get; set; }
     public double AuditDecodeMs { get; set; }
+    public RhythmStageTiming[] StageTimings { get; set; } = [];
     public TrackOnsetDiagnostic[] Onsets { get; set; } = [];
     public float[,]? TempoScores { get; set; }
     public float[,]? RawTempoScores { get; set; }
@@ -28,6 +29,8 @@ internal sealed class TrackRhythmTrace
     public RhythmMetricHierarchy.Root? MetricRoot { get; set; }
     public List<RhythmSectionPhaseDecision> SectionPhasePath { get; } = [];
 }
+
+internal readonly record struct RhythmStageTiming(string Stage, double Milliseconds);
 
 internal readonly record struct RhythmSectionAttempt(int FirstWindow, int EndWindowExclusive,
     bool Recovery, double MeanConfidence, double Bpm, double AnchorBpm, double PhaseInHops,

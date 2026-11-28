@@ -115,7 +115,11 @@ internal static partial class RhythmJointDecoder
         return costs;
     }
     private static double WrapSigned(double x)=>x-Math.Floor(x+.5);
-    private static double Mod(double x)=>x-Math.Floor(x);
+    private static double Mod(double x)
+    {
+        double wrapped=x-Math.Floor(x);
+        return wrapped>=1?0:wrapped;
+    }
     private static double Hann(int i,int n)=>n<2?1:.5-.5*Math.Cos(Math.Tau*i/(n-1));
 
     private static double[] Fold(Input input,int start,int end,Func<int,double> cycles)

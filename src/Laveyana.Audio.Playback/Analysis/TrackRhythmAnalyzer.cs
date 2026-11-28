@@ -131,6 +131,7 @@ public static partial class TrackRhythmAnalyzer
             trace.AuditTruncated = false;
             trace.AuditFeatureMs = 0;
             trace.AuditDecodeMs = 0;
+            trace.StageTimings = [];
             trace.Onsets = [];
             trace.TempoScores = null;
             trace.RawTempoScores = null;

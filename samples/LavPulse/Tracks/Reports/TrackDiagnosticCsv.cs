@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO.Compression;
+using System.Reflection;
 using System.Text;
 using Laveyana.Audio.Playback;
 
@@ -19,6 +20,8 @@ internal static class TrackDiagnosticCsv
             "Trace schema: " + TrackRhythmTrace.SchemaVersion,
             "Origin: fresh analysis at export, not the saved report analysis.txt",
             "Decoder: " + trace.Decoder,
+            "Playback assembly informational version: " + (typeof(TrackWaveform).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown"),
+            $"Joint configuration: beam={RhythmJointDecoder.BeamWidth}; stride_hops={RhythmJointDecoder.Stride}; phase_bins={RhythmJointDecoder.PhaseCount}; min_bpm={RhythmJointDecoder.MinBpm}; max_bpm={RhythmJointDecoder.MaxBpm}",
             FormattableString.Invariant($"Sample rate: {PlaybackFormat.SampleRate}; total PCM frames: {waveform.TotalFrames}; envelope hop frames: {trace.HopFrames}"),
             "Track SHA-256 library ID: " + report.Id,
             $"Audit feature version: {RhythmAuditFlux.Version}; joint decoder version: {RhythmJointDecoder.Version}; hop frames: {RhythmAuditFlux.HopFrames}; truncated: {trace.AuditTruncated}",
@@ -26,6 +29,8 @@ internal static class TrackDiagnosticCsv
             TrackAnalysisReport.Create(report.FileName, waveform, snapshot.Info, report.Title, report.Artist)
         ], token).ConfigureAwait(false);
 
+        await Write(zip, prefix + "analysis-timings.csv", Rows("stage,wall_ms",
+            trace.StageTimings.Select(t=>FormattableString.Invariant($"{t.Stage},{t.Milliseconds:R}"))), token).ConfigureAwait(false);
         await Write(zip, prefix + "energy.csv",
             Rows("frame,low,mid,high", trace.Energy.Select((e, i) =>
                 FormattableString.Invariant($"{(long)i * trace.HopFrames},{e.Low:R},{e.Mid:R},{e.High:R}"))), token).ConfigureAwait(false);
