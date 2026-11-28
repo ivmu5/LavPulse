@@ -184,6 +184,13 @@ internal static partial class Program
             "Cross-fit model did not recover repeated four-pulse acoustic structure.");
         Require(model.RankedBeats.SequenceEqual(beats)&&model.GuardedBeats.SequenceEqual(beats),
             "Template ranking changed coordinates of the selected grid.");
+        Require(model.Evidence.All(e=>e.ConditionalFourGain>.2)&&
+            model.ConditionalRankedBeats.SequenceEqual(beats)&&model.ConditionalGuardedBeats.SequenceEqual(beats),
+            "Conditional recurrence lost the known four-pulse fixture.");
+        Require(RhythmTemplateAnalyzer.ConditionalGain(0,0)==0&&
+            RhythmTemplateAnalyzer.ConditionalGain(5,20)==0&&
+            RhythmTemplateAnalyzer.ConditionalGain(20,20)>0&&RhythmTemplateAnalyzer.ConditionalGain(0,20)<0,
+            "Conditional evidence did not respect uniform, unseen or concentrated counts.");
         var repeated=RhythmTemplateAnalyzer.CheckFixture(events,beats,default);
         Require(repeated.Prototypes.SequenceEqual(model.Prototypes)&&repeated.Evidence.SequenceEqual(model.Evidence),
             "Cross-fit clustering is not deterministic.");
@@ -191,7 +198,7 @@ internal static partial class Program
             "Insufficient events produced a template score.");
         var constant=events.Select(e=>e with {Low=1,Middle=0,High=0,Sharpness=0}).ToArray();
         var uniform=RhythmTemplateAnalyzer.CheckFixture(constant,beats,default);
-        Require(uniform.Evidence.All(e=>e.FourGain<.1),
+        Require(uniform.Evidence.All(e=>e.FourGain<.1&&e.ConditionalFourGain<.1),
             "Uniform timbre incorrectly supplied evidence of a four-pulse accent pattern.");
     }
 

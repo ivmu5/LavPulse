@@ -18,7 +18,11 @@ public sealed class PlayerNotification
     private readonly Label _percent = MixerStyle.Label("", 11, MixerColor.Accent, bold: true);
     private readonly GraphicsView _progress = new() { HeightRequest = 7, IsVisible = false, InputTransparent = true };
     private readonly GraphicsView _ring = new() { InputTransparent = true };
-    private readonly Button _edgeButton = new() { BackgroundColor = Colors.Transparent, FontFamily = "Inter" };
+    private readonly Button _edgeButton = new()
+    {
+        BackgroundColor = Colors.Transparent, FontFamily = "Inter",
+        BorderWidth = 0, BorderColor = Colors.Transparent, CornerRadius = 12
+    };
     private readonly Button _minimize = MixerStyle.Button("−");
     private readonly Grid _mini = new() { IsVisible = false };
     private readonly Grid _shell = new();
@@ -76,6 +80,7 @@ public sealed class PlayerNotification
         _edgeButton.FontSize = 12;
         _edgeButton.MinimumHeightRequest = 0;
         _edgeButton.MinimumWidthRequest = 0;
+        _edgeButton.HandlerChanged += (_, _) => StyleNativeEdgeButton();
         _edgeButton.Clicked += (_, _) =>
         {
             _collapsed = false;
@@ -106,6 +111,25 @@ public sealed class PlayerNotification
         Card.StrokeShape = new RoundRectangle { CornerRadius = 12 };
         RefreshMiniLabel();
         SetCorner(owner.NotificationPosition);
+    }
+
+    private void StyleNativeEdgeButton()
+    {
+        // WinUI's default Button template supplies its own border even when
+        // MAUI's background is transparent. Scope the overrides to this button;
+        // leave keyboard focus visuals intact for accessibility.
+        if (_edgeButton.Handler?.PlatformView is not Microsoft.UI.Xaml.Controls.Button native) return;
+        var transparent = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        native.BorderThickness = new Microsoft.UI.Xaml.Thickness(0);
+        native.BorderBrush = transparent;
+        native.Background = transparent;
+        native.CornerRadius = new Microsoft.UI.Xaml.CornerRadius(12);
+        foreach (string suffix in new[] { "", "PointerOver", "Pressed", "Disabled" })
+        {
+            native.Resources["ButtonBorderBrush" + suffix] = transparent;
+            native.Resources["ButtonBackground" + suffix] = transparent;
+        }
+        native.Resources["ButtonBorderThemeThickness"] = new Microsoft.UI.Xaml.Thickness(0);
     }
 
     private static void CompactButton(Button button)
