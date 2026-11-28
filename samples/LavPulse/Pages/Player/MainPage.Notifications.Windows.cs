@@ -26,7 +26,7 @@ public sealed partial class MainPage
 
     private async Task RunLibraryNotificationScanAsync(TrackLibrarySelection selection, bool replace)
     {
-        using var batch = new TrackScanBatch(_settings.AnalysisParallelism, _lifetime.Token);
+        using var batch = new TrackScanBatch(PlayerSettings.ResolveAnalysisParallelism(_settings.AnalysisParallelism), _lifetime.Token);
         var notice = _view.ShowNotification(replace ? "Повторный анализ" : "Анализ медиатеки",
             "Подготовка списка треков…", running: true);
         bool stopping = false;
@@ -38,7 +38,7 @@ public sealed partial class MainPage
             batch.Stop();
         }
         notice.Update("Подготовка списка треков…", 0, [new("Остановить", Stop)]);
-        string last = "";
+        var recent = new Queue<string>();
         try
         {
             var files = await ListLibraryScanTracksAsync(selection, batch.Token);
@@ -57,11 +57,15 @@ public sealed partial class MainPage
                     foreach (var file in active)
                     {
                         var current = file;
-                        actions.Add(new("Пропустить: " + current.Name, () => batch.Skip(current)));
+                        actions.Add(new("Пропустить: " + current.Name, () =>
+                        {
+                            if (!stopping && notice.IsRunning) batch.Skip(current);
+                        }));
                     }
                     string names = string.Join("\n", active.Select(file => file.Name));
                     notice.Update($"Обработано {finished} / {total} · В работе: {active.Count}\n{names}" +
-                        (last.Length == 0 ? "" : "\n" + last), finished / (double)total, actions);
+                        (recent.Count == 0 ? "" : "\nПоследние результаты:\n" + string.Join("\n", recent)),
+                        finished / (double)total, actions);
                 },
                 file =>
                 {
@@ -69,7 +73,7 @@ public sealed partial class MainPage
                         panel.RefreshCompletedAnalysis(path);
                 }, _trackStore.ReadTrackStorageSizeAsync, row =>
                 {
-                    last = $"{row.File.Name}: {row.Outcome switch
+                    string last = $"{row.File.Name}: {row.Outcome switch
                     {
                         TrackScanOutcome.Scanned => "готово",
                         TrackScanOutcome.Skipped => "пропущен",
@@ -78,10 +82,15 @@ public sealed partial class MainPage
                     }} · {row.Elapsed.TotalSeconds:F1} с";
                     if (row.BeforeBytes is long before && row.AfterBytes is long after)
                         last += $" · {before / 1048576d:F1} → {after / 1048576d:F1} МБ";
+                    recent.Enqueue(last);
+                    if (recent.Count > 3) recent.Dequeue();
                 });
             if (!_closed)
                 notice.Complete(batch.Token.IsCancellationRequested ? "Анализ остановлен" : "Анализ завершён",
-                    $"Проанализировано: {result.Scanned} · Пропущено: {result.Skipped} · Ошибок: {result.Failed}");
+                    $"Проанализировано: {result.Scanned} · Пропущено: {result.Skipped} · Ошибок: {result.Failed}" +
+                    (batch.Token.IsCancellationRequested ? $" · Не завершено: {files.Count - result.Scanned - result.Skipped - result.Failed}" : "") +
+                    (recent.Count == 0 ? "" : "\nПоследние результаты:\n" + string.Join("\n", recent)),
+                    retain: true);
         }
         catch (OperationCanceledException) when (batch.Token.IsCancellationRequested)
         {
@@ -143,11 +152,10 @@ public sealed partial class MainPage
             cancel.Cancel();
         }) };
         notice.Update($"Подготовка {reports.Count} треков…", 0, actions);
-        int errors = 0;
         var progress = new Progress<ReportExportProgress>(state =>
         {
             if (_closed || stopping || !notice.IsRunning) return;
-            errors = state.DiagnosticErrors;
+            int errors = state.DiagnosticErrors;
             string stage = state.Stage switch
             {
                 "analyzing" => "Анализ: " + state.Track,
@@ -161,8 +169,9 @@ public sealed partial class MainPage
         });
         try
         {
-            await Task.Run(() => TrackReportArchive.CreateAsync(reports, path, _trackStore.ReportAudioPath,
-                cancel.Token, _library.AnalyzeDiagnosticAsync, DiagnosticAppVersion, DeviceInfo.Current.Platform.ToString(), progress), cancel.Token);
+            string platform = DeviceInfo.Current.Platform.ToString();
+            int errors = await Task.Run(() => TrackReportArchive.CreateAsync(reports, path, _trackStore.ReportAudioPath,
+                cancel.Token, _library.AnalyzeDiagnosticAsync, DiagnosticAppVersion, platform, progress), cancel.Token);
             string message = "ZIP сохранён: " + Path.GetFileName(path);
             if (!_closed)
                 notice.Complete("Отчёт сохранён", message + (errors > 0 ? $"\nБез свежей диагностики: {errors}" : ""),

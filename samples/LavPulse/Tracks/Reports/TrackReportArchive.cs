@@ -66,7 +66,7 @@ internal static class TrackReportArchive
         return text.ToString();
     }
 
-    internal static async Task CreateAsync(IReadOnlyList<TrackIssueReport> reports, string destination,
+    internal static async Task<int> CreateAsync(IReadOnlyList<TrackIssueReport> reports, string destination,
         Func<string, string> audioPath, CancellationToken token,
         Func<string, CancellationToken, Task<TrackDiagnosticSnapshot>>? analyze = null,
         string? appVersion = null, string? platform = null, IProgress<ReportExportProgress>? progress = null)
@@ -161,6 +161,7 @@ internal static class TrackReportArchive
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
         }
+        return diagnosticErrors;
     }
 
     private static string SafeName(string fileName, string audioPath)

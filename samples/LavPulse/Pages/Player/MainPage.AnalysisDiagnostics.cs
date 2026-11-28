@@ -148,7 +148,13 @@ public sealed partial class MainPage
     {
         await _pendingBeatWrites;
         var reports = await _reports.ReadAllAsync(_lifetime.Token);
-        if (reports.Length == 0) throw new InvalidOperationException("Отчёт пуст. Нет сохранённых отметок или комментариев.");
+        if (reports.Length == 0)
+        {
+#if WINDOWS
+            _view.ShowNotification("Экспорт отчёта", "Отчёт пуст. Нет сохранённых отметок или комментариев.");
+#endif
+            throw new InvalidOperationException("Отчёт пуст. Нет сохранённых отметок или комментариев.");
+        }
         string suggested = "LavPulse_Report_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".zip";
 #if WINDOWS
         return await ExportWindowsReportAsync(reports, suggested);

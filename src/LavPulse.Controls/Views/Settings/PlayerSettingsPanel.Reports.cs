@@ -26,7 +26,11 @@ public sealed partial class PlayerSettingsPanel
         async Task RunAsync(Button button, Func<Task<string?>> action)
         {
             clipboard.IsEnabled = archive.IsEnabled = clear.IsEnabled = false;
+#if WINDOWS
+            message.Text = ReferenceEquals(button, archive) ? "Выберите место сохранения. Прогресс появится в уведомлении." : "Подготовка отчёта…";
+#else
             message.Text = "Подготовка отчёта…";
+#endif
             try
             {
                 var result = await action();

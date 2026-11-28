@@ -14,6 +14,7 @@ public sealed class PlayerNotification
     private readonly ProgressBar _progress = new() { HeightRequest = 5, IsVisible = false };
     private readonly VerticalStackLayout _actions = new() { Spacing = 4 };
     private readonly Button _dismiss = MixerStyle.Button("Закрыть");
+    private int _actionGeneration;
     internal Border Card { get; }
     internal bool Retained { get; private set; }
     internal bool Removed { get; set; }
@@ -63,6 +64,7 @@ public sealed class PlayerNotification
 
     private void SetActions(IReadOnlyList<NotificationAction> actions)
     {
+        int generation = ++_actionGeneration;
         _actions.Children.Clear();
         foreach (var action in actions)
         {
@@ -71,7 +73,7 @@ public sealed class PlayerNotification
             button.MinimumHeightRequest = 30;
             button.Padding = new Thickness(8, 4);
             button.LineBreakMode = LineBreakMode.WordWrap;
-            button.Clicked += (_, _) => { if (!Removed) action.Invoke(); };
+            button.Clicked += (_, _) => { if (!Removed && generation == _actionGeneration) action.Invoke(); };
             _actions.Children.Add(button);
         }
     }
@@ -89,7 +91,7 @@ public sealed partial class PlayerView
         // the player interactive. Modal action menus retain their higher ZIndex.
         _notificationOverlay = new ScrollView
         {
-            ZIndex = 90, IsVisible = false,
+            ZIndex = 90, IsVisible = false, WidthRequest = 350,
             HorizontalOptions = LayoutOptions.Start, VerticalOptions = LayoutOptions.Start,
             Margin = new Thickness(12, WindowsWindowChrome.ContentInset + 8, 12, 8),
             VerticalScrollBarVisibility = ScrollBarVisibility.Default,
