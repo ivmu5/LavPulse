@@ -33,6 +33,7 @@ internal static class TrackDiagnosticCsv
             $"Phase agreement version: {RhythmPhaseAgreement.Version}; block frames: {RhythmPhaseAgreement.BlockFrames}",
             $"Template version: {RhythmTemplateAnalyzer.Version}; clusters: {RhythmTemplateAnalyzer.Clusters}; slots: {RhythmTemplateAnalyzer.Slots}; reference: {trace.Templates.Reference}; rank: {trace.Templates.Ranked}; guarded: {trace.Templates.Guarded}",
             $"Conditional template rank: {trace.Templates.ConditionalRanked}; guarded: {trace.Templates.ConditionalGuarded}",
+            $"Soft template rank: {trace.Templates.SoftRanked}; guarded: {trace.Templates.SoftGuarded}",
             TrackAnalysisReport.Create(report.FileName, waveform, snapshot.Info, report.Title, report.Artist)
         ], token).ConfigureAwait(false);
 
@@ -99,9 +100,9 @@ internal static class TrackDiagnosticCsv
         await Write(zip,prefix+"template-prototypes.csv",Rows("test_fold,cluster,low,middle,high,sharpness,training_count",
             templates.Prototypes.Select(p=>FormattableString.Invariant(
                 $"{p.TestFold},{p.Cluster},{p.Low:R},{p.Middle:R},{p.High:R},{p.Sharpness:R},{p.TrainingCount}"))),token).ConfigureAwait(false);
-        await Write(zip,prefix+"template-evidence.csv",Rows("name,test_fold,training_events,test_events,coverage,phase_gain,two_gain,three_gain,four_gain,conditional_four_gain",
+        await Write(zip,prefix+"template-evidence.csv",Rows("name,test_fold,training_events,test_events,coverage,phase_gain,two_gain,three_gain,four_gain,conditional_four_gain,soft_four_gain",
             templates.Evidence.Select(e=>FormattableString.Invariant(
-                $"{e.Name},{e.TestFold},{e.TrainingEvents},{e.TestEvents},{e.Coverage:R},{e.PhaseGain:R},{e.TwoGain:R},{e.ThreeGain:R},{e.FourGain:R},{e.ConditionalFourGain:R}"))),token).ConfigureAwait(false);
+                $"{e.Name},{e.TestFold},{e.TrainingEvents},{e.TestEvents},{e.Coverage:R},{e.PhaseGain:R},{e.TwoGain:R},{e.ThreeGain:R},{e.FourGain:R},{e.ConditionalFourGain:R},{e.SoftFourGain:R}"))),token).ConfigureAwait(false);
         await Write(zip,prefix+"template-accents.csv",Rows("name,test_fold,cluster,beat_position,phase_slot,training_events",
             templates.Accents.Select(r=>FormattableString.Invariant(
                 $"{r.Name},{r.TestFold},{r.Cluster},{r.BeatPosition},{r.PhaseSlot},{r.TrainingEvents}"))),token).ConfigureAwait(false);
@@ -109,6 +110,12 @@ internal static class TrackDiagnosticCsv
         await Write(zip,prefix+"template-guarded-beats.csv",Rows("frame",templates.GuardedBeats.Select(Frame)),token).ConfigureAwait(false);
         await Write(zip,prefix+"template-conditional-ranked-beats.csv",Rows("frame",templates.ConditionalRankedBeats.Select(Frame)),token).ConfigureAwait(false);
         await Write(zip,prefix+"template-conditional-guarded-beats.csv",Rows("frame",templates.ConditionalGuardedBeats.Select(Frame)),token).ConfigureAwait(false);
+        await Write(zip,prefix+"template-soft-folds.csv",Rows(
+            "test_fold,temperature,mean_training_entropy,mean_test_entropy,training_events,test_events",
+            templates.SoftFolds.Select(f=>FormattableString.Invariant(
+                $"{f.TestFold},{f.Temperature:R},{f.MeanTrainingEntropy:R},{f.MeanTestEntropy:R},{f.TrainingEvents},{f.TestEvents}"))),token).ConfigureAwait(false);
+        await Write(zip,prefix+"template-soft-ranked-beats.csv",Rows("frame",templates.SoftRankedBeats.Select(Frame)),token).ConfigureAwait(false);
+        await Write(zip,prefix+"template-soft-guarded-beats.csv",Rows("frame",templates.SoftGuardedBeats.Select(Frame)),token).ConfigureAwait(false);
         await Write(zip, prefix + "onsets.csv",
             Rows("frame,strength,accent", trace.Onsets.Select(o =>
                 FormattableString.Invariant($"{o.Frame},{o.Strength:R},{o.Accent:R}"))), token).ConfigureAwait(false);

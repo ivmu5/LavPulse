@@ -191,6 +191,17 @@ internal static partial class Program
             RhythmTemplateAnalyzer.ConditionalGain(5,20)==0&&
             RhythmTemplateAnalyzer.ConditionalGain(20,20)>0&&RhythmTemplateAnalyzer.ConditionalGain(0,20)<0,
             "Conditional evidence did not respect uniform, unseen or concentrated counts.");
+        Require(model.SoftFolds.Length==2&&model.SoftFolds.All(f=>f.Temperature>0&&
+            double.IsFinite(f.Temperature)&&f.MeanTrainingEntropy>=0&&f.MeanTestEntropy>=0)&&
+            model.Evidence.All(e=>e.SoftFourGain>.2)&&
+            model.SoftRankedBeats.SequenceEqual(beats)&&model.SoftGuardedBeats.SequenceEqual(beats),
+            "Soft recurrence lost the four-pulse fixture.");
+        double[] equal=[0,0,0,0],separated=[0,1,2,3];
+        RhythmTemplateAnalyzer.NormalizeMembership(equal,1e-10);
+        RhythmTemplateAnalyzer.NormalizeMembership(separated,1e-10);
+        Require(equal.All(w=>w==.25)&&separated[0]==1&&
+            separated.Skip(1).All(w=>w==0)&&Math.Abs(separated.Sum()-1)<1e-12,
+            "Soft membership failed degenerate or separated centroids.");
         var repeated=RhythmTemplateAnalyzer.CheckFixture(events,beats,default);
         Require(repeated.Prototypes.SequenceEqual(model.Prototypes)&&repeated.Evidence.SequenceEqual(model.Evidence),
             "Cross-fit clustering is not deterministic.");
@@ -198,7 +209,7 @@ internal static partial class Program
             "Insufficient events produced a template score.");
         var constant=events.Select(e=>e with {Low=1,Middle=0,High=0,Sharpness=0}).ToArray();
         var uniform=RhythmTemplateAnalyzer.CheckFixture(constant,beats,default);
-        Require(uniform.Evidence.All(e=>e.FourGain<.1&&e.ConditionalFourGain<.1),
+        Require(uniform.Evidence.All(e=>e.FourGain<.1&&e.ConditionalFourGain<.1&&e.SoftFourGain<.1),
             "Uniform timbre incorrectly supplied evidence of a four-pulse accent pattern.");
     }
 
