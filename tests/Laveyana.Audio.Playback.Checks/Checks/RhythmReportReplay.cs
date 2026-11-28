@@ -153,6 +153,11 @@ internal static class RhythmReportReplay
                     $"  {name} tempo/phase evidence {lane.MeanTempoEvidence:F3}/{lane.MeanPhaseEvidence:F3}"));
             }
             if(audit.MetricBudgetReached)Console.WriteLine("  Metric path budget reached; whole remaining families omitted.");
+            if(audit.RoleSelection.Decisions.Length>0)
+            {
+                comparisons.Add(("role-selector",audit.RoleSelection.Beats.Select(b=>b.Beat.Frame).ToArray()));
+                Console.WriteLine($"  role events {audit.RoleSelection.Events.Length}; switched blocks {audit.RoleSelection.Decisions.Count(d=>d.SelectedPathId>=0)}; ambiguous blocks {audit.RoleSelection.Decisions.Count(d=>d.Ambiguous)}");
+            }
             if (taps.Length>0)
                 foreach (var (name,frames) in comparisons)
                     foreach (int ms in new[]{50,70,100,180})

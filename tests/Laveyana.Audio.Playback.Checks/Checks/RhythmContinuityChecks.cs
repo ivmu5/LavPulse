@@ -104,6 +104,30 @@ internal static partial class Program
         }
     }
 
+    private static void CheckRoleSelector(RhythmAuditResult result)
+    {
+        var role=result.RoleSelection;
+        Require(role.Events.Length>0&&role.Decisions.Length>0&&
+            role.Events.Zip(role.Events.Skip(1)).All(p=>p.Second.Frame-p.First.Frame>=
+                RhythmEventClassifier.RefractoryHops*(long)RhythmAuditFlux.HopFrames),
+            "Role extraction lost events or refractory spacing.");
+        Require(role.Beats.Zip(role.Beats.Skip(1)).All(p=>p.First.Beat.Frame<p.Second.Beat.Frame),
+            "Role selector duplicated or reversed beats.");
+        var aligned=Enumerable.Range(0,16).Select(i=>new RhythmAuditBeat(i*24000L,i,true)).ToArray();
+        var shifted=aligned.Select(b=>b with { Frame=b.Frame+12000 }).ToArray();
+        var events=aligned.Select((b,i)=>new RhythmRoleEvent(b.Frame,1,1,0,
+            i%2==0?1:0,i%2==0?0:1,0,i%2==0?1:0,i%2==0?0:1,0,0)).ToArray();
+        var good=RhythmMetricSelector.Evaluate(aligned,events);
+        var bad=RhythmMetricSelector.Evaluate(shifted,events);
+        Require(good.Score>bad.Score+RhythmMetricSelector.MinimumGain&&good.Alternation>.9,
+            "Role score missed aligned alternating attacks.");
+        var none=RhythmMetricSelector.Select([],result.Baseline,result.MetricPaths,
+            result.Baseline.States[^1].Frame+RhythmJointDecoder.Stride*(long)RhythmJointDecoder.Hop,default);
+        Require(none.Decisions.All(d=>d.SelectedPathId==-1&&d.Ambiguous)&&
+            none.Beats.Select(b=>b.Beat.Frame).SequenceEqual(result.Baseline.Beats.Select(b=>b.Frame)),
+            "Selector changed baseline without evidence.");
+    }
+
     private static void CheckJointDecoder()
     {
         const int hop=RhythmAuditFlux.HopFrames;
@@ -145,6 +169,7 @@ internal static partial class Program
             Require(path.States.All(s=>double.IsFinite(s.Bpm)&&s.Bpm>=40&&s.Bpm<=240&&
                 s.PhaseCycles>=0&&s.PhaseCycles<1),"Invalid joint state.");
         }
+        CheckRoleSelector(result);
         var paused=Enumerable.Range(0,2400).Select(i=>
         {
             float hit=i>=800&&i<1600?0:i%50==25?1:0;

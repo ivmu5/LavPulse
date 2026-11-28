@@ -26,13 +26,14 @@ internal sealed record RhythmAuditResult(RhythmAuditPath Baseline,RhythmAuditPat
 {
     internal RhythmMetricPath[] MetricPaths { get; init; } = [];
     internal bool MetricBudgetReached { get; init; }
+    internal RhythmRoleSelection RoleSelection { get; init; } = RhythmRoleSelection.Empty;
     internal static RhythmAuditResult Empty {get;}=new(RhythmAuditPath.Empty,RhythmAuditPath.Empty,RhythmAuditPath.Empty);
 }
 
 /// <summary>Two-pass audit baseline and joint beam share features but never use taps or legacy BPM.</summary>
 internal static partial class RhythmJointDecoder
 {
-    internal const int Version=2;
+    internal const int Version=3;
     internal const int Rate=RhythmAuditFlux.Rate,Hop=RhythmAuditFlux.HopFrames,Stride=200,PhaseCount=32,MinBpm=40,MaxBpm=240,
         TempoCount=MaxBpm-MinBpm+1;
     private static readonly double[] Prior=Enumerable.Range(MinBpm,TempoCount)
@@ -63,10 +64,13 @@ internal static partial class RhythmJointDecoder
         var baseline=Baseline(input,scores,totalFrames,token,out var baselineCycles);
         var (joint,alternative)=Joint(input,scores,totalFrames,token);
         var (metricPaths,budgetReached)=MetricPaths(input,scores,baseline,baselineCycles,totalFrames,token);
-        return new(AnnotateActivity(baseline,input,token),AnnotateActivity(joint,input,token),
+        var annotatedBaseline=AnnotateActivity(baseline,input,token);
+        var events=RhythmEventClassifier.Analyze(raw,input.Bands,input.Gate,token);
+        var roles=RhythmMetricSelector.Select(events,annotatedBaseline,metricPaths,totalFrames,token);
+        return new(annotatedBaseline,AnnotateActivity(joint,input,token),
             AnnotateActivity(alternative,input,token))
         {
-            MetricPaths=metricPaths,MetricBudgetReached=budgetReached
+            MetricPaths=metricPaths,MetricBudgetReached=budgetReached,RoleSelection=roles
         };
     }
 

@@ -27,6 +27,7 @@ internal static class TrackDiagnosticCsv
             $"Audit feature version: {RhythmAuditFlux.Version}; joint decoder version: {RhythmJointDecoder.Version}; hop frames: {RhythmAuditFlux.HopFrames}; truncated: {trace.AuditTruncated}",
             FormattableString.Invariant($"Audit features ms: {trace.AuditFeatureMs:R}; audit path ms: {trace.AuditDecodeMs:R}"),
             $"Metric phase lanes: {trace.AuditResult.MetricPaths.Length}; budget reached: {trace.AuditResult.MetricBudgetReached}",
+            $"Role classifier: {RhythmEventClassifier.Version}; selector: {RhythmMetricSelector.Version}; block frames: {RhythmMetricSelector.BlockFrames}",
             TrackAnalysisReport.Create(report.FileName, waveform, snapshot.Info, report.Title, report.Artist)
         ], token).ConfigureAwait(false);
 
@@ -64,6 +65,22 @@ internal static class TrackDiagnosticCsv
             "id,frame,index,observed,low_evidence,high_evidence,activity_region",
             metricPaths.SelectMany((p,i)=>p.Path.Beats.Select(b=>FormattableString.Invariant(
                 $"{i},{b.Frame},{b.Index},{(b.Observed?1:0)},{b.LowEvidence:R},{b.HighEvidence:R},{b.ActivityRegion}")))),token).ConfigureAwait(false);
+        var role=trace.AuditResult.RoleSelection;
+        await Write(zip,prefix+"rhythm-events.csv",Rows(
+            "frame,strength,sharpness,tail_ratio,low,middle,high,kick_proxy,snare_proxy,hat_proxy,bass_tail_proxy",
+            role.Events.Select(e=>FormattableString.Invariant(
+                $"{e.Frame},{e.Strength:R},{e.Sharpness:R},{e.TailRatio:R},{e.Low:R},{e.Middle:R},{e.High:R},{e.Kick:R},{e.Snare:R},{e.Hat:R},{e.BassTail:R}"))),token).ConfigureAwait(false);
+        await Write(zip,prefix+"role-candidates.csv",Rows(
+            "start_frame,end_frame_exclusive,path_id,score,attack_recall,beat_support,hat_alignment,alternation,contrast,period_frames,beat_count,event_count,local_support,eligible",
+            role.Candidates.Select(q=>FormattableString.Invariant(
+                $"{q.StartFrame},{q.EndFrame},{q.PathId},{q.Evidence.Score:R},{q.Evidence.AttackRecall:R},{q.Evidence.BeatSupport:R},{q.Evidence.HatAlignment:R},{q.Evidence.Alternation:R},{q.Evidence.Contrast:R},{q.Evidence.PeriodFrames:R},{q.Evidence.BeatCount},{q.Evidence.EventCount},{(q.LocallySupported?1:0)},{(q.Eligible?1:0)}"))),token).ConfigureAwait(false);
+        await Write(zip,prefix+"role-decisions.csv",Rows(
+            "start_frame,end_frame_exclusive,selected_path_id,local_best_path_id,baseline_score,best_score,runner_up_gap,ambiguous,reason",
+            role.Decisions.Select(d=>FormattableString.Invariant(
+                $"{d.StartFrame},{d.EndFrame},{d.SelectedPathId},{d.LocalBestPathId},{d.BaselineScore:R},{d.BestScore:R},{d.RunnerUpGap:R},{(d.Ambiguous?1:0)},{d.Reason}"))),token).ConfigureAwait(false);
+        await Write(zip,prefix+"role-selected-beats.csv",Rows("frame,source_index,path_id,observed,activity_region",
+            role.Beats.Select(b=>FormattableString.Invariant(
+                $"{b.Beat.Frame},{b.Beat.Index},{b.PathId},{(b.Beat.Observed?1:0)},{b.Beat.ActivityRegion}"))),token).ConfigureAwait(false);
         await Write(zip, prefix + "onsets.csv",
             Rows("frame,strength,accent", trace.Onsets.Select(o =>
                 FormattableString.Invariant($"{o.Frame},{o.Strength:R},{o.Accent:R}"))), token).ConfigureAwait(false);
