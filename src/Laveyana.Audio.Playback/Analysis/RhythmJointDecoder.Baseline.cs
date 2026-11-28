@@ -63,7 +63,8 @@ internal static partial class RhythmJointDecoder
         return path;
     }
 
-    private static RhythmAuditPath Baseline(Input input,double[,] scores,long total,CancellationToken token)
+    private static RhythmAuditPath Baseline(Input input,double[,] scores,long total,CancellationToken token,
+        out double[] cycles)
     {
         int[] tempo=TempoPath(scores,token);var theta=new double[input.Length];
         for(int i=1;i<theta.Length;i++)theta[i]=theta[i-1]+tempo[Math.Min((i-1+Stride/2)/Stride,tempo.Length-1)]/(60d*Rate);
@@ -104,6 +105,7 @@ internal static partial class RhythmJointDecoder
             int w=Math.Min(i/Stride,n-1),next=Math.Min(w+1,n-1);double f=(i%Stride)/(double)Stride;
             theta[i]-=offsets[w]+f*(offsets[next]-offsets[w]);
         }
+        cycles=theta;
         return new(states,Emit(input,theta,total,token));
     }
 }
