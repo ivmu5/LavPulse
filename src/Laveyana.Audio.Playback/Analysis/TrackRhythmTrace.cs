@@ -4,7 +4,7 @@ namespace Laveyana.Audio.Playback;
 /// Not retained by playback, saved waveform caches or ordinary background scans.</summary>
 internal sealed class TrackRhythmTrace
 {
-    public const int SchemaVersion = 17;
+    public const int SchemaVersion = 18;
     public int HopFrames { get; set; }
     public string Decoder { get; set; } = "unknown";
     public IReadOnlyList<RhythmEnergy> Energy { get; set; } = [];

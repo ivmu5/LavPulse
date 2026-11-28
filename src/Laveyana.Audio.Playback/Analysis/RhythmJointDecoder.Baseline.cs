@@ -2,40 +2,84 @@ namespace Laveyana.Audio.Playback;
 
 internal static partial class RhythmJointDecoder
 {
-    private static double[,] TempoEvidence(Input input,CancellationToken token)
+    private static (double[,] Baseline, double[,] Hybrid) TempoEvidence(Input input, CancellationToken token)
     {
-        var scores=new double[input.Centers.Length,TempoCount];
-        var ac=new double[451];var v=new double[1601];
-        var autocorrelation=new RhythmAuditAutocorrelation();
-        for(int w=0;w<input.Centers.Length;w++)
+        var scores = new double[input.Centers.Length, TempoCount];
+        var hybrid = new double[input.Centers.Length, TempoCount];
+        var correlations = new double[451];
+        var samples = new double[1601];
+        const double binHz = Rate / (double)RhythmAuditAutocorrelation.Size;
+        int minBin = (int)Math.Ceiling(MinBpm / (60 * binHz));
+        int maxBin = (int)Math.Floor(12 / binHz);
+        var power = new double[maxBin + 1];
+        var autocorrelation = new RhythmAuditAutocorrelation();
+        for (int w = 0; w < input.Centers.Length; w++)
         {
             token.ThrowIfCancellationRequested();
-            int start=Math.Max(0,input.Centers[w]-800),end=Math.Min(input.Length,input.Centers[w]+801),n=end-start;
-            Array.Clear(ac);
-            var taper=input.Taper(n);
-            for(int band=0;band<5;band++)
+            int length = Measure(input.Centers[w], 8 * Rate);
+            double maximum = MaximumPower();
+            for (int j = 0; j < TempoCount; j++)
+            {
+                scores[w, j] = Correlation(j, length);
+                hybrid[w, j] = .5 * (.55 * scores[w, j] + .135 * Fourier(j, maximum));
+            }
+            length = Measure(input.Centers[w], 4 * Rate);
+            maximum = MaximumPower();
+            for (int j = 0; j < TempoCount; j++)
+                hybrid[w, j] += .5 * (.55 * Correlation(j, length) + .135 * Fourier(j, maximum));
+        }
+        return (scores, hybrid);
+
+        int Measure(int center, int radius)
+        {
+            int start = Math.Max(0, center - radius), end = Math.Min(input.Length, center + radius + 1);
+            int length = end - start;
+            Array.Clear(correlations);
+            Array.Clear(power);
+            var taper = input.Taper(length);
+            for (int band = 0; band < 5; band++)
             {
                 token.ThrowIfCancellationRequested();
-                double mean=0,energy=0;
-                for(int i=0;i<n;i++)mean+=input.Bands[band,start+i]/(double)n;
-                for(int i=0;i<n;i++){v[i]=(input.Bands[band,start+i]-mean)*taper[i];energy+=v[i]*v[i];}
-                if(energy<1e-8)continue;
-                autocorrelation.Accumulate(v.AsSpan(0,n),ac,1/(energy*5),token);
+                double mean = 0, energy = 0;
+                for (int i = 0; i < length; i++) mean += input.Bands[band, start+i] / (double)length;
+                for (int i = 0; i < length; i++)
+                {
+                    samples[i] = (input.Bands[band, start+i] - mean) * taper[i];
+                    energy += samples[i] * samples[i];
+                }
+                if (energy >= 1e-8)
+                    autocorrelation.Accumulate(samples.AsSpan(0, length), correlations, 1 / (energy * 5), token, power);
             }
+            return length;
+        }
+
+        double MaximumPower()
+        {
+            double maximum = 1e-12;
+            for (int k = minBin; k <= maxBin; k++) maximum = Math.Max(maximum, power[k]);
+            return maximum;
+        }
+
+        double Fourier(int index, double maximum)
+        {
+            double bin = (MinBpm + index) / (60 * binHz);
+            int lower = (int)bin;
+            double value = power[lower] + (power[lower+1] - power[lower]) * (bin - lower);
+            return Math.Sqrt(Math.Clamp(value / maximum, 0, 1));
+        }
+
+        double Correlation(int index, int length)
+        {
             double At(double lag)
             {
-                int i=(int)lag;
-                if(i>=ac.Length||i>=n)return 0;
-                double next=i+1<n&&i+1<ac.Length?ac[i+1]:0;
-                return ac[i]+(next-ac[i])*(lag-i);
+                int lower = (int)lag;
+                if (lower >= correlations.Length || lower >= length) return 0;
+                double next = lower+1 < length && lower+1 < correlations.Length ? correlations[lower+1] : 0;
+                return correlations[lower] + (next - correlations[lower]) * (lag - lower);
             }
-            for(int j=0;j<TempoCount;j++)
-            {
-                double p=60d*Rate/(j+MinBpm);
-                scores[w,j]=.55*At(p)+.30*At(2*p)+.15*At(3*p);
-            }
+            double period = 60d * Rate / (MinBpm + index);
+            return .55 * At(period) + .30 * At(2*period) + .15 * At(3*period);
         }
-        return scores;
     }
 
     private static int[] TempoPath(double[,] scores,CancellationToken token)
