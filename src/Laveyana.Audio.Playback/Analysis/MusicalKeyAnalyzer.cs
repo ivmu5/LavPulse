@@ -28,6 +28,7 @@ internal sealed class MusicalKeyAnalyzer
     private readonly BiquadCoefficients _section1, _section2;
     private readonly Complex[] _fft = new Complex[Size];
     private readonly double[] _power;
+    private readonly float[] _pitchPowerWeights;
     private readonly double[] _chroma = new double[12];
     private readonly double[] _aggregate = new double[12];
     private readonly double[] _local = new double[12];
@@ -53,6 +54,21 @@ internal sealed class MusicalKeyAnalyzer
         (double sine, double cosine) = Math.SinCos(omega);
         _section1 = LowPass(sine, cosine, .5411961001);
         _section2 = LowPass(sine, cosine, 1.3065629649);
+        // Keep the established in-band chroma weighting while changing the
+        // physical anti-alias filter. Equalize by the old/new power ratio.
+        _pitchPowerWeights = new float[_power.Length];
+        double oldDecay = Math.Exp(-Math.Tau * Math.Min(2200, sampleRate / 12d) / sampleRate);
+        double oldNumerator = (1 - oldDecay) * (1 - oldDecay);
+        double corner = Math.Tan(omega / 2);
+        for (int bin = _firstBin - 1; bin <= _endBin; bin++)
+        {
+            double halfAngle = Math.PI * bin / (Decimation * Size);
+            double halfSine = Math.Sin(halfAngle);
+            double oldMagnitude = oldNumerator / (oldNumerator + 4 * oldDecay * halfSine * halfSine);
+            double ratio = Math.Tan(halfAngle) / corner;
+            double ratio2 = ratio * ratio, ratio4 = ratio2 * ratio2;
+            _pitchPowerWeights[bin] = (float)(oldMagnitude * oldMagnitude * (1 + ratio4 * ratio4));
+        }
     }
 
     public void Add(ReadOnlySpan<float> stereo, CancellationToken token)
@@ -91,7 +107,7 @@ internal sealed class MusicalKeyAnalyzer
         double total = 0, maximum = 0;
         for (int i = first - 1; i <= end; i++)
         {
-            double p = (Power(_fft[i]) + Power(_fft[Size - i])) * .5;
+            double p = (Power(_fft[i]) + Power(_fft[Size - i])) * (.5 * _pitchPowerWeights[i]);
             _power[i] = p;
             if (i >= first && i < end) { total += p; maximum = Math.Max(maximum, p); }
         }
