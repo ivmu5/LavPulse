@@ -1,5 +1,7 @@
 #if WINDOWS
 using Microsoft.Maui.Controls.Shapes;
+using Microsoft.Maui.Dispatching;
+using System.Diagnostics;
 
 namespace Laveyana.LavPulse.Controls;
 
@@ -14,7 +16,19 @@ public sealed class PlayerNotification
     private readonly Label _title = MixerStyle.Label("", 15, bold: true);
     private readonly Label _message = MixerStyle.Label("", 12);
     private readonly Label _percent = MixerStyle.Label("", 11, MixerColor.Accent, bold: true);
-    private readonly ProgressBar _progress = new() { HeightRequest = 5, IsVisible = false };
+    private readonly GraphicsView _progress = new() { HeightRequest = 7, IsVisible = false, InputTransparent = true };
+    private readonly GraphicsView _ring = new() { InputTransparent = true };
+    private readonly Button _edgeButton = new() { BackgroundColor = Colors.Transparent, FontFamily = "Inter" };
+    private readonly Button _minimize = MixerStyle.Button("−");
+    private readonly Grid _mini = new() { IsVisible = false };
+    private readonly Grid _shell = new();
+    private readonly NotificationProgressDrawable _barDrawing, _ringDrawing;
+    private double _targetProgress, _displayProgress, _progressFrom, _progressStarted;
+    private bool _hasProgress, _miniature;
+    private int _expiryGeneration;
+    internal bool IsMiniature => _mini.IsVisible;
+    internal bool NeedsProgressAnimation => !Removed && !Removing && IsRunning && _hasProgress;
+    private static double Now => Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
     private readonly VerticalStackLayout _actions = new() { Spacing = 4 };
     private readonly Button _dismiss = MixerStyle.Button("Закрыть");
     private readonly Button _collapse = MixerStyle.Button("⌃");
@@ -47,15 +61,38 @@ public sealed class PlayerNotification
         _collapse.WidthRequest = 32;
         _collapse.Clicked += (_, _) => SetCollapsed(!_collapsed);
         _dismiss.Clicked += (_, _) => _owner.RemoveNotification(this);
-        MixerStyle.UseColor(_progress, ProgressBar.ProgressColorProperty, MixerColor.Accent);
+        CompactButton(_minimize);
+        _minimize.WidthRequest = 32;
+        SemanticProperties.SetDescription(_minimize, "Свернуть в значок");
+        ToolTipProperties.SetText(_minimize, "Свернуть в значок");
+        _minimize.Clicked += (_, _) => SetMiniature(true);
+        _barDrawing = new NotificationProgressDrawable(() => _percent.TextColor, ring: false);
+        _ringDrawing = new NotificationProgressDrawable(() => _percent.TextColor, ring: true);
+        _progress.Drawable = _barDrawing;
+        _ring.Drawable = _ringDrawing;
+        MixerStyle.UseColor(_edgeButton, Button.TextColorProperty, MixerColor.Text);
+        _edgeButton.BackgroundColor = Colors.Transparent;
+        _edgeButton.Padding = 0;
+        _edgeButton.FontSize = 12;
+        _edgeButton.MinimumHeightRequest = 0;
+        _edgeButton.MinimumWidthRequest = 0;
+        _edgeButton.Clicked += (_, _) =>
+        {
+            _collapsed = false;
+            SetMiniature(false);
+            UpdateCollapseGlyph();
+        };
+        _mini.Add(_ring);
+        _mini.Add(_edgeButton);
         var header = new Grid
         {
-            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto)],
+            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Auto)],
             ColumnSpacing = 5
         };
         header.Add(_title);
         header.Add(_percent, 1);
         header.Add(_collapse, 2);
+        header.Add(_minimize, 3);
         _summary = new VerticalStackLayout { Spacing = 5, Children = { header, _progress } };
         _detailContent = new VerticalStackLayout { Spacing = 6, Padding = new Thickness(0, 5), Children = { _message, _actions, _dismiss } };
         _details.Add(_detailContent);
@@ -63,8 +100,11 @@ public sealed class PlayerNotification
         _body.Add(_summary);
         _body.Add(_details, row: 1);
         Card = new Border { StrokeThickness = 1, Padding = 12 };
-        MixerStyle.StyleCard(Card, _body);
+        _shell.Add(_body);
+        _shell.Add(_mini);
+        MixerStyle.StyleCard(Card, _shell);
         Card.StrokeShape = new RoundRectangle { CornerRadius = 12 };
+        RefreshMiniLabel();
         SetCorner(owner.NotificationPosition);
     }
 
@@ -86,14 +126,112 @@ public sealed class PlayerNotification
         Card.AnchorX = _right ? 1 : 0;
         Card.AnchorY = _bottom ? 1 : 0;
         _details.AnchorY = _bottom ? 1 : 0;
+        Card.HorizontalOptions = _right ? LayoutOptions.End : LayoutOptions.Start;
+        _minimize.Text = _right ? "›" : "‹";
         UpdateCollapseGlyph();
         FinishDetailMotion();
         if (!Removing)
         {
             ++_cardGeneration;
             Card.AbortAnimation(CardMotion);
+            ApplyMiniLayout();
             ResetCardTransform();
+            Card.InputTransparent = false;
         }
+    }
+
+    private void RefreshMiniLabel()
+    {
+        _edgeButton.Text = IsRunning && _hasProgress ? $"{_targetProgress:P0}" :
+            IsRunning ? "…" : Retained ? "↗" : "i";
+        string description = _title.Text + " — " + _message.Text +
+            (_hasProgress ? $" · {_targetProgress:P0}" : "") + ". Развернуть";
+        SemanticProperties.SetDescription(_edgeButton, description);
+        ToolTipProperties.SetText(_edgeButton, description);
+    }
+
+    internal void ScheduleExpiry()
+    {
+        int generation = ++_expiryGeneration;
+        if (Removed || Removing || _miniature && (IsRunning || Retained)) return;
+        bool pinned = IsRunning || Retained;
+        _owner.Dispatcher.DispatchDelayed(TimeSpan.FromSeconds(pinned ? _owner.PinnedNotificationSeconds : _owner.TransientNotificationSeconds), () =>
+        {
+            if (Removed || Removing || generation != _expiryGeneration) return;
+            if (IsRunning || Retained) SetMiniature(true);
+            else _owner.RemoveNotification(this);
+        });
+    }
+
+    private void SetMiniature(bool miniature)
+    {
+        if (Removed || Removing || miniature == _miniature) return;
+        ++_expiryGeneration;
+        _miniature = miniature;
+        int generation = ++_cardGeneration;
+        Card.AbortAnimation(CardMotion);
+        FinishDetailMotion();
+        Card.InputTransparent = true;
+        // Shrink towards the selected edge, swap layout at the compact
+        // endpoint, and ease the new representation into place.
+        double scale = Card.Scale, opacity = Card.Opacity;
+        double target = Math.Clamp(52 / Math.Max(52, Card.Width), .15, 1);
+        bool swapped = false;
+        var animation = new Animation(t =>
+        {
+            if (generation != _cardGeneration || Removed) return;
+            if (t < .5)
+            {
+                double f = Math.Pow(t * 2, 3);
+                Card.Scale = scale + (target - scale) * f;
+                Card.Opacity = opacity + (.15 - opacity) * f;
+                return;
+            }
+            if (!swapped)
+            {
+                swapped = true;
+                ApplyMiniLayout();
+            }
+            double open = 1 - Math.Pow(1 - (t - .5) * 2, 3);
+            Card.Scale = .85 + .15 * open;
+            Card.Opacity = .15 + .85 * open;
+        });
+        animation.Commit(Card, CardMotion, 16, 290, Easing.Linear,
+            (_, _) =>
+            {
+                if (generation != _cardGeneration || Removed) return;
+                if (!swapped) ApplyMiniLayout();
+                ResetCardTransform();
+                Card.InputTransparent = false;
+                _owner.RevealNotification(this);
+            });
+        ScheduleExpiry();
+    }
+
+    private void ApplyMiniLayout()
+    {
+        _body.IsVisible = !_miniature;
+        _mini.IsVisible = _miniature;
+        Card.Padding = _miniature ? new Thickness(3) : new Thickness(12);
+        Card.WidthRequest = _miniature ? 52 : -1;
+        Card.HeightRequest = _miniature ? 52 : -1;
+        Card.HorizontalOptions = _miniature ? (_right ? LayoutOptions.End : LayoutOptions.Start) : LayoutOptions.Fill;
+        Card.StrokeShape = new RoundRectangle { CornerRadius = _miniature ? 15 : 12 };
+        RefreshMiniLabel();
+        if (_hasProgress) TickProgress(Now);
+        _owner.RefreshNotificationLayout();
+    }
+
+    internal void TickProgress(double now)
+    {
+        if (!NeedsProgressAnimation) return;
+        double t = Math.Clamp((now - _progressStarted) / .35, 0, 1);
+        _displayProgress = _progressFrom + (_targetProgress - _progressFrom) * (1 - Math.Pow(1 - t, 3));
+        var drawing = _mini.IsVisible ? _ringDrawing : _barDrawing;
+        drawing.Value = _displayProgress;
+        drawing.Motion = now % 1.6 / 1.6;
+        drawing.Active = true;
+        (_mini.IsVisible ? _ring : _progress).Invalidate();
     }
 
     private void UpdateCollapseGlyph()
@@ -106,7 +244,8 @@ public sealed class PlayerNotification
 
     private void SetCollapsed(bool collapsed)
     {
-        if (Removed || Removing || collapsed == _collapsed) return;
+        if (Removed || Removing || _miniature || collapsed == _collapsed) return;
+        ScheduleExpiry();
         double from = _details.IsVisible ? Math.Max(0, _details.Height) : 0;
         if (_details.HeightRequest >= 0 && _details.IsVisible) from = _details.HeightRequest;
         _collapsed = collapsed;
@@ -181,18 +320,20 @@ public sealed class PlayerNotification
     internal void AnimateExit(Action finished)
     {
         if (Removing || Removed) return;
+        ++_expiryGeneration;
         Removing = true;
         Card.InputTransparent = true;
         int generation = ++_cardGeneration;
         Card.AbortAnimation(CardMotion);
         FinishDetailMotion();
         double opacity = Card.Opacity, scale = Card.Scale, x = Card.TranslationX, y = Card.TranslationY;
+        double exitX = (_right ? 1 : -1) * (Math.Max(52, Card.Width) + 24);
         var animation = new Animation(t =>
         {
             if (generation != _cardGeneration || Removed) return;
             Card.Opacity = opacity * (1 - t);
             Card.Scale = scale + (.96 - scale) * t;
-            Card.TranslationX = x + ((_right ? 42 : -42) - x) * t;
+            Card.TranslationX = x + (exitX - x) * t;
             Card.TranslationY = y + ((_bottom ? 16 : -16) - y) * t;
         });
         animation.Commit(Card, CardMotion, 16, 180, Easing.CubicIn,
@@ -203,6 +344,7 @@ public sealed class PlayerNotification
     {
         ++_cardGeneration;
         ++_detailGeneration;
+        ++_expiryGeneration;
         Card.AbortAnimation(CardMotion);
         _details.AbortAnimation(DetailMotion);
     }
@@ -217,12 +359,21 @@ public sealed class PlayerNotification
     {
         if (Removed || !IsRunning) return;
         _message.Text = message;
-        if (progress.HasValue)
+        if (progress.HasValue && double.IsFinite(progress.Value))
         {
+            _hasProgress = true;
             _progress.IsVisible = _percent.IsVisible = true;
-            _progress.Progress = Math.Clamp(progress.Value, 0, 1);
-            _percent.Text = $"{_progress.Progress:P0}";
+            double target = Math.Clamp(progress.Value, 0, 1);
+            if (target != _targetProgress)
+            {
+                _progressFrom = _displayProgress;
+                _progressStarted = Now;
+                _targetProgress = target;
+            }
+            _percent.Text = $"{_targetProgress:P0}";
+            _owner.EnsureNotificationProgressTimer();
         }
+        RefreshMiniLabel();
         if (actions is not null) SetActions(actions);
     }
 
@@ -233,9 +384,20 @@ public sealed class PlayerNotification
         Retained = retain;
         _title.Text = title;
         _message.Text = message;
+        _hasProgress = false;
         _progress.IsVisible = _percent.IsVisible = false;
+        _ringDrawing.Active = false;
+        _ring.Invalidate();
         _dismiss.IsVisible = true;
         SetActions(actions ?? []);
+        RefreshMiniLabel();
+        if (retain)
+        {
+            _collapsed = false;
+            FinishDetailMotion();
+            UpdateCollapseGlyph();
+            if (_miniature) SetMiniature(false);
+        }
         _owner.NotificationCompleted(this);
     }
 
@@ -259,6 +421,42 @@ public sealed partial class PlayerView
     private readonly VerticalStackLayout _notificationCards = new() { Spacing = 8 };
     private readonly List<PlayerNotification> _notifications = [];
     private ScrollView? _notificationOverlay;
+    private IDispatcherTimer? _notificationProgressTimer;
+    internal int PinnedNotificationSeconds { get; private set; } = 5;
+    internal int TransientNotificationSeconds { get; private set; } = 8;
+
+    public void SetNotificationTimeouts(int pinned, int transient)
+    {
+        pinned = Math.Clamp(pinned, 3, 60);
+        transient = Math.Clamp(transient, 3, 60);
+        if (PinnedNotificationSeconds == pinned && TransientNotificationSeconds == transient) return;
+        PinnedNotificationSeconds = pinned;
+        TransientNotificationSeconds = transient;
+        foreach (var item in _notifications) item.ScheduleExpiry();
+    }
+
+    internal void EnsureNotificationProgressTimer()
+    {
+        if (_notificationProgressTimer is null)
+        {
+            _notificationProgressTimer = Dispatcher.CreateTimer();
+            _notificationProgressTimer.Interval = TimeSpan.FromMilliseconds(33);
+            _notificationProgressTimer.Tick += (_, _) =>
+            {
+                double now = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
+                bool active = false;
+                foreach (var item in _notifications)
+                {
+                    if (!item.NeedsProgressAnimation) continue;
+                    active = true;
+                    item.TickProgress(now);
+                }
+                if (!active) _notificationProgressTimer.Stop();
+            };
+        }
+        if (!_notificationProgressTimer.IsRunning) _notificationProgressTimer.Start();
+    }
+
     internal NotificationCorner NotificationPosition { get; private set; } = NotificationCorner.TopLeft;
     private bool NotificationsAtBottom => NotificationPosition is NotificationCorner.BottomLeft or NotificationCorner.BottomRight;
 
@@ -307,7 +505,8 @@ public sealed partial class PlayerView
     private void UpdateNotificationBounds()
     {
         if (_notificationOverlay is not { } host || Width <= 0 || Height <= 0) return;
-        host.WidthRequest = Math.Min(350, Math.Max(1, Width - 24));
+        host.WidthRequest = Math.Min(_notifications.Count > 0 && _notifications.All(n => n.IsMiniature) ? 64 : 350,
+            Math.Max(1, Width - 24));
         host.MaximumHeightRequest = Math.Max(1, Height - WindowsWindowChrome.ContentInset - 16);
     }
 
@@ -318,13 +517,17 @@ public sealed partial class PlayerView
         if (NotificationsAtBottom) _notificationCards.Children.Add(item.Card);
         else _notificationCards.Children.Insert(0, item.Card);
         if (_notificationOverlay is not null) _notificationOverlay.IsVisible = true;
+        RefreshNotificationLayout();
         item.AnimateEntrance();
         RevealNotification(item);
         if (!running) NotificationCompleted(item);
+        else item.ScheduleExpiry();
         return item;
     }
 
-    private void RevealNotification(PlayerNotification item)
+    internal void RefreshNotificationLayout() => UpdateNotificationBounds();
+
+    internal void RevealNotification(PlayerNotification item)
     {
         Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(20), async () =>
         {
@@ -342,8 +545,7 @@ public sealed partial class PlayerView
             RemoveCard(old);
         foreach (var old in _notifications.Where(n => !n.IsRunning && n.Retained).Skip(3).ToArray())
             RemoveCard(old);
-        if (!item.Retained)
-            Dispatcher.DispatchDelayed(TimeSpan.FromSeconds(8), () => RemoveNotification(item));
+        item.ScheduleExpiry();
     }
 
     internal void RemoveNotification(PlayerNotification item)
@@ -360,11 +562,13 @@ public sealed partial class PlayerView
         _notifications.Remove(item);
         _notificationCards.Children.Remove(item.Card);
         if (_notificationOverlay is not null) _notificationOverlay.IsVisible = _notifications.Count > 0;
+        RefreshNotificationLayout();
     }
 
     public void ClearNotifications()
     {
         foreach (var item in _notifications.ToArray()) RemoveCard(item);
+        _notificationProgressTimer?.Stop();
     }
 }
 #endif

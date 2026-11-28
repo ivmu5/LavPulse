@@ -96,6 +96,8 @@ public sealed record PlayerSettings
     public PlayerColors CustomColors { get; init; } = PlayerColors.For(PlayerPalette.LavPulse);
     public PlayerTheme Theme { get; init; } = PlayerTheme.Dark;
     public NotificationCorner NotificationPosition { get; init; } = NotificationCorner.TopLeft;
+    public int PinnedNotificationSeconds { get; init; } = 5;
+    public int TransientNotificationSeconds { get; init; } = 8;
     public DarkBackground DarkBackground { get; init; }
     public SpectrumColorMode SpectrumColors { get; init; } = SpectrumColorMode.FrequencyGradient;
     public SpectrumFrameRate SpectrumFrameRate { get; init; }
