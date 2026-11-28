@@ -78,7 +78,7 @@ internal static class RhythmReportReplay
                     float Band(int i)=>float.Parse(fields[i],CultureInfo.InvariantCulture);
                     rawAudit.Add(new(long.Parse(fields[0],CultureInfo.InvariantCulture),Band(1),Band(2),Band(3),Band(4),Band(5)));
                 }
-                audit = RhythmJointDecoder.Analyze(rawAudit,total,default);
+                audit = RhythmJointDecoder.Analyze(rawAudit,total,default,energy,hop);
             }
             watch.Stop();
             long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
@@ -139,7 +139,8 @@ internal static class RhythmReportReplay
                 ("family",grid.RhythmHypotheses.Where(h=>h.IsFamilyPreferred)
                     .SelectMany(h=>h.CandidateFrames).Order().Distinct().ToArray())
             };
-            foreach (var (name,auditPath) in new[] { ("audit-baseline",audit.Baseline),("joint",audit.Joint),("joint-alternative",audit.Alternative) })
+            foreach (var (name,auditPath) in new[] { ("audit-baseline",audit.Baseline),("joint",audit.Joint),("joint-alternative",audit.Alternative) }
+                .Concat(audit.EnvelopePaths.Select(p=>(p.Name,p.Path))))
             {
                 if (auditPath.States.Length==0) continue;
                 comparisons.Add((name,auditPath.Beats.Select(b=>b.Frame).ToArray()));

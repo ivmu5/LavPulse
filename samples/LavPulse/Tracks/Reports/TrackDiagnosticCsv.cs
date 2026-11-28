@@ -29,6 +29,7 @@ internal static class TrackDiagnosticCsv
             $"Metric phase lanes: {trace.AuditResult.MetricPaths.Length}; budget reached: {trace.AuditResult.MetricBudgetReached}",
             $"Role classifier: {RhythmEventClassifier.Version}; selector: {RhythmMetricSelector.Version}; block frames: {RhythmMetricSelector.BlockFrames}",
             $"Refined metric lanes: {trace.AuditResult.RefinedMetricPaths.Length}; budget reached: {trace.AuditResult.RefinedMetricBudgetReached}",
+            $"Envelope phase version: {RhythmJointDecoder.EnvelopePhaseVersion}; paths: {trace.AuditResult.EnvelopePaths.Length}",
             TrackAnalysisReport.Create(report.FileName, waveform, snapshot.Info, report.Title, report.Artist)
         ], token).ConfigureAwait(false);
 
@@ -45,7 +46,8 @@ internal static class TrackDiagnosticCsv
             trace.AuditFlux.Select(f => FormattableString.Invariant(
                 $"{f.Frame},{f.Sub:R},{f.Bass:R},{f.LowMid:R},{f.Mid:R},{f.High:R}"))), token).ConfigureAwait(false);
         foreach (var (name,path) in new[] { ("audit-baseline",trace.AuditResult.Baseline),
-            ("joint",trace.AuditResult.Joint), ("joint-alternative",trace.AuditResult.Alternative) })
+            ("joint",trace.AuditResult.Joint), ("joint-alternative",trace.AuditResult.Alternative) }
+            .Concat(trace.AuditResult.EnvelopePaths.Select(p=>(p.Name,p.Path))))
         {
             await Write(zip,prefix+name+"-states.csv",Rows("frame,bpm,phase_cycles,tempo_evidence,phase_evidence,prefix_margin,inactive,inactive_boundary_frame",
                 path.States.Select(s=>FormattableString.Invariant(

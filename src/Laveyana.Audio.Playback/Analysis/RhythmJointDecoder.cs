@@ -29,13 +29,14 @@ internal sealed record RhythmAuditResult(RhythmAuditPath Baseline,RhythmAuditPat
     internal RhythmMetricPath[] RefinedMetricPaths { get; init; } = [];
     internal bool RefinedMetricBudgetReached { get; init; }
     internal RhythmRoleSelection RoleSelection { get; init; } = RhythmRoleSelection.Empty;
+    internal RhythmEnvelopePath[] EnvelopePaths { get; init; } = [];
     internal static RhythmAuditResult Empty {get;}=new(RhythmAuditPath.Empty,RhythmAuditPath.Empty,RhythmAuditPath.Empty);
 }
 
 /// <summary>Two-pass audit baseline and joint beam share features but never use taps or legacy BPM.</summary>
 internal static partial class RhythmJointDecoder
 {
-    internal const int Version=3;
+    internal const int Version=4;
     internal const int Rate=RhythmAuditFlux.Rate,Hop=RhythmAuditFlux.HopFrames,Stride=200,PhaseCount=32,MinBpm=40,MaxBpm=240,
         TempoCount=MaxBpm-MinBpm+1;
     private static readonly double[] Prior=Enumerable.Range(MinBpm,TempoCount)
@@ -46,7 +47,7 @@ internal static partial class RhythmJointDecoder
     private static readonly double SmoothSum=Smooth.Sum();
 
     internal static RhythmAuditResult Analyze(IReadOnlyList<RhythmSpectrumFrame> raw,long totalFrames,
-        CancellationToken token)
+        CancellationToken token,IReadOnlyList<RhythmEnergy>? envelope=null,int envelopeHop=0)
     {
         token.ThrowIfCancellationRequested();
         if(raw.Count>RhythmAuditFlux.MaxFrames||totalFrames<=0)throw new InvalidDataException("Audit feature bounds.");
@@ -70,11 +71,12 @@ internal static partial class RhythmJointDecoder
         var annotatedBaseline=AnnotateActivity(baseline,input,token);
         var events=RhythmEventClassifier.Analyze(raw,input.Bands,input.Gate,token);
         var roles=RhythmMetricSelector.Select(events,annotatedBaseline,metricPaths,totalFrames,token);
+        var envelopePaths=EnvelopePhasePaths(input,baseline,baselineCycles,envelope,envelopeHop,totalFrames,token);
         return new(annotatedBaseline,AnnotateActivity(joint,input,token),
             AnnotateActivity(alternative,input,token))
         {
             MetricPaths=metricPaths,MetricBudgetReached=budgetReached,RoleSelection=roles,
-            RefinedMetricPaths=refinedPaths,RefinedMetricBudgetReached=refinedBudget
+            RefinedMetricPaths=refinedPaths,RefinedMetricBudgetReached=refinedBudget,EnvelopePaths=envelopePaths
         };
     }
 
