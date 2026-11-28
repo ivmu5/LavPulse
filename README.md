@@ -294,3 +294,5 @@ Windows notification cards can collapse independently while keeping their title 
 Schema 12 adds three diagnostic-only envelope phase paths (rise, decay-weighted rise and hybrid spectral/envelope), reusing the existing 10 ms amplitude envelope without another FFT. Earlier grids and playback are unchanged.
 
 Windows notification cards also minimize to a clickable 52-DIP edge icon, with live ring progress. Background and retained cards automatically minimize (default 5 s), temporary cards slide out and close (default 8 s); both delays are configurable. Important completion results reopen with actions, then minimize again. Progress eases to actual updates with a decorative highlight; jobs continue independently.
+
+Schema 13 adds fractional-tempo envelope decay and pairwise phase agreement diagnostics, including the legacy confirmed grid as a reference. Agreement is not correctness; no playback promotion.

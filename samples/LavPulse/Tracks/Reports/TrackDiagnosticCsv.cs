@@ -30,6 +30,7 @@ internal static class TrackDiagnosticCsv
             $"Role classifier: {RhythmEventClassifier.Version}; selector: {RhythmMetricSelector.Version}; block frames: {RhythmMetricSelector.BlockFrames}",
             $"Refined metric lanes: {trace.AuditResult.RefinedMetricPaths.Length}; budget reached: {trace.AuditResult.RefinedMetricBudgetReached}",
             $"Envelope phase version: {RhythmJointDecoder.EnvelopePhaseVersion}; paths: {trace.AuditResult.EnvelopePaths.Length}",
+            $"Phase agreement version: {RhythmPhaseAgreement.Version}; block frames: {RhythmPhaseAgreement.BlockFrames}",
             TrackAnalysisReport.Create(report.FileName, waveform, snapshot.Info, report.Title, report.Artist)
         ], token).ConfigureAwait(false);
 
@@ -87,6 +88,11 @@ internal static class TrackDiagnosticCsv
         await Write(zip,prefix+"role-selected-beats.csv",Rows("frame,source_index,path_id,observed,activity_region",
             role.Beats.Select(b=>FormattableString.Invariant(
                 $"{b.Beat.Frame},{b.Beat.Index},{b.PathId},{(b.Beat.Observed?1:0)},{b.Beat.ActivityRegion}"))),token).ConfigureAwait(false);
+        var agreement=RhythmPhaseAgreement.Analyze(trace.AuditResult,grid.BeatFrames,waveform.TotalFrames,token);
+        await Write(zip,prefix+"phase-agreement.csv",Rows(
+            "start_frame,end_frame_exclusive,left,right,left_count,right_count,left_period_frames,right_period_frames,matches_70ms,offset_cycles,concentration,status",
+            agreement.Select(r=>FormattableString.Invariant(
+                $"{r.StartFrame},{r.EndFrame},{r.Left},{r.Right},{r.LeftCount},{r.RightCount},{r.LeftPeriod:R},{r.RightPeriod:R},{r.Matches70},{r.OffsetCycles:R},{r.Concentration:R},{r.Status}"))),token).ConfigureAwait(false);
         await Write(zip, prefix + "onsets.csv",
             Rows("frame,strength,accent", trace.Onsets.Select(o =>
                 FormattableString.Invariant($"{o.Frame},{o.Strength:R},{o.Accent:R}"))), token).ConfigureAwait(false);
