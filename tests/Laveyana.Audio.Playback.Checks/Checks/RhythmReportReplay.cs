@@ -171,11 +171,14 @@ internal static class RhythmReportReplay
             var templates=RhythmTemplateAnalyzer.Analyze(audit,grid.BeatFrames,default);
             foreach(var evidence in templates.Evidence)
                 Console.WriteLine(FormattableString.Invariant(
-                    $"  template {evidence.Name} fold {evidence.TestFold} coverage {evidence.Coverage:F3} phase/2/3/4 gain {evidence.PhaseGain:F3}/{evidence.TwoGain:F3}/{evidence.ThreeGain:F3}/{evidence.FourGain:F3}"));
+                    $"  template {evidence.Name} fold {evidence.TestFold} coverage {evidence.Coverage:F3} phase/2/3/4 gain {evidence.PhaseGain:F3}/{evidence.TwoGain:F3}/{evidence.ThreeGain:F3}/{evidence.FourGain:F3}; conditional 4 {evidence.ConditionalFourGain:F3}"));
             if(templates.Reference.Length>0)
             {
                 comparisons.Add(("template-ranked",templates.RankedBeats));
                 comparisons.Add(("template-guarded",templates.GuardedBeats));
+                comparisons.Add(("template-conditional-ranked",templates.ConditionalRankedBeats));
+                comparisons.Add(("template-conditional-guarded",templates.ConditionalGuardedBeats));
+                Console.WriteLine($"  conditional rank {templates.ConditionalRanked}; guarded {templates.ConditionalGuarded}");
                 Console.WriteLine($"  template reference {templates.Reference}; rank {templates.Ranked}; guarded {templates.Guarded}");
             }
             if (taps.Length>0)

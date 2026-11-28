@@ -2,12 +2,19 @@ namespace Laveyana.Audio.Playback;
 
 internal readonly record struct RhythmTemplatePrototype(int TestFold,int Cluster,double Low,double Middle,double High,double Sharpness,int TrainingCount);
 internal readonly record struct RhythmTemplateEvidence(string Name,int TestFold,int TrainingEvents,int TestEvents,
-    double Coverage,double PhaseGain,double TwoGain,double ThreeGain,double FourGain);
+    double Coverage,double PhaseGain,double TwoGain,double ThreeGain,double FourGain)
+{
+    internal double ConditionalFourGain { get; init; }
+}
 internal readonly record struct RhythmTemplateAccent(string Name,int TestFold,int Cluster,int BeatPosition,int PhaseSlot,int TrainingEvents);
 internal sealed record RhythmTemplateResult(RhythmTemplatePrototype[] Prototypes,RhythmTemplateEvidence[] Evidence,
     RhythmTemplateAccent[] Accents,string Reference,string Ranked,string Guarded,long[] RankedBeats,long[] GuardedBeats)
 {
     internal static RhythmTemplateResult Empty {get;}=new([],[],[],"","","",[],[]);
+    internal string ConditionalRanked {get;init;}="";
+    internal string ConditionalGuarded {get;init;}="";
+    internal long[] ConditionalRankedBeats {get;init;}=[];
+    internal long[] ConditionalGuardedBeats {get;init;}=[];
 }
 
 /// <summary>Track-local acoustic recurrence with cross-fitted timbre clusters.
@@ -15,7 +22,7 @@ internal sealed record RhythmTemplateResult(RhythmTemplatePrototype[] Prototypes
 /// rank is an experimental hypothesis, not an estimator of probability.</summary>
 internal static class RhythmTemplateAnalyzer
 {
-    internal const int Version=1,Clusters=4,Slots=8,Iterations=12;
+    internal const int Version=2,Clusters=4,Slots=8,Iterations=12;
     internal const long BlockFrames=8L*PlaybackFormat.SampleRate;
     private const int MinEvents=16;
     private const double MinimumCoverage=.8;
@@ -111,6 +118,7 @@ internal static class RhythmTemplateAnalyzer
                 var phaseTotals=new int[Clusters];
                 for(int k=0;k<Clusters;k++)for(int s=0;s<Slots;s++)phaseTotals[k]+=phase[k*Slots+s];
                 var gains=new double[4];
+                double conditionalFour=0;
                 for(int i=0;i<n;i++)
                 {
                     if((i&4095)==0)token.ThrowIfCancellationRequested();
@@ -118,6 +126,8 @@ internal static class RhythmTemplateAnalyzer
                     var p=positions[i];int k=labels[i];int count=phaseTotals[k];
                     double probability=(phase[k*Slots+p.Slot]+1d)/(count+Slots);
                     gains[0]+=Math.Log(probability*Slots);
+                    conditionalFour+=ConditionalGain(bars[2][(k*4+Modulo(p.Index,4))*Slots+p.Slot],
+                        phase[k*Slots+p.Slot]);
                     for(int m=2;m<=4;m++)
                     {
                         double q=(bars[m-2][(k*m+Modulo(p.Index,m))*Slots+p.Slot]+1d)/(count+m*Slots);
@@ -125,7 +135,8 @@ internal static class RhythmTemplateAnalyzer
                     }
                 }
                 evidence.Add(new(candidate.Name,test,training,testing,coverage,gains[0]/testing,
-                    gains[1]/testing,gains[2]/testing,gains[3]/testing));
+                    gains[1]/testing,gains[2]/testing,gains[3]/testing)
+                    {ConditionalFourGain=conditionalFour/testing});
                 for(int k=0;k<Clusters;k++)for(int pos=0;pos<4;pos++)for(int s=0;s<Slots;s++)
                     accents.Add(new(candidate.Name,test,k,pos,s,bars[2][(k*4+pos)*Slots+s]));
             }
@@ -145,9 +156,34 @@ internal static class RhythmTemplateAnalyzer
         if(baseRows.Length==2&&rankedRows.Length==2&&rankedRows.Zip(baseRows).All(p=>
             p.First.FourGain>Math.Max(0,p.Second.FourGain)))
             guarded=ranked;
+        // Keep the original comparison protocol intact. The regularized
+        // conditional model is a separate experimental whole-path selector.
+        var conditionalRanked=reference;double conditionalBest=double.NegativeInfinity;
+        foreach(var candidate in candidates.Where(p=>p.Rank))
+        {
+            var rows=evidence.Where(e=>e.Name==candidate.Name).ToArray();
+            if(rows.Length!=2||rows[0].Coverage<MinimumCoverage)continue;
+            double mean=rows.Sum(e=>e.ConditionalFourGain*e.TestEvents)/rows.Sum(e=>e.TestEvents);
+            if(mean>conditionalBest){conditionalBest=mean;conditionalRanked=candidate;}
+        }
+        var conditionalGuarded=reference;
+        var conditionalRows=evidence.Where(e=>e.Name==conditionalRanked.Name).OrderBy(e=>e.TestFold).ToArray();
+        if(baseRows.Length==2&&conditionalRows.Length==2&&conditionalRows.Zip(baseRows).All(p=>
+            p.First.ConditionalFourGain>Math.Max(0,p.Second.ConditionalFourGain)))
+            conditionalGuarded=conditionalRanked;
         return new(prototypes.ToArray(),evidence.ToArray(),accents.ToArray(),reference.Name,ranked.Name,guarded.Name,
-            ranked.Frames,guarded.Frames);
+            ranked.Frames,guarded.Frames)
+        {
+            ConditionalRanked=conditionalRanked.Name,ConditionalGuarded=conditionalGuarded.Name,
+            ConditionalRankedBeats=conditionalRanked.Frames,ConditionalGuardedBeats=conditionalGuarded.Frames
+        };
     }
+
+    // Conditional probability of pulse position given cluster and phase slot.
+    // Symmetric Dirichlet(2,2,2,2) prior gives uniform evidence when unseen;
+    // unlike v1 this does not mix separately smoothed joint/marginal models.
+    internal static double ConditionalGain(int cell,int phaseTotal)
+        =>Math.Log(4d*(cell+2d)/(phaseTotal+8d));
 
     private static Model Fit(Feature[] features,int[] train,CancellationToken token)
     {

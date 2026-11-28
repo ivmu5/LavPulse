@@ -298,3 +298,5 @@ Windows notification cards also minimize to a clickable 52-DIP edge icon, with l
 Schema 13 adds fractional-tempo envelope decay and pairwise phase agreement diagnostics, including the legacy confirmed grid as a reference. Agreement is not correctness; no playback promotion.
 
 Schema 14 adds track-local cross-fitted acoustic recurrence templates, 2/3/4-pulse evidence, four-pulse ranking and a guarded diagnostic selector. No inferred downbeat or playback promotion. See docs/RhythmJointDecoder.md.
+
+Schema 15 adds a regularized conditional four-pulse recurrence score and separate diagnostic ranked/guarded paths. Earlier template selectors remain unchanged.
