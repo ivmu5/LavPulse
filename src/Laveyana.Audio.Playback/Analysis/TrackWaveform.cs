@@ -199,6 +199,9 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
             long started = System.Diagnostics.Stopwatch.GetTimestamp();
             trace.AuditResult = RhythmJointDecoder.Analyze(auditFlux.Frames, totalFrames, token, rhythmEnergy, rhythmHopFrames);
             trace.AuditDecodeMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            started = System.Diagnostics.Stopwatch.GetTimestamp();
+            trace.Templates = RhythmTemplateAnalyzer.Analyze(trace.AuditResult,rhythm.BeatFrames,token);
+            trace.TemplateMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         }
         double rhythmMs = watch.Elapsed.TotalMilliseconds - readMs;
         long finishStarted = Stamp(detailed);
@@ -236,6 +239,7 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
                 new RhythmStageTiming("legacy_rhythm", Milliseconds(legacyTicks)),
                 new RhythmStageTiming("spectral_hypotheses", Milliseconds(hypothesesTicks)),
                 new RhythmStageTiming("audit_paths", trace.AuditDecodeMs),
+                new RhythmStageTiming("crossfit_templates", trace.TemplateMs),
                 new RhythmStageTiming("key_loudness_finalize_join", Milliseconds(finishTicks)),
                 new RhythmStageTiming("music_profile", Milliseconds(Stamp(true) - profileStarted)),
                 new RhythmStageTiming("total_wall", totalMs)

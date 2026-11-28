@@ -141,6 +141,60 @@ internal static partial class Program
             "Selector changed baseline without evidence.");
     }
 
+    private static void CheckSharedRhythmFft()
+    {
+        foreach(int size in new[]{512,2048,4096})
+        {
+            var plan=new RhythmFftPlan(size);
+            var original=Enumerable.Range(0,size).Select(i=>new System.Numerics.Complex(
+                Math.Sin(i*.031),Math.Cos(i*.071))).ToArray();
+            var old=new System.Numerics.Complex[size];
+            var actual=new System.Numerics.Complex[size];
+            for(int i=0;i<size;i++)
+            {
+                int x=i,r=0;
+                for(int bit=1;bit<size;bit<<=1){r=(r<<1)|(x&1);x>>=1;}
+                old[r]=original[i];actual[plan.Reverse(i)]=original[i];
+            }
+            var twiddle=Enumerable.Range(0,size/2)
+                .Select(i=>System.Numerics.Complex.FromPolarCoordinates(1,-Math.Tau*i/size)).ToArray();
+            for(int length=2;length<=size;length<<=1)
+            {
+                int half=length/2,step=size/length;
+                for(int start=0;start<size;start+=length)
+                    for(int j=0;j<half;j++)
+                    {
+                        var even=old[start+j];var odd=old[start+j+half]*twiddle[j*step];
+                        old[start+j]=even+odd;old[start+j+half]=even-odd;
+                    }
+            }
+            plan.Transform(actual);
+            Require(actual.SequenceEqual(old),"Shared FFT changed reference arithmetic.");
+        }
+    }
+
+    private static void CheckCrossfitTemplates()
+    {
+        var beats=Enumerable.Range(0,96).Select(i=>i*24000L).ToArray();
+        var events=beats.Select((frame,i)=>new RhythmRoleEvent(frame,1,i%4==3?1:0,0,
+            i%4==0?1:0,i%4==1?1:0,i%4==2?1:0,0,0,0,0)).ToArray();
+        var model=RhythmTemplateAnalyzer.CheckFixture(events,beats,default);
+        Require(model.Prototypes.Length==8&&model.Evidence.Length==2&&
+            model.Evidence.All(e=>e.Coverage>.9&&e.FourGain>.2&&e.FourGain>e.ThreeGain&&e.FourGain>e.TwoGain),
+            "Cross-fit model did not recover repeated four-pulse acoustic structure.");
+        Require(model.RankedBeats.SequenceEqual(beats)&&model.GuardedBeats.SequenceEqual(beats),
+            "Template ranking changed coordinates of the selected grid.");
+        var repeated=RhythmTemplateAnalyzer.CheckFixture(events,beats,default);
+        Require(repeated.Prototypes.SequenceEqual(model.Prototypes)&&repeated.Evidence.SequenceEqual(model.Evidence),
+            "Cross-fit clustering is not deterministic.");
+        Require(RhythmTemplateAnalyzer.CheckFixture(events.Take(8).ToArray(),beats,default).Evidence.Length==0,
+            "Insufficient events produced a template score.");
+        var constant=events.Select(e=>e with {Low=1,Middle=0,High=0,Sharpness=0}).ToArray();
+        var uniform=RhythmTemplateAnalyzer.CheckFixture(constant,beats,default);
+        Require(uniform.Evidence.All(e=>e.FourGain<.1),
+            "Uniform timbre incorrectly supplied evidence of a four-pulse accent pattern.");
+    }
+
     private static void CheckJointDecoder()
     {
         const int hop=RhythmAuditFlux.HopFrames;
@@ -192,6 +246,8 @@ internal static partial class Program
                 s.PhaseCycles>=0&&s.PhaseCycles<1),"Invalid joint state.");
         }
         CheckRoleSelector(result);
+        CheckCrossfitTemplates();
+        CheckSharedRhythmFft();
         // The envelope is a distinct observation: its attack is deliberately
         // displaced from the low spectral flux in this fixture.
         var envelope=Enumerable.Range(0,input.Length).Select(i=>

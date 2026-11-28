@@ -296,3 +296,5 @@ Schema 12 adds three diagnostic-only envelope phase paths (rise, decay-weighted 
 Windows notification cards also minimize to a clickable 52-DIP edge icon, with live ring progress. Background and retained cards automatically minimize (default 5 s), temporary cards slide out and close (default 8 s); both delays are configurable. Important completion results reopen with actions, then minimize again. Progress eases to actual updates with a decorative highlight; jobs continue independently.
 
 Schema 13 adds fractional-tempo envelope decay and pairwise phase agreement diagnostics, including the legacy confirmed grid as a reference. Agreement is not correctness; no playback promotion.
+
+Schema 14 adds track-local cross-fitted acoustic recurrence templates, 2/3/4-pulse evidence, four-pulse ranking and a guarded diagnostic selector. No inferred downbeat or playback promotion. See docs/RhythmJointDecoder.md.

@@ -4,7 +4,7 @@ namespace Laveyana.Audio.Playback;
 /// Not retained by playback, saved waveform caches or ordinary background scans.</summary>
 internal sealed class TrackRhythmTrace
 {
-    public const int SchemaVersion = 13;
+    public const int SchemaVersion = 14;
     public int HopFrames { get; set; }
     public string Decoder { get; set; } = "unknown";
     public IReadOnlyList<RhythmEnergy> Energy { get; set; } = [];
@@ -14,6 +14,8 @@ internal sealed class TrackRhythmTrace
     public bool AuditTruncated { get; set; }
     public double AuditFeatureMs { get; set; }
     public double AuditDecodeMs { get; set; }
+    public RhythmTemplateResult Templates { get; set; } = RhythmTemplateResult.Empty;
+    public double TemplateMs { get; set; }
     public RhythmStageTiming[] StageTimings { get; set; } = [];
     public TrackOnsetDiagnostic[] Onsets { get; set; } = [];
     public float[,]? TempoScores { get; set; }

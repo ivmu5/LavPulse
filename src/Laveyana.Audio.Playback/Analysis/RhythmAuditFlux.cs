@@ -11,19 +11,15 @@ internal sealed class RhythmAuditFlux
     private static readonly double[] Fir=BuildFir();
     private static readonly double[] Hann=Enumerable.Range(0,Size)
         .Select(i=>.5-.5*Math.Cos(Math.Tau*i/(Size-1))).ToArray();
-    private static readonly Complex[] Twiddle=Enumerable.Range(0,Size/2)
-        .Select(i=>Complex.FromPolarCoordinates(1,-Math.Tau*i/Size)).ToArray();
-    private static readonly int[] Reverse=Enumerable.Range(0,Size).Select(value=>
-    {
-        int x=value,r=0;
-        for(int j=1;j<Size;j<<=1){r=(r<<1)|(x&1);x>>=1;}
-        return r;
-    }).ToArray();
+    private static readonly RhythmFftPlan Fft=new(Size);
     private static readonly int[] BinBand=Enumerable.Range(0,Size/2).Select(i=>
     {
         double hz=i*16000d/Size;
         return hz<30||hz>=7900?-1:hz<100?0:hz<220?1:hz<600?2:hz<2000?3:4;
     }).ToArray();
+    // Band membership is constant; avoid recounting the same FFT bins every hop.
+    private static readonly int[] BandCounts=Enumerable.Range(0,5)
+        .Select(b=>Math.Max(1,BinBand.Skip(1).Count(v=>v==b))).ToArray();
     private readonly double[] _firL=new double[FilterSize],_firR=new double[FilterSize];
     private readonly float[] _left=new float[Size],_right=new float[Size];
     private readonly Complex[] _fft=new Complex[Size];
@@ -85,20 +81,11 @@ internal sealed class RhythmAuditFlux
         for(int i=0;i<Size;i++)
         {
             int src=(_write+i)&(Size-1);
-            _fft[Reverse[i]]=new Complex(_left[src]*Hann[i],_right[src]*Hann[i]);
+            _fft[Fft.Reverse(i)]=new Complex(_left[src]*Hann[i],_right[src]*Hann[i]);
         }
-        for(int length=2;length<=Size;length<<=1)
-        {
-            int half=length/2,step=Size/length;
-            for(int start=0;start<Size;start+=length)
-                for(int j=0;j<half;j++)
-                {
-                    Complex even=_fft[start+j],odd=_fft[start+j+half]*Twiddle[j*step];
-                    _fft[start+j]=even+odd;_fft[start+j+half]=even-odd;
-                }
-        }
-        Span<double> flux=stackalloc double[5];Span<int> bins=stackalloc int[5];
-        flux.Clear();bins.Clear();
+        Fft.Transform(_fft,token);
+        Span<double> flux=stackalloc double[5];
+        flux.Clear();
         for(int i=1;i<Size/2;i++)
         {
             int band=BinBand[i];if(band<0)continue;
@@ -106,9 +93,9 @@ internal sealed class RhythmAuditFlux
             double power=(a.Real*a.Real+a.Imaginary*a.Imaginary+b.Real*b.Real+b.Imaginary*b.Imaginary)*.5;
             double value=Math.Log(1+100*Math.Sqrt(power)/Size);
             if(_hasPrevious)flux[band]+=Math.Max(0,value-_previous[i]);
-            _previous[i]=value;bins[band]++;
+            _previous[i]=value;
         }
-        for(int b=0;b<5;b++)flux[b]/=Math.Max(1,bins[b]);
+        for(int b=0;b<5;b++)flux[b]/=BandCounts[b];
         _frames.Add(new(center*Decimation,(float)flux[0],(float)flux[1],(float)flux[2],(float)flux[3],(float)flux[4]));
         _hasPrevious=true;
     }
