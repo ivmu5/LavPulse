@@ -16,10 +16,13 @@ from scipy.ndimage import maximum_filter1d, uniform_filter1d
 from sklearn.linear_model import Ridge
 from sklearn.preprocessing import StandardScaler
 
+from rhythm_metrics import series_counts
+
 RATE = 48000
 CONTROLS = ("audit-baseline", "envelope-decay", "envelope-hybrid",
             "envelope-rise", "joint", "legacy", "envelope-refined-decay")
-TOLERANCES = (50, 70, 100)
+TOLERANCES = (30, 50, 70, 100, 180)
+TARGET_COLUMN = TOLERANCES.index(70)
 FEATURES = ("relative_log_period", "abs_relative_log_period", "log_bpm_120",
             "duration_coverage", "interval_mad", "long_gap_fraction",
             "event_coverage", *("event_alignment_" + s for s in
@@ -33,22 +36,8 @@ PHASE_FEATURES = tuple("onbeat_" + b for b in BANDS) + tuple("onbeat_minus_half_
 
 def f1(beats, taps, ms):
     """Chronological one-to-one matching inside annotated runs only."""
-    tolerance = ms * RATE // 1000
-    matched = predicted = 0
-    for run in np.split(taps, np.flatnonzero(np.diff(taps) > 2 * RATE) + 1):
-        selected = beats[(beats >= run[0] - tolerance) & (beats <= run[-1] + tolerance)]
-        predicted += len(selected)
-        i = j = 0
-        while i < len(run) and j < len(selected):
-            if selected[j] < run[i] - tolerance:
-                j += 1
-            elif run[i] < selected[j] - tolerance:
-                i += 1
-            else:
-                matched += 1
-                i += 1
-                j += 1
-    return 2 * matched / (predicted + len(taps))
+    matched, predicted, count = series_counts(beats, taps, ms * RATE // 1000, RATE)
+    return 2 * matched / (predicted + count) if count else 0.0
 
 
 def nearest(source, query):
@@ -188,7 +177,7 @@ def fit(tracks, all_paths):
     for _, rows, _, _ in tracks.values():
         _, x, y = prepare(rows, all_paths)
         xs.append(x)
-        ys.append(y[:, 1] - y[:, 1].mean())
+        ys.append(y[:, TARGET_COLUMN] - y[:, TARGET_COLUMN].mean())
         weights.extend([1 / len(y)] * len(y))
     x, y = np.vstack(xs), np.concatenate(ys)
     w = np.array(weights) * len(y) / len(tracks)

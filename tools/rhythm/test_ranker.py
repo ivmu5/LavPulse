@@ -2,10 +2,22 @@
 import unittest
 import numpy as np
 import pandas as pd
-from train_ranker import artist_group, phase_trace, phase_features, split_test
+from train_ranker import TOLERANCES, TARGET_COLUMN, artist_group, phase_trace, phase_features, split_test
+from rhythm_metrics import series_counts, timing_errors
 
 
 class RankingTests(unittest.TestCase):
+    def test_timing_and_sparse_series(self):
+        beats, taps = np.array([0, 4800]), np.array([4800])
+        self.assertEqual(series_counts(beats, taps, 4800, 48000), (1, 2, 1))
+        np.testing.assert_array_equal(timing_errors(beats, taps, 4800), [0])
+        # Choosing the individually closest pair first would lose one match.
+        np.testing.assert_array_equal(timing_errors(np.array([0, 3000]), np.array([2500, 5500]), 3000),
+                                      [2500, 2500])
+        self.assertEqual(series_counts(np.array([0, 48000, 240000]), np.array([0, 240000]), 1440, 48000),
+                         (2, 2, 2))
+        self.assertEqual(TOLERANCES[TARGET_COLUMN], 70)
+
     def test_cumulative_split(self):
         train, dev, test = {"a": None}, {"b": None}, {"b": None, "c": None}
         with self.assertRaises(ValueError):

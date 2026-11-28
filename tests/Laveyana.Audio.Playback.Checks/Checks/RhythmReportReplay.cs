@@ -191,7 +191,7 @@ internal static class RhythmReportReplay
             }
             if (taps.Length>0)
                 foreach (var (name,frames) in comparisons)
-                    foreach (int ms in new[]{50,70,100,180})
+                    foreach (int ms in new[]{30,50,70,100,180})
                     {
                         long allowed=PlaybackFormat.SampleRate*ms/1000;
                         var metric=SeriesMetrics(frames,taps,allowed);
@@ -263,7 +263,7 @@ internal static class RhythmReportReplay
             int first=cursor;
             while (cursor<beats.Length && beats[cursor]<=hi) cursor++;
             predictions+=cursor-first;
-            matches+=MatchOneToOne(beats[first..cursor],taps[start..end],tolerance);
+            matches+=MatchOneToOne(beats.AsSpan(first,cursor-first),taps.AsSpan(start,end-start),tolerance);
             start=end;
         }
         return (predictions==0?0:matches/(double)predictions,matches/(double)taps.Length,
@@ -283,19 +283,47 @@ internal static class RhythmReportReplay
     {
         if(taps.Length==0)return (0,0,0,0);
         var span=beats.Where(b=>b>=taps[0]-tolerance&&b<=taps[^1]+tolerance).ToArray();
-        int i=0,j=0,matches=0;
-        double error=0;
-        while(i<span.Length&&j<taps.Length)
-        {
-            if(span[i]<taps[j]-tolerance)i++;
-            else if(taps[j]<span[i]-tolerance)j++;
-            else{error+=Math.Abs(span[i]-taps[j]);i++;j++;matches++;}
-        }
+        var (matches,error)=MinimumTimingError(span,taps,tolerance);
         double p=span.Length==0?0:matches/(double)span.Length,r=matches/(double)taps.Length;
-        return(p,r,p+r==0?0:2*p*r/(p+r),matches==0?double.NaN:error*1000/(matches* (double)PlaybackFormat.SampleRate));
+        return(p,r,p+r==0?0:2*p*r/(p+r),matches==0?double.NaN:error*1000d/(matches* (double)PlaybackFormat.SampleRate));
     }
 
-    private static int MatchOneToOne(long[] beats, long[] taps, long tolerance)
+    // Longest chronological chain of feasible pairs, minimizing total timing
+    // error among chains with the maximum number of matches.
+    private static (int Count,long Error) MinimumTimingError(
+        ReadOnlySpan<long> beats,ReadOnlySpan<long> taps,long tolerance)
+    {
+        var tree=new (int Count,long Error)[taps.Length+1];
+        static bool Better((int Count,long Error) a,(int Count,long Error) b)=>
+            a.Count>b.Count || a.Count==b.Count && a.Error<b.Error;
+
+        (int Count,long Error) Prefix(int length)
+        {
+            (int Count,long Error) best=default;
+            for(int i=length;i>0;i-=i&-i)
+                if(Better(tree[i],best))best=tree[i];
+            return best;
+        }
+
+        int first=0,end=0;
+        foreach(long beat in beats)
+        {
+            while(first<taps.Length && taps[first]<beat-tolerance)first++;
+            end=Math.Max(end,first);
+            while(end<taps.Length && taps[end]<=beat+tolerance)end++;
+            // Descending taps prevent a second pair from using this beat.
+            for(int j=end-1;j>=first;j--)
+            {
+                var previous=Prefix(j);
+                var next=(previous.Count+1,previous.Error+Math.Abs(taps[j]-beat));
+                for(int k=j+1;k<tree.Length;k+=k&-k)
+                    if(Better(next,tree[k]))tree[k]=next;
+            }
+        }
+        return Prefix(taps.Length);
+    }
+
+    private static int MatchOneToOne(ReadOnlySpan<long> beats, ReadOnlySpan<long> taps, long tolerance)
     {
         int i = 0, j = 0, matched = 0;
         while (i < beats.Length && j < taps.Length)

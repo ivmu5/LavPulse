@@ -143,6 +143,12 @@ internal static class MusicProfileChecks
             float.IsFinite(p.Low)&&float.IsFinite(p.Mid)&&float.IsFinite(p.High))&&
             malformedPcm.MusicProfile!.IsValid(malformedPcm.TotalFrames),
             "Extreme custom PCM poisoned analysis.");
+        var closest = RhythmReportReplay.Metrics([0, 4800], [4800], 4800);
+        Require(closest.MaeMs == 0 && closest.R == 1 && closest.P == .5,
+            "Timing error should use the closest maximum-cardinality match.");
+        var twoPairs = RhythmReportReplay.Metrics([0, 3000], [2500, 5500], 3000);
+        Require(twoPairs.F1 == 1 && Math.Abs(twoPairs.MaeMs - 2500 / 48d) < 1e-9,
+            "Timing error minimization dropped a valid match.");
         var metrics=RhythmReportReplay.Metrics([0,48000,96000,200000],[0,48000,96000],4800);
         Require(metrics.F1==1&&metrics.MaeMs==0,"Unannotated tail biased regression metrics.");
         Console.WriteLine("OK: loudness, conservative meter, derived cache, compatibility and excerpt metrics.");
