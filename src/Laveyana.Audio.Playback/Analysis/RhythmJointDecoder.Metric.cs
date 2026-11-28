@@ -10,7 +10,7 @@ internal static partial class RhythmJointDecoder
         [(1,1),(1,2),(2,1),(2,3),(3,2),(3,4),(4,3),(1,3),(3,1)];
 
     private static (RhythmMetricPath[] Paths,bool BudgetReached) MetricPaths(Input input,double[,] scores,
-        RhythmAuditPath baseline,double[] baselineCycles,long total,CancellationToken token)
+        RhythmAuditPath baseline,double[] baselineCycles,long total,CancellationToken token,bool refined=false)
     {
         var paths=new List<RhythmMetricPath>();
         int stateCount=0,beatCount=0;
@@ -30,10 +30,18 @@ internal static partial class RhythmJointDecoder
             if(stateCount+(long)lanes*n>MaxMetricStates||
                 beatCount+lanes*(input.Length/(double)Rate*MaxBpm/60+4)>MaxMetricBeats)
                 return(paths.ToArray(),true);
+            double[] nominal=baseline.States.Select(s=>s.Bpm*ratio).ToArray();
+            double[] tempos=refined?RefineMetricTempo(nominal,scores,token):nominal;
+            double correction=0;
             for(int i=0;i<scaled.Length;i++)
             {
                 if((i&4095)==0)token.ThrowIfCancellationRequested();
-                scaled[i]=baselineCycles[i]*ratio;
+                if(refined&&i>0)
+                {
+                    int index=Math.Min((i-1+Stride/2)/Stride,n-1);
+                    correction+=(tempos[index]-nominal[index])/(60d*Rate);
+                }
+                scaled[i]=baselineCycles[i]*ratio+correction;
             }
             var observations=new double[n][];
             for(int w=0;w<n;w++)
@@ -60,7 +68,7 @@ internal static partial class RhythmJointDecoder
                 {
                     double offset=selected[w]/(double)PhaseCount;
                     offsets[w]=w==0?offset:offsets[w-1]+WrapSigned(offset-offsets[w-1]);
-                    double bpm=baseline.States[w].Bpm*ratio;
+                    double bpm=tempos[w];
                     double at=bpm-MinBpm;int lower=(int)at;
                     double evidence=scores[w,lower]+(scores[w,Math.Min(lower+1,TempoCount-1)]-
                         scores[w,lower])*(at-lower);

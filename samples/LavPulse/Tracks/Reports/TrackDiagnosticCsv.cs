@@ -28,6 +28,7 @@ internal static class TrackDiagnosticCsv
             FormattableString.Invariant($"Audit features ms: {trace.AuditFeatureMs:R}; audit path ms: {trace.AuditDecodeMs:R}"),
             $"Metric phase lanes: {trace.AuditResult.MetricPaths.Length}; budget reached: {trace.AuditResult.MetricBudgetReached}",
             $"Role classifier: {RhythmEventClassifier.Version}; selector: {RhythmMetricSelector.Version}; block frames: {RhythmMetricSelector.BlockFrames}",
+            $"Refined metric lanes: {trace.AuditResult.RefinedMetricPaths.Length}; budget reached: {trace.AuditResult.RefinedMetricBudgetReached}",
             TrackAnalysisReport.Create(report.FileName, waveform, snapshot.Info, report.Title, report.Artist)
         ], token).ConfigureAwait(false);
 
@@ -52,19 +53,22 @@ internal static class TrackDiagnosticCsv
             await Write(zip,prefix+name+"-beats.csv",Rows("frame,index,observed,low_evidence,high_evidence,activity_region",
                 path.Beats.Select(b=>FormattableString.Invariant($"{b.Frame},{b.Index},{(b.Observed?1:0)},{b.LowEvidence:R},{b.HighEvidence:R},{b.ActivityRegion}"))),token).ConfigureAwait(false);
         }
-        var metricPaths=trace.AuditResult.MetricPaths;
-        await Write(zip,prefix+"metric-paths.csv",Rows(
-            "id,numerator,denominator,lane,lane_count,mean_tempo_evidence,mean_phase_evidence,beat_count",
-            metricPaths.Select((p,i)=>FormattableString.Invariant(
-                $"{i},{p.Numerator},{p.Denominator},{p.Lane},{p.LaneCount},{p.MeanTempoEvidence:R},{p.MeanPhaseEvidence:R},{p.Path.Beats.Length}"))),token).ConfigureAwait(false);
-        await Write(zip,prefix+"metric-states.csv",Rows(
-            "id,frame,bpm,phase_cycles,tempo_evidence,phase_evidence,inactive,inactive_boundary_frame",
-            metricPaths.SelectMany((p,i)=>p.Path.States.Select(s=>FormattableString.Invariant(
-                $"{i},{s.Frame},{s.Bpm:R},{s.PhaseCycles:R},{s.TempoEvidence:R},{s.PhaseEvidence:R},{(s.Inactive?1:0)},{s.InactiveBoundaryFrame}")))),token).ConfigureAwait(false);
-        await Write(zip,prefix+"metric-beats.csv",Rows(
-            "id,frame,index,observed,low_evidence,high_evidence,activity_region",
-            metricPaths.SelectMany((p,i)=>p.Path.Beats.Select(b=>FormattableString.Invariant(
-                $"{i},{b.Frame},{b.Index},{(b.Observed?1:0)},{b.LowEvidence:R},{b.HighEvidence:R},{b.ActivityRegion}")))),token).ConfigureAwait(false);
+        foreach(var (filePrefix,metricPaths) in new[] { ("metric",trace.AuditResult.MetricPaths),
+            ("refined-metric",trace.AuditResult.RefinedMetricPaths) })
+        {
+            await Write(zip,prefix+filePrefix+"-paths.csv",Rows(
+                "id,numerator,denominator,lane,lane_count,mean_tempo_evidence,mean_phase_evidence,beat_count",
+                metricPaths.Select((p,i)=>FormattableString.Invariant(
+                    $"{i},{p.Numerator},{p.Denominator},{p.Lane},{p.LaneCount},{p.MeanTempoEvidence:R},{p.MeanPhaseEvidence:R},{p.Path.Beats.Length}"))),token).ConfigureAwait(false);
+            await Write(zip,prefix+filePrefix+"-states.csv",Rows(
+                "id,frame,bpm,phase_cycles,tempo_evidence,phase_evidence,inactive,inactive_boundary_frame",
+                metricPaths.SelectMany((p,i)=>p.Path.States.Select(s=>FormattableString.Invariant(
+                    $"{i},{s.Frame},{s.Bpm:R},{s.PhaseCycles:R},{s.TempoEvidence:R},{s.PhaseEvidence:R},{(s.Inactive?1:0)},{s.InactiveBoundaryFrame}")))),token).ConfigureAwait(false);
+            await Write(zip,prefix+filePrefix+"-beats.csv",Rows(
+                "id,frame,index,observed,low_evidence,high_evidence,activity_region",
+                metricPaths.SelectMany((p,i)=>p.Path.Beats.Select(b=>FormattableString.Invariant(
+                    $"{i},{b.Frame},{b.Index},{(b.Observed?1:0)},{b.LowEvidence:R},{b.HighEvidence:R},{b.ActivityRegion}")))),token).ConfigureAwait(false);
+        }
         var role=trace.AuditResult.RoleSelection;
         await Write(zip,prefix+"rhythm-events.csv",Rows(
             "frame,strength,sharpness,tail_ratio,low,middle,high,kick_proxy,snare_proxy,hat_proxy,bass_tail_proxy",

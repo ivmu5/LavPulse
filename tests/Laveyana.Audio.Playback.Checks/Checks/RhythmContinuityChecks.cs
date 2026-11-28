@@ -160,8 +160,17 @@ internal static partial class Program
                     Math.Abs(pair.First.Bpm-pair.Second.Bpm*lane.Numerator/lane.Denominator)<1e-8),
                     "Metric ratio was clamped or changed.");
         }
+        Require(result.RefinedMetricPaths.Length==result.MetricPaths.Length &&
+            !result.RefinedMetricBudgetReached,"Refined metric families lost lanes.");
+        foreach(var lane in result.RefinedMetricPaths)
+            Require(lane.Path.States.Zip(result.Baseline.States).All(pair=>
+            {
+                double nominal=pair.Second.Bpm*lane.Numerator/lane.Denominator;
+                return Math.Abs(pair.First.Bpm-nominal)<=Math.Max(1,.03*nominal)+1e-8;
+            }),"Refined path escaped its nominal family.");
         foreach (var path in new[]{result.Baseline,result.Joint,result.Alternative}
-            .Concat(result.MetricPaths.Select(p=>p.Path)))
+            .Concat(result.MetricPaths.Select(p=>p.Path))
+            .Concat(result.RefinedMetricPaths.Select(p=>p.Path)))
         {
             Require(path.Beats.All(b=>b.Frame>=0&&b.Frame<total)&&path.Beats.Zip(path.Beats.Skip(1))
                 .All(pair=>pair.First.Frame<pair.Second.Frame&&pair.First.Index<pair.Second.Index),
@@ -183,7 +192,8 @@ internal static partial class Program
             "Long activity gap was not distinguished from predicted beats.");
         var silence=input.Select(f=>f with {Sub=0,Bass=0,LowMid=0,Mid=0,High=0}).ToArray();
         var silentResult=RhythmJointDecoder.Analyze(silence,total,default);
-        Require(silentResult.Joint.Beats.Length==0&&silentResult.MetricPaths.Length==0,
+        Require(silentResult.Joint.Beats.Length==0&&silentResult.MetricPaths.Length==0&&
+            silentResult.RefinedMetricPaths.Length==0&&silentResult.RoleSelection.Events.Length==0,
             "Silence generated a joint or metrical grid.");
         var stereo=new float[8192*2];
         for(int i=0;i<8192;i++)

@@ -26,6 +26,8 @@ internal sealed record RhythmAuditResult(RhythmAuditPath Baseline,RhythmAuditPat
 {
     internal RhythmMetricPath[] MetricPaths { get; init; } = [];
     internal bool MetricBudgetReached { get; init; }
+    internal RhythmMetricPath[] RefinedMetricPaths { get; init; } = [];
+    internal bool RefinedMetricBudgetReached { get; init; }
     internal RhythmRoleSelection RoleSelection { get; init; } = RhythmRoleSelection.Empty;
     internal static RhythmAuditResult Empty {get;}=new(RhythmAuditPath.Empty,RhythmAuditPath.Empty,RhythmAuditPath.Empty);
 }
@@ -64,13 +66,15 @@ internal static partial class RhythmJointDecoder
         var baseline=Baseline(input,scores,totalFrames,token,out var baselineCycles);
         var (joint,alternative)=Joint(input,scores,totalFrames,token);
         var (metricPaths,budgetReached)=MetricPaths(input,scores,baseline,baselineCycles,totalFrames,token);
+        var (refinedPaths,refinedBudget)=MetricPaths(input,scores,baseline,baselineCycles,totalFrames,token,refined:true);
         var annotatedBaseline=AnnotateActivity(baseline,input,token);
         var events=RhythmEventClassifier.Analyze(raw,input.Bands,input.Gate,token);
         var roles=RhythmMetricSelector.Select(events,annotatedBaseline,metricPaths,totalFrames,token);
         return new(annotatedBaseline,AnnotateActivity(joint,input,token),
             AnnotateActivity(alternative,input,token))
         {
-            MetricPaths=metricPaths,MetricBudgetReached=budgetReached,RoleSelection=roles
+            MetricPaths=metricPaths,MetricBudgetReached=budgetReached,RoleSelection=roles,
+            RefinedMetricPaths=refinedPaths,RefinedMetricBudgetReached=refinedBudget
         };
     }
 
