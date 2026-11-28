@@ -20,6 +20,14 @@ internal static class MusicalKeyChecks
             single.Add(block, default);
         }
         Require(silence.Finish() is null && single.Finish() is null, "Non-tonal evidence produced a key.");
+        var aliasOnly = Estimate([ [60, 64, 67], [60, 65, 69], [59, 62, 67], [60, 64, 67] ], alias: true);
+        Require(aliasOnly is null, $"A tone above the decimated Nyquist limit produced {aliasOnly}.");
+        var quietTonal = Estimate([ [60, 64, 67], [60, 65, 69], [59, 62, 67], [60, 64, 67] ], gain: .01);
+        Require(quietTonal is { Tonic: 0, Mode: MusicalMode.Major },
+            "A quiet band-limited chord progression lost its key.");
+        var previousProfile = new TrackMusicProfile { LocalKeyVersion = 1, LocalKeys = [new(0, 48000, c)] };
+        Require(previousProfile.IsValid(48000) && previousProfile.KeyAt(0) == c,
+            "The previous local-key cache version became unreadable.");
         for(int tonic=0;tonic<12;tonic++)
             foreach(var mode in new[]{MusicalMode.Major,MusicalMode.Minor})
             {
@@ -37,7 +45,9 @@ internal static class MusicalKeyChecks
         Console.WriteLine("OK: tonal PCM, relative major/minor, anti-phase stereo and unknown-key gates.");
     }
 
-    private static TrackMusicalKey? Estimate(params int[][] chords)
+    private static TrackMusicalKey? Estimate(params int[][] chords) => Estimate(chords, alias: false);
+
+    private static TrackMusicalKey? Estimate(int[][] chords, bool alias = false, double gain = 1)
     {
         var analyzer = new MusicalKeyAnalyzer(48000);
         var block = new float[4096 * 2];
@@ -51,8 +61,11 @@ internal static class MusicalKeyChecks
                 {
                     double value = 0;
                     for (int k = 0; k < chord.Length; k++)
-                        value += (k == 0 ? .24 : .16) *
-                            Math.Sin(Math.Tau * 440 * Math.Pow(2, (chord[k] - 69) / 12d) * frame / 48000);
+                    {
+                        double frequency = 440 * Math.Pow(2, (chord[k] - 69) / 12d);
+                        if (alias) frequency = 12000 - frequency;
+                        value += gain * (k == 0 ? .24 : .16) * Math.Sin(Math.Tau * frequency * frame / 48000);
+                    }
                     block[2*i] = (float)value;
                     block[2*i+1] = (float)-value;
                 }

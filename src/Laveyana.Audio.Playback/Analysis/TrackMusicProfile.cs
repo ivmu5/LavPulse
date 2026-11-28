@@ -14,7 +14,7 @@ public sealed record TrackMeterSection(long StartFrame, long EndFrame, int Pulse
 public sealed record TrackMusicProfile
 {
     public const int CurrentMeterVersion = 1, CurrentEnergyVersion = 2, CurrentStructureVersion = 1,
-        CurrentLocalKeyVersion = 1;
+        CurrentLocalKeyVersion = 2;
     public int MeterVersion { get; init; }
     public int EnergyVersion { get; init; }
     public int StructureVersion { get; init; }
