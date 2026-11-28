@@ -18,7 +18,7 @@ public sealed class PlayerNotification
     private readonly Label _percent = MixerStyle.Label("", 11, MixerColor.Accent, bold: true);
     private readonly GraphicsView _progress = new() { HeightRequest = 7, IsVisible = false, InputTransparent = true };
     private readonly GraphicsView _ring = new() { InputTransparent = true };
-    private readonly Button _edgeButton = MixerStyle.Button("");
+    private readonly Button _edgeButton = new() { BackgroundColor = Colors.Transparent, FontFamily = "Inter" };
     private readonly Button _minimize = MixerStyle.Button("−");
     private readonly Grid _mini = new() { IsVisible = false };
     private readonly Grid _shell = new();
@@ -70,12 +70,18 @@ public sealed class PlayerNotification
         _ringDrawing = new NotificationProgressDrawable(() => _percent.TextColor, ring: true);
         _progress.Drawable = _barDrawing;
         _ring.Drawable = _ringDrawing;
+        MixerStyle.UseColor(_edgeButton, Button.TextColorProperty, MixerColor.Text);
         _edgeButton.BackgroundColor = Colors.Transparent;
         _edgeButton.Padding = 0;
         _edgeButton.FontSize = 12;
         _edgeButton.MinimumHeightRequest = 0;
         _edgeButton.MinimumWidthRequest = 0;
-        _edgeButton.Clicked += (_, _) => SetMiniature(false);
+        _edgeButton.Clicked += (_, _) =>
+        {
+            _collapsed = false;
+            SetMiniature(false);
+            UpdateCollapseGlyph();
+        };
         _mini.Add(_ring);
         _mini.Add(_edgeButton);
         var header = new Grid
@@ -137,8 +143,9 @@ public sealed class PlayerNotification
     private void RefreshMiniLabel()
     {
         _edgeButton.Text = IsRunning && _hasProgress ? $"{_targetProgress:P0}" :
-            IsRunning ? "…" : Retained ? "•" : "i";
-        string description = _title.Text + " — " + _message.Text + ". Развернуть";
+            IsRunning ? "…" : Retained ? "↗" : "i";
+        string description = _title.Text + " — " + _message.Text +
+            (_hasProgress ? $" · {_targetProgress:P0}" : "") + ". Развернуть";
         SemanticProperties.SetDescription(_edgeButton, description);
         ToolTipProperties.SetText(_edgeButton, description);
     }
@@ -169,33 +176,34 @@ public sealed class PlayerNotification
         // endpoint, and ease the new representation into place.
         double scale = Card.Scale, opacity = Card.Opacity;
         double target = Math.Clamp(52 / Math.Max(52, Card.Width), .15, 1);
-        var first = new Animation(t =>
+        bool swapped = false;
+        var animation = new Animation(t =>
         {
             if (generation != _cardGeneration || Removed) return;
-            Card.Scale = scale + (target - scale) * t;
-            Card.Opacity = opacity + (.35 - opacity) * t;
+            if (t < .5)
+            {
+                double f = Math.Pow(t * 2, 3);
+                Card.Scale = scale + (target - scale) * f;
+                Card.Opacity = opacity + (.15 - opacity) * f;
+                return;
+            }
+            if (!swapped)
+            {
+                swapped = true;
+                ApplyMiniLayout();
+            }
+            double open = 1 - Math.Pow(1 - (t - .5) * 2, 3);
+            Card.Scale = .85 + .15 * open;
+            Card.Opacity = .15 + .85 * open;
         });
-        first.Commit(Card, CardMotion, 16, 150, Easing.CubicIn,
+        animation.Commit(Card, CardMotion, 16, 290, Easing.Linear,
             (_, _) =>
             {
                 if (generation != _cardGeneration || Removed) return;
-                ApplyMiniLayout();
-                Card.Scale = .85;
-                Card.Opacity = .35;
-                var second = new Animation(t =>
-                {
-                    if (generation != _cardGeneration || Removed) return;
-                    Card.Scale = .85 + .15 * t;
-                    Card.Opacity = .35 + .65 * t;
-                });
-                second.Commit(Card, CardMotion, 16, 140, Easing.CubicOut,
-                    (_, _) =>
-                    {
-                        if (generation != _cardGeneration || Removed) return;
-                                    ResetCardTransform();
-                        Card.InputTransparent = false;
-                        _owner.RevealNotification(this);
-                    });
+                if (!swapped) ApplyMiniLayout();
+                ResetCardTransform();
+                Card.InputTransparent = false;
+                _owner.RevealNotification(this);
             });
         ScheduleExpiry();
     }
@@ -210,6 +218,7 @@ public sealed class PlayerNotification
         Card.HorizontalOptions = _miniature ? (_right ? LayoutOptions.End : LayoutOptions.Start) : LayoutOptions.Fill;
         Card.StrokeShape = new RoundRectangle { CornerRadius = _miniature ? 15 : 12 };
         RefreshMiniLabel();
+        if (_hasProgress) TickProgress(Now);
         _owner.RefreshNotificationLayout();
     }
 
@@ -218,11 +227,11 @@ public sealed class PlayerNotification
         if (!NeedsProgressAnimation) return;
         double t = Math.Clamp((now - _progressStarted) / .35, 0, 1);
         _displayProgress = _progressFrom + (_targetProgress - _progressFrom) * (1 - Math.Pow(1 - t, 3));
-        var drawing = _miniature ? _ringDrawing : _barDrawing;
+        var drawing = _mini.IsVisible ? _ringDrawing : _barDrawing;
         drawing.Value = _displayProgress;
         drawing.Motion = now % 1.6 / 1.6;
         drawing.Active = true;
-        (_miniature ? _ring : _progress).Invalidate();
+        (_mini.IsVisible ? _ring : _progress).Invalidate();
     }
 
     private void UpdateCollapseGlyph()
@@ -496,7 +505,7 @@ public sealed partial class PlayerView
     private void UpdateNotificationBounds()
     {
         if (_notificationOverlay is not { } host || Width <= 0 || Height <= 0) return;
-        host.WidthRequest = Math.Min(_notifications.Count > 0 && _notifications.All(n => n.IsMiniature) ? 58 : 350,
+        host.WidthRequest = Math.Min(_notifications.Count > 0 && _notifications.All(n => n.IsMiniature) ? 64 : 350,
             Math.Max(1, Width - 24));
         host.MaximumHeightRequest = Math.Max(1, Height - WindowsWindowChrome.ContentInset - 16);
     }
