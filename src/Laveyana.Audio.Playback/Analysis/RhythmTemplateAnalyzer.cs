@@ -21,6 +21,8 @@ internal sealed record RhythmTemplateResult(RhythmTemplatePrototype[] Prototypes
     internal long[] SoftRankedBeats {get;init;}=[];
     internal long[] SoftGuardedBeats {get;init;}=[];
     internal RhythmSoftFold[] SoftFolds {get;init;}=[];
+    internal RhythmTransitionEvidence[] TransitionEvidence {get;init;}=[];
+    internal RhythmSoftBlockComparison[] SoftBlockComparisons {get;init;}=[];
 }
 
 /// <summary>Track-local acoustic recurrence with cross-fitted timbre clusters.
@@ -28,7 +30,7 @@ internal sealed record RhythmTemplateResult(RhythmTemplatePrototype[] Prototypes
 /// rank is an experimental hypothesis, not an estimator of probability.</summary>
 internal static partial class RhythmTemplateAnalyzer
 {
-    internal const int Version=3,Clusters=4,Slots=8,Iterations=12;
+    internal const int Version=4,Clusters=4,Slots=8,Iterations=12;
     internal const long BlockFrames=8L*PlaybackFormat.SampleRate;
     private const int MinEvents=16;
     private const double MinimumCoverage=.8;
@@ -101,6 +103,7 @@ internal static partial class RhythmTemplateAnalyzer
         }
         var evidence=new List<RhythmTemplateEvidence>();
         var accents=new List<RhythmTemplateAccent>();
+        var transitions=new List<RhythmTransitionEvidence>();
         foreach(var candidate in candidates)
         {
             token.ThrowIfCancellationRequested();
@@ -146,6 +149,7 @@ internal static partial class RhythmTemplateAnalyzer
                     gains[1]/testing,gains[2]/testing,gains[3]/testing)
                     {ConditionalFourGain=conditionalFour/testing,
                         SoftFourGain=SoftScore(positions,folds,test,softModels[test],testing,token)});
+                transitions.Add(TransitionScore(candidate.Name,events,positions,folds,test,softModels[test],testing,token));
                 for(int k=0;k<Clusters;k++)for(int pos=0;pos<4;pos++)for(int s=0;s<Slots;s++)
                     accents.Add(new(candidate.Name,test,k,pos,s,bars[2][(k*4+pos)*Slots+s]));
             }
@@ -202,7 +206,9 @@ internal static partial class RhythmTemplateAnalyzer
             ConditionalRankedBeats=conditionalRanked.Frames,ConditionalGuardedBeats=conditionalGuarded.Frames,
             SoftRanked=softRanked.Name,SoftGuarded=softGuarded.Name,
             SoftRankedBeats=softRanked.Frames,SoftGuardedBeats=softGuarded.Frames,
-            SoftFolds=softModels.Select(m=>m.Diagnostics).ToArray()
+            SoftFolds=softModels.Select(m=>m.Diagnostics).ToArray(),
+            TransitionEvidence=transitions.ToArray(),
+            SoftBlockComparisons=CompareSoftBlocks(events,folds,softModels,softRanked,reference,token)
         };
     }
 

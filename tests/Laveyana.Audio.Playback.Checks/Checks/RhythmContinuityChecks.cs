@@ -202,8 +202,22 @@ internal static partial class Program
         Require(equal.All(w=>w==.25)&&separated[0]==1&&
             separated.Skip(1).All(w=>w==0)&&Math.Abs(separated.Sum()-1)<1e-12,
             "Soft membership failed degenerate or separated centroids.");
+        Require(model.TransitionEvidence.Length==2&&model.TransitionEvidence.All(e=>
+            double.IsFinite(e.Gain)&&double.IsFinite(e.Increment)&&e.TrainingPairs>0&&
+            e.TestPairs>0&&e.TestPairs<e.TestEvents),
+            "Transition diagnostics lost valid adjacent events.");
+        Require(model.SoftBlockComparisons.Length>0&&model.SoftBlockComparisons.All(e=>
+            e.CommonEvents>=8&&e.Candidate==e.Reference&&e.Difference==0),
+            "Identical grids have nonzero paired block evidence.");
+        Require(RhythmTemplateAnalyzer.CanUsePrevious(0,24000)&&
+            !RhythmTemplateAnalyzer.CanUsePrevious(0,24001)&&
+            !RhythmTemplateAnalyzer.CanUsePrevious(383999,384000)&&
+            !RhythmTemplateAnalyzer.CanUsePrevious(100,100),
+            "Transition context crossed a fold block, long pause or duplicate frame.");
         var repeated=RhythmTemplateAnalyzer.CheckFixture(events,beats,default);
-        Require(repeated.Prototypes.SequenceEqual(model.Prototypes)&&repeated.Evidence.SequenceEqual(model.Evidence),
+        Require(repeated.Prototypes.SequenceEqual(model.Prototypes)&&repeated.Evidence.SequenceEqual(model.Evidence)&&
+            repeated.TransitionEvidence.SequenceEqual(model.TransitionEvidence)&&
+            repeated.SoftBlockComparisons.SequenceEqual(model.SoftBlockComparisons),
             "Cross-fit clustering is not deterministic.");
         Require(RhythmTemplateAnalyzer.CheckFixture(events.Take(8).ToArray(),beats,default).Evidence.Length==0,
             "Insufficient events produced a template score.");

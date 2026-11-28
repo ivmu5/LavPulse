@@ -116,6 +116,14 @@ internal static class TrackDiagnosticCsv
                 $"{f.TestFold},{f.Temperature:R},{f.MeanTrainingEntropy:R},{f.MeanTestEntropy:R},{f.TrainingEvents},{f.TestEvents}"))),token).ConfigureAwait(false);
         await Write(zip,prefix+"template-soft-ranked-beats.csv",Rows("frame",templates.SoftRankedBeats.Select(Frame)),token).ConfigureAwait(false);
         await Write(zip,prefix+"template-soft-guarded-beats.csv",Rows("frame",templates.SoftGuardedBeats.Select(Frame)),token).ConfigureAwait(false);
+        await Write(zip,prefix+"template-transition-evidence.csv",Rows(
+            "name,test_fold,test_events,training_pairs,test_pairs,gain,increment",
+            templates.TransitionEvidence.Select(e=>FormattableString.Invariant(
+                $"{e.Name},{e.TestFold},{e.TestEvents},{e.TrainingPairs},{e.TestPairs},{e.Gain:R},{e.Increment:R}"))),token).ConfigureAwait(false);
+        await Write(zip,prefix+"template-soft-block-comparison.csv",Rows(
+            "candidate,reference,start_frame,common_events,candidate_gain,reference_gain,difference",
+            templates.SoftBlockComparisons.Select(e=>FormattableString.Invariant(
+                $"{e.Candidate},{e.Reference},{e.StartFrame},{e.CommonEvents},{e.CandidateGain:R},{e.ReferenceGain:R},{e.Difference:R}"))),token).ConfigureAwait(false);
         await Write(zip, prefix + "onsets.csv",
             Rows("frame,strength,accent", trace.Onsets.Select(o =>
                 FormattableString.Invariant($"{o.Frame},{o.Strength:R},{o.Accent:R}"))), token).ConfigureAwait(false);
