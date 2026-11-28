@@ -39,11 +39,11 @@ internal static class TrackDiagnosticCsv
         foreach (var (name,path) in new[] { ("audit-baseline",trace.AuditResult.Baseline),
             ("joint",trace.AuditResult.Joint), ("joint-alternative",trace.AuditResult.Alternative) })
         {
-            await Write(zip,prefix+name+"-states.csv",Rows("frame,bpm,phase_cycles,tempo_evidence,phase_evidence,prefix_margin",
+            await Write(zip,prefix+name+"-states.csv",Rows("frame,bpm,phase_cycles,tempo_evidence,phase_evidence,prefix_margin,inactive,inactive_boundary_frame",
                 path.States.Select(s=>FormattableString.Invariant(
-                    $"{s.Frame},{s.Bpm:R},{s.PhaseCycles:R},{s.TempoEvidence:R},{s.PhaseEvidence:R},{s.Margin:R}"))),token).ConfigureAwait(false);
-            await Write(zip,prefix+name+"-beats.csv",Rows("frame,index,observed",
-                path.Beats.Select(b=>FormattableString.Invariant($"{b.Frame},{b.Index},{(b.Observed?1:0)}"))),token).ConfigureAwait(false);
+                    $"{s.Frame},{s.Bpm:R},{s.PhaseCycles:R},{s.TempoEvidence:R},{s.PhaseEvidence:R},{s.Margin:R},{(s.Inactive?1:0)},{s.InactiveBoundaryFrame}"))),token).ConfigureAwait(false);
+            await Write(zip,prefix+name+"-beats.csv",Rows("frame,index,observed,low_evidence,high_evidence,activity_region",
+                path.Beats.Select(b=>FormattableString.Invariant($"{b.Frame},{b.Index},{(b.Observed?1:0)},{b.LowEvidence:R},{b.HighEvidence:R},{b.ActivityRegion}"))),token).ConfigureAwait(false);
         }
         await Write(zip, prefix + "onsets.csv",
             Rows("frame,strength,accent", trace.Onsets.Select(o =>

@@ -1,8 +1,18 @@
 namespace Laveyana.Audio.Playback;
 
 internal readonly record struct RhythmAuditState(long Frame,double Bpm,double PhaseCycles,
-    double TempoEvidence,double PhaseEvidence,double Margin);
-internal readonly record struct RhythmAuditBeat(long Frame,long Index,bool Observed);
+    double TempoEvidence,double PhaseEvidence,double Margin)
+{
+    // Local attack activity, not a posterior probability of musical rhythm.
+    internal bool Inactive {get;init;}
+    internal long InactiveBoundaryFrame {get;init;} = -1;
+}
+internal readonly record struct RhythmAuditBeat(long Frame,long Index,bool Observed)
+{
+    internal double LowEvidence {get;init;}
+    internal double HighEvidence {get;init;}
+    internal int ActivityRegion {get;init;}
+}
 internal sealed record RhythmAuditPath(RhythmAuditState[] States,RhythmAuditBeat[] Beats)
 {
     internal static RhythmAuditPath Empty {get;}=new([],[]);
@@ -45,7 +55,8 @@ internal static partial class RhythmJointDecoder
         var scores=TempoEvidence(input,token);
         var baseline=Baseline(input,scores,totalFrames,token);
         var (joint,alternative)=Joint(input,scores,totalFrames,token);
-        return new(baseline,joint,alternative);
+        return new(AnnotateActivity(baseline,input,token),AnnotateActivity(joint,input,token),
+            AnnotateActivity(alternative,input,token));
     }
 
     private sealed record Input(float[,] Bands,double[] Low,double[] High,double[] Activity,int[] Centers,double Gate)
@@ -140,6 +151,53 @@ internal static partial class RhythmJointDecoder
         return result;
     }
 
+    private static RhythmAuditPath AnnotateActivity(RhythmAuditPath path,Input input,CancellationToken token)
+    {
+        if(path.States.Length==0)return path;
+        var states=(RhythmAuditState[])path.States.Clone();
+        var boundaries=new List<long>();
+        for(int w=0;w<states.Length;w++)
+        {
+            token.ThrowIfCancellationRequested();
+            int center=input.Centers[w];
+            states[w]=states[w] with {Inactive=input.Activity[center]<=input.Gate,
+                InactiveBoundaryFrame=-1};
+        }
+        // The activity envelope spans +/-0.5 seconds. A further second
+        // without activity is longer than the gaps in a 40 BPM pulse.
+        // Find whole inactive runs, independently of the state stride.
+        for(int i=0;i<input.Length;)
+        {
+            if((i&4095)==0)token.ThrowIfCancellationRequested();
+            if(input.Activity[i]>input.Gate){i++;continue;}
+            int start=i;
+            while(i<input.Length&&input.Activity[i]<=input.Gate)
+            {
+                if((i&4095)==0)token.ThrowIfCancellationRequested();
+                i++;
+            }
+            if(start>0&&i<input.Length&&i-start>=Rate)
+                boundaries.Add((long)(start+(i-start)/2)*Hop);
+        }
+        int nextBoundary=0;
+        for(int w=0;w<states.Length;w++)
+        {
+            long boundary=-1;
+            while(nextBoundary<boundaries.Count&&boundaries[nextBoundary]<=states[w].Frame)
+                boundary=boundaries[nextBoundary++];
+            states[w]=states[w] with {InactiveBoundaryFrame=boundary};
+        }
+        var beats=(RhythmAuditBeat[])path.Beats.Clone();
+        int region=0;
+        for(int i=0;i<beats.Length;i++)
+        {
+            if((i&4095)==0)token.ThrowIfCancellationRequested();
+            while(region<boundaries.Count&&boundaries[region]<=beats[i].Frame)region++;
+            beats[i]=beats[i] with {ActivityRegion=region};
+        }
+        return new(states,beats);
+    }
+
     private static RhythmAuditBeat[] Emit(Input input,double[] cycles,long total,CancellationToken token)
     {
         var beats=new List<RhythmAuditBeat>();
@@ -150,9 +208,12 @@ internal static partial class RhythmJointDecoder
             if(b<a||index>b||input.Activity[i]<=input.Gate)continue;
             long frame=(long)Math.Round((i+(index-a)/(b-a))*Hop);
             if(frame<0||frame>=total||beats.Count>0&&(frame<=beats[^1].Frame||index<=beats[^1].Index))continue;
-            double peak=0;
-            for(int j=Math.Max(0,i-5);j<=Math.Min(input.Length-1,i+5);j++)peak=Math.Max(peak,input.Low[j]);
-            beats.Add(new(frame,index,peak>=.35));
+            double lowPeak=0,highPeak=0;
+            for(int j=Math.Max(0,i-5);j<=Math.Min(input.Length-1,i+5);j++)
+            {
+                lowPeak=Math.Max(lowPeak,input.Low[j]);highPeak=Math.Max(highPeak,input.High[j]);
+            }
+            beats.Add(new(frame,index,lowPeak>=.35){LowEvidence=lowPeak,HighEvidence=highPeak});
         }
         return beats.ToArray();
     }

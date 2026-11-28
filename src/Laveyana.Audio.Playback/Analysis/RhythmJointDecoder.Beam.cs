@@ -71,7 +71,7 @@ internal static partial class RhythmJointDecoder
             int distinct=primaryStates.Zip(other).Count(pair=>
                 Math.Abs(pair.First.Bpm-pair.Second.Bpm)>.04*pair.First.Bpm||
                 Math.Abs(WrapSigned(pair.First.PhaseCycles-pair.Second.PhaseCycles))>=.20);
-            if(distinct>=Math.Max(1,n/4)){alternateStates=other;break;}
+            if(distinct>=Math.Max(1,(n+3)/4)){alternateStates=other;break;}
         }
         return (Reconstruct(primaryStates,input,total,token),
             alternateStates.Length==0?RhythmAuditPath.Empty:Reconstruct(alternateStates,input,total,token));

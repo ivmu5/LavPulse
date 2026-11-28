@@ -124,6 +124,17 @@ internal static partial class Program
             Require(path.States.All(s=>double.IsFinite(s.Bpm)&&s.Bpm>=40&&s.Bpm<=240&&
                 s.PhaseCycles>=0&&s.PhaseCycles<1),"Invalid joint state.");
         }
+        var paused=Enumerable.Range(0,2400).Select(i=>
+        {
+            float hit=i>=800&&i<1600?0:i%50==25?1:0;
+            return new RhythmSpectrumFrame((long)i*hop,hit,hit,hit,hit,hit);
+        }).ToArray();
+        var pausedResult=RhythmJointDecoder.Analyze(paused,paused.Length*(long)hop,default);
+        Require(pausedResult.Joint.States.Any(s=>s.InactiveBoundaryFrame>=0)&&
+            pausedResult.Joint.Beats.Any(b=>b.ActivityRegion==0)&&
+            pausedResult.Joint.Beats.Any(b=>b.ActivityRegion==1)&&
+            !pausedResult.Joint.Beats.Any(b=>b.Frame>=850L*hop&&b.Frame<1550L*hop),
+            "Long activity gap was not distinguished from predicted beats.");
         var silence=input.Select(f=>f with {Sub=0,Bass=0,LowMid=0,Mid=0,High=0}).ToArray();
         Require(RhythmJointDecoder.Analyze(silence,total,default).Joint.Beats.Length==0,
             "Silence generated a joint grid.");
