@@ -56,9 +56,9 @@ internal static class TrackDiagnosticCsv
         if (grid is not null)
         {
             await Write(zip, prefix + "rhythm-hypotheses.csv", Rows(
-                "id,start_frame,end_frame_exclusive,bpm,reference_bpm,tempo_confidence,phase_confidence,stability,coverage,score,preferred,local_preferred,recovery_candidate,attack_coverage,reference_agreement,phase_offset,relative_pulse",
+                "id,start_frame,end_frame_exclusive,bpm,reference_bpm,tempo_confidence,phase_confidence,stability,coverage,score,preferred,local_preferred,recovery_candidate,attack_coverage,reference_agreement,phase_offset,relative_pulse,family_preferred,family_only,reference_candidate,family_score,harmonic_support,bass_attack_recall,bass_beat_precision,percussion_attack_recall,percussion_beat_precision",
                 grid.RhythmHypotheses.Select((h,i) => FormattableString.Invariant(
-                    $"{i},{h.StartFrame},{h.EndFrame},{h.Bpm:R},{h.ReferenceBpm:R},{h.TempoConfidence:R},{h.PhaseConfidence:R},{h.Stability:R},{h.Coverage:R},{h.Score:R},{(h.IsPreferred ? 1 : 0)},{(h.IsLocalPreferred ? 1 : 0)},{(h.IsRecoveryCandidate ? 1 : 0)},{h.AttackCoverage:R},{h.ReferenceAgreement:R},{h.PhaseOffset:R},{h.RelativePulse}"))), token).ConfigureAwait(false);
+                    $"{i},{h.StartFrame},{h.EndFrame},{h.Bpm:R},{h.ReferenceBpm:R},{h.TempoConfidence:R},{h.PhaseConfidence:R},{h.Stability:R},{h.Coverage:R},{h.Score:R},{(h.IsPreferred ? 1 : 0)},{(h.IsLocalPreferred ? 1 : 0)},{(h.IsRecoveryCandidate ? 1 : 0)},{h.AttackCoverage:R},{h.ReferenceAgreement:R},{h.PhaseOffset:R},{h.RelativePulse},{(h.IsFamilyPreferred ? 1 : 0)},{(h.IsFamilyOnly ? 1 : 0)},{(h.IsReferenceCandidate ? 1 : 0)},{h.FamilyScore:R},{h.HarmonicSupport:R},{h.BassAttackRecall:R},{h.BassBeatPrecision:R},{h.PercussionAttackRecall:R},{h.PercussionBeatPrecision:R}"))), token).ConfigureAwait(false);
             await Write(zip, prefix + "hypothesis-beats.csv", Rows("id,frame",
                 grid.RhythmHypotheses.SelectMany((h,i) => h.CandidateFrames.Select(f =>
                     FormattableString.Invariant($"{i},{f}")))), token).ConfigureAwait(false);

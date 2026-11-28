@@ -36,6 +36,16 @@ public sealed record TrackRhythmHypothesis(long StartFrame, long EndFrame, doubl
     /// <summary>Selected by the global unconfirmed path, not a verified beat.</summary>
     public bool IsPreferred { get; init; }
     public bool IsLocalPreferred { get; init; }
+    /// <summary>Experimental harmonic-family path; independent of the earlier spectral winner.</summary>
+    public bool IsFamilyPreferred { get; init; }
+    public bool IsFamilyOnly { get; init; }
+    public bool IsReferenceCandidate { get; init; }
+    public float FamilyScore { get; init; }
+    public float HarmonicSupport { get; init; }
+    public float BassAttackRecall { get; init; }
+    public float BassBeatPrecision { get; init; }
+    public float PercussionAttackRecall { get; init; }
+    public float PercussionBeatPrecision { get; init; }
     public bool IsRecoveryCandidate { get; init; }
     public float AttackCoverage { get; init; }
     public float ReferenceAgreement { get; init; }
@@ -44,7 +54,9 @@ public sealed record TrackRhythmHypothesis(long StartFrame, long EndFrame, doubl
     public string RelativePulse => ReferenceBpm < 40 ? "unknown" :
         Math.Abs(Bpm / ReferenceBpm - .5) < .04 ? "half" :
         Math.Abs(Bpm / ReferenceBpm - 1) < .04 ? "reference" :
-        Math.Abs(Bpm / ReferenceBpm - 2) < .08 ? "double" : "other";
+        Math.Abs(Bpm / ReferenceBpm - 2) < .08 ? "double" :
+        Math.Abs(Bpm / ReferenceBpm - .25) < .01 ? "quarter" :
+        Math.Abs(Bpm / ReferenceBpm - 4) < .16 ? "quadruple" : "other";
 }
 
 /// <summary>Estimated tempo, measured attacks and a variable-tempo sequence of beat positions.</summary>

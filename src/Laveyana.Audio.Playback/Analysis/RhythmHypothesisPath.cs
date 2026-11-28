@@ -5,10 +5,24 @@ namespace Laveyana.Audio.Playback;
 internal static class RhythmHypothesisPath
 {
     internal static TrackRhythmHypothesis[] Select(IReadOnlyList<TrackRhythmHypothesis> source,
-        CancellationToken token)
+        CancellationToken token) => SelectCore(source, token, family: false);
+
+    internal static TrackRhythmHypothesis[] SelectFamily(IReadOnlyList<TrackRhythmHypothesis> source,
+        CancellationToken token) => SelectCore(source, token, family: true);
+
+    private static TrackRhythmHypothesis[] SelectCore(IReadOnlyList<TrackRhythmHypothesis> source,
+        CancellationToken token, bool family)
     {
         if (source.Count == 0) return [];
-        var output = source.Select(h => h with { IsPreferred = false }).ToArray();
+        var output = source.Select(h => family ? h with { IsFamilyPreferred = false } :
+            h with { IsPreferred = false }).ToArray();
+        bool Preferred(TrackRhythmHypothesis h) => family ? h.IsFamilyPreferred : h.IsPreferred;
+        TrackRhythmHypothesis Mark(TrackRhythmHypothesis h, bool selected) =>
+            family ? h with { IsFamilyPreferred = selected } : h with { IsPreferred = selected };
+        double Transition(TrackRhythmHypothesis a, TrackRhythmHypothesis b) =>
+            Cost(a, b, family);
+        double EmissionScore(TrackRhythmHypothesis h) =>
+            (family ? h.FamilyScore : h.Score) - (h.IsRecoveryCandidate ? .08 : 0);
         var blocks = Enumerable.Range(0, output.Length)
             .GroupBy(i => output[i].StartFrame).Select(g => g.ToArray()).ToArray();
         bool Touch(int left, int right) =>
@@ -30,9 +44,9 @@ internal static class RhythmHypothesisPath
                     !Touch(index-1,index) || !Touch(index,index+1) || h.Coverage < .50f ||
                     h.AttackCoverage < .25f) return false;
                 return blocks[index-1].Any(j => !output[j].IsRecoveryCandidate && Close(output[j].Bpm,h.Bpm) &&
-                    Cost(output[j],h) < .12) &&
+                    Transition(output[j],h) < .12) &&
                     blocks[index+1].Any(j => !output[j].IsRecoveryCandidate && Close(output[j].Bpm,h.Bpm) &&
-                    Cost(h,output[j]) < .12);
+                    Transition(h,output[j]) < .12);
             }).ToArray();
         }
 
@@ -44,7 +58,7 @@ internal static class RhythmHypothesisPath
             int end = start + 1;
             while (end < blocks.Length && eligible[end].Length > 0 && Touch(end-1,end)) end++;
             var back = new int[end-start][];
-            double[] previous = eligible[start].Select(i => Emission(output[i])).ToArray();
+            double[] previous = eligible[start].Select(i => EmissionScore(output[i])).ToArray();
             for (int b = start + 1; b < end; b++)
             {
                 token.ThrowIfCancellationRequested();
@@ -56,10 +70,10 @@ internal static class RhythmHypothesisPath
                     double best = double.NegativeInfinity;
                     for (int k = 0; k < previous.Length; k++)
                     {
-                        double value = previous[k] - Cost(output[eligible[b-1][k]],h);
+                        double value = previous[k] - Transition(output[eligible[b-1][k]],h);
                         if (value > best) { best = value; pointers[j] = k; }
                     }
-                    current[j] = best + Emission(h);
+                    current[j] = best + EmissionScore(h);
                 }
                 previous = current;
             }
@@ -67,7 +81,7 @@ internal static class RhythmHypothesisPath
             for (int b = end - 1; b >= start; b--)
             {
                 int i = eligible[b][winner];
-                output[i] = output[i] with { IsPreferred = true };
+                output[i] = Mark(output[i], true);
                 if (b > start) winner = back[b-start][winner];
             }
             start = end;
@@ -76,24 +90,23 @@ internal static class RhythmHypothesisPath
         // themselves support the recovery. Do not publish an isolated weak winner.
         for (int b = 0; b < blocks.Length; b++)
         {
-            int i = blocks[b].FirstOrDefault(j => output[j].IsPreferred && output[j].IsRecoveryCandidate, -1);
+            int i = blocks[b].FirstOrDefault(j => Preferred(output[j]) && output[j].IsRecoveryCandidate, -1);
             if (i < 0) continue;
-            int left = b > 0 ? blocks[b-1].FirstOrDefault(j => output[j].IsPreferred, -1) : -1;
-            int right = b+1 < blocks.Length ? blocks[b+1].FirstOrDefault(j => output[j].IsPreferred, -1) : -1;
+            int left = b > 0 ? blocks[b-1].FirstOrDefault(j => Preferred(output[j]), -1) : -1;
+            int right = b+1 < blocks.Length ? blocks[b+1].FirstOrDefault(j => Preferred(output[j]), -1) : -1;
             if (left < 0 || right < 0 || !Close(output[left].Bpm,output[i].Bpm) ||
-                !Close(output[right].Bpm,output[i].Bpm) || Cost(output[left],output[i]) >= .12 ||
-                Cost(output[i],output[right]) >= .12)
-                output[i] = output[i] with { IsPreferred = false };
+                !Close(output[right].Bpm,output[i].Bpm) || Transition(output[left],output[i]) >= .12 ||
+                Transition(output[i],output[right]) >= .12)
+                output[i] = Mark(output[i], false);
         }
         return output;
     }
 
-    private static double Emission(TrackRhythmHypothesis h) => h.Score - (h.IsRecoveryCandidate ? .08 : 0);
-
-    internal static double Cost(TrackRhythmHypothesis a, TrackRhythmHypothesis b)
+    internal static double Cost(TrackRhythmHypothesis a, TrackRhythmHypothesis b, bool family = false)
     {
         double ratio = Math.Max(a.Bpm,b.Bpm) / Math.Min(a.Bpm,b.Bpm);
         double tempo = Math.Min(.28, .60 * Math.Abs(Math.Log2(ratio)));
+        if (family) tempo *= .55 + .45 * Math.Min(a.Coverage, b.Coverage);
         double period = 60d * PlaybackFormat.SampleRate / Math.Max(a.Bpm,b.Bpm);
         double cycles = (b.CandidateFrames[0] - (double)a.CandidateFrames[^1]) / period;
         double phase = Math.Abs(cycles - Math.Round(cycles));

@@ -12,7 +12,8 @@ internal static class RhythmHypothesisAnalyzer
         TrackBeatGrid reference, long totalFrames, CancellationToken token)
     {
         var result = new List<TrackRhythmHypothesis>();
-        int totalBeats = 0, window = 0;
+        var additional = new List<TrackRhythmHypothesis>();
+        int totalBeats = 0, additionalBeats = 0, window = 0;
         for (int start = 0; start + MinimumBlock <= frames.Count; start += Block)
         {
             token.ThrowIfCancellationRequested();
@@ -102,6 +103,15 @@ internal static class RhythmHypothesisAnalyzer
             Add(strongest * 2); Add(strongest / 2);
             var local = new List<TrackRhythmHypothesis>(12);
             var attacks = StrongAttacks(pulse);
+            var bassPulse = new double[length];
+            var percussionPulse = new double[length];
+            for (int i = 0; i < length; i++)
+            {
+                bassPulse[i] = .45 * bands[0,i] + .55 * bands[1,i];
+                percussionPulse[i] = .20 * bands[2,i] + .45 * bands[3,i] + .35 * bands[4,i];
+            }
+            var bassAttacks = StrongAttacks(bassPulse);
+            var percussionAttacks = StrongAttacks(percussionPulse);
             var referenceBeats = ReferenceBeats(reference.BeatFrames, firstFrame, lastFrame);
             foreach (double bpm in candidates)
             {
@@ -112,9 +122,72 @@ internal static class RhythmHypothesisAnalyzer
                     root, attacks, referenceBeats, token))
                     local.Add(hypothesis with { IsRecoveryCandidate = weakBlock });
             }
-            if (local.Count == 0) continue;
-            // Score is a relative ranking, never a calibrated probability.
-            var ordered = local.OrderByDescending(h => h.Score).ToArray();
+            double HarmonicSupport(double bpm)
+            {
+                double support = Periodicity(bpm);
+                foreach (double factor in new[] { .25, .5, 2d, 4d })
+                {
+                    double related = bpm * factor;
+                    if (related >= 40 && related <= 240)
+                        support = Math.Max(support, .65 * Periodicity(related));
+                }
+                return Math.Clamp(support * 2, 0, 1);
+            }
+            TrackRhythmHypothesis Enrich(TrackRhythmHypothesis hypothesis) =>
+                RhythmHarmonicFamily.Evaluate(hypothesis, bassAttacks, percussionAttacks,
+                    (float)HarmonicSupport(hypothesis.Bpm));
+
+            // Extend a measured family by two octaves and borrow nearby
+            // reference-window seeds. The seed is not evidence: every extra
+            // candidate must pass local periodicity and attack support.
+            var familySeeds = new List<double>(10);
+            void AddFamily(double bpm)
+            {
+                if (!double.IsFinite(bpm) || bpm < 40 || bpm > 240 || familySeeds.Count >= 10) return;
+                bpm = Refine(bpm);
+                if (candidates.All(v => Math.Abs(v - bpm) > .025 * bpm) &&
+                    familySeeds.All(v => Math.Abs(v - bpm) > .025 * bpm)) familySeeds.Add(bpm);
+            }
+            foreach (double factor in new[] { 4d, .25, 2d, .5 })
+            {
+                AddFamily(strongest * factor);
+                if (root > 0) AddFamily(root * factor);
+            }
+            for (int offset = -3; offset <= 3; offset += 6)
+            {
+                int neighbor = window + offset;
+                if (neighbor < 0 || neighbor >= reference.Windows.Length) continue;
+                var nearby = reference.Windows[neighbor];
+                if (!nearby.Accepted || Math.Abs(Mid(nearby) - middle) > 9L * PlaybackFormat.SampleRate) continue;
+                AddFamily(nearby.Bpm);
+                AddFamily(nearby.Bpm * 2);
+                AddFamily(nearby.Bpm / 2);
+            }
+            var extra = new List<TrackRhythmHypothesis>();
+            // Existing seeds rejected by the stricter legacy periodicity gate
+            // may also be reconsidered, but without increasing TempoConfidence.
+            foreach (double bpm in familySeeds.Concat(candidates.Where(v =>
+                Periodicity(v) < (weakBlock ? .035 : .045))))
+            {
+                token.ThrowIfCancellationRequested();
+                double periodic = Periodicity(bpm);
+                if (periodic < .025 || HarmonicSupport(bpm) < .15) continue;
+                foreach (var hypothesis in Build(pulse, bpm, periodic, firstFrame, lastFrame,
+                    root, attacks, referenceBeats, token))
+                {
+                    var enriched = Enrich(hypothesis);
+                    if (!RhythmHarmonicFamily.SupportsExtra(enriched)) continue;
+                    extra.Add(enriched with { IsRecoveryCandidate = weakBlock, IsFamilyOnly = true });
+                }
+            }
+            if (RhythmHarmonicFamily.ReferenceCandidate(referenceBeats, firstFrame, lastFrame, root,
+                pulse, attacks, bassAttacks, percussionAttacks, Periodicity, token) is { } existing)
+                extra.Add(existing with { IsRecoveryCandidate = weakBlock });
+
+            // Preserve the previous path and its complete blocks, even if the
+            // optional family budget is exhausted. No extra hypothesis can
+            // displace one from the legacy result.
+            var ordered = local.OrderByDescending(h => h.Score).Select(Enrich).ToArray();
             // Keep complete blocks instead of truncating competing phases.
             if (result.Count + ordered.Length > MaxHypotheses ||
                 totalBeats + ordered.Sum(h => h.CandidateFrames.Length) > MaxBeats) break;
@@ -124,8 +197,16 @@ internal static class RhythmHypothesisAnalyzer
                 result.Add(h with { IsLocalPreferred = i == 0 });
                 totalBeats += h.CandidateFrames.Length;
             }
+            if (additional.Count + extra.Count <= MaxHypotheses &&
+                additionalBeats + extra.Sum(h => h.CandidateFrames.Length) <= MaxBeats)
+            {
+                additional.AddRange(extra);
+                additionalBeats += extra.Sum(h => h.CandidateFrames.Length);
+            }
         }
-        return RhythmHypothesisPath.Select(result, token);
+        var legacy = RhythmHypothesisPath.Select(result, token);
+        var all = legacy.Concat(additional).OrderBy(h => h.StartFrame).ToArray();
+        return RhythmHypothesisPath.SelectFamily(all, token);
     }
 
     private static long Mid(TrackTempoWindow window) =>
@@ -262,7 +343,7 @@ internal static class RhythmHypothesisAnalyzer
         }
     }
 
-    private static (int Index, double Weight)[] StrongAttacks(double[] pulse)
+    internal static (int Index, double Weight)[] StrongAttacks(double[] pulse)
     {
         double threshold = Math.Max(.19, pulse.Average() * 1.65);
         var attacks = new List<(int Index, double Weight)>();
@@ -299,7 +380,7 @@ internal static class RhythmHypothesisAnalyzer
 
     internal static bool IsValid(TrackRhythmHypothesis[]? hypotheses, long total)
     {
-        if (hypotheses is null || hypotheses.Length > MaxHypotheses) return false;
+        if (hypotheses is null || hypotheses.Length > 2 * MaxHypotheses) return false;
         int beats = 0;
         foreach (var h in hypotheses)
         {
@@ -308,10 +389,12 @@ internal static class RhythmHypothesisAnalyzer
                 !double.IsFinite(h.ReferenceBpm) || h.ReferenceBpm < 0 || h.ReferenceBpm > 240 ||
                 !Unit(h.TempoConfidence) || !Unit(h.PhaseConfidence) || !Unit(h.Stability) ||
                 !Unit(h.Coverage) || !Unit(h.Score) || !Unit(h.AttackCoverage) ||
-                !Unit(h.ReferenceAgreement) || !Unit(h.PhaseOffset) || h.CandidateFrames is not { Length: >= 4 and <= MaxBeats })
+                !Unit(h.ReferenceAgreement) || !Unit(h.PhaseOffset) || !Unit(h.FamilyScore) ||
+                !Unit(h.HarmonicSupport) || !Unit(h.BassAttackRecall) || !Unit(h.BassBeatPrecision) ||
+                !Unit(h.PercussionAttackRecall) || !Unit(h.PercussionBeatPrecision) || h.CandidateFrames is not { Length: >= 4 and <= MaxBeats })
                 return false;
             beats += h.CandidateFrames.Length;
-            if (beats > MaxBeats) return false;
+            if (beats > 2 * MaxBeats) return false;
             long previous = h.StartFrame - 1;
             foreach (long frame in h.CandidateFrames)
             {
