@@ -24,6 +24,7 @@ internal sealed record RhythmMetricPath(int Numerator,int Denominator,int Lane,i
 
 internal sealed record RhythmAuditResult(RhythmAuditPath Baseline,RhythmAuditPath Joint,RhythmAuditPath Alternative)
 {
+    internal RhythmAuditPath HybridTempogram { get; init; } = RhythmAuditPath.Empty;
     internal RhythmMetricPath[] MetricPaths { get; init; } = [];
     internal bool MetricBudgetReached { get; init; }
     internal RhythmMetricPath[] RefinedMetricPaths { get; init; } = [];
@@ -63,9 +64,10 @@ internal static partial class RhythmJointDecoder
         if(raw.Count<400)return RhythmAuditResult.Empty;
         var input=Prepare(raw,token);
         if(input.Activity.All(x=>x<=1e-6))return RhythmAuditResult.Empty;
-        var scores=TempoEvidence(input,token);
+        var (scores, hybridScores) = TempoEvidence(input, token);
         var baseline=Baseline(input,scores,totalFrames,token,out var baselineCycles);
         var (joint,alternative)=Joint(input,scores,totalFrames,token);
+        var hybrid = Baseline(input, hybridScores, totalFrames, token, out _);
         var (metricPaths,budgetReached)=MetricPaths(input,scores,baseline,baselineCycles,totalFrames,token);
         var (refinedPaths,refinedBudget)=MetricPaths(input,scores,baseline,baselineCycles,totalFrames,token,refined:true);
         var annotatedBaseline=AnnotateActivity(baseline,input,token);
@@ -75,6 +77,7 @@ internal static partial class RhythmJointDecoder
         return new(annotatedBaseline,AnnotateActivity(joint,input,token),
             AnnotateActivity(alternative,input,token))
         {
+            HybridTempogram = AnnotateActivity(hybrid, input, token),
             MetricPaths=metricPaths,MetricBudgetReached=budgetReached,RoleSelection=roles,
             RefinedMetricPaths=refinedPaths,RefinedMetricBudgetReached=refinedBudget,EnvelopePaths=envelopePaths
         };

@@ -50,7 +50,8 @@ internal static class TrackDiagnosticCsv
             trace.AuditFlux.Select(f => FormattableString.Invariant(
                 $"{f.Frame},{f.Sub:R},{f.Bass:R},{f.LowMid:R},{f.Mid:R},{f.High:R}"))), token).ConfigureAwait(false);
         foreach (var (name,path) in new[] { ("audit-baseline",trace.AuditResult.Baseline),
-            ("joint",trace.AuditResult.Joint), ("joint-alternative",trace.AuditResult.Alternative) }
+            ("joint",trace.AuditResult.Joint), ("joint-alternative",trace.AuditResult.Alternative),
+            ("hybrid-tempogram", trace.AuditResult.HybridTempogram) }
             .Concat(trace.AuditResult.EnvelopePaths.Select(p=>(p.Name,p.Path))))
         {
             await Write(zip,prefix+name+"-states.csv",Rows("frame,bpm,phase_cycles,tempo_evidence,phase_evidence,prefix_margin,inactive,inactive_boundary_frame",

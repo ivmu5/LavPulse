@@ -239,6 +239,12 @@ internal static partial class Program
         var result=RhythmJointDecoder.Analyze(input,total,default);
         Require(result.Baseline.Beats.Length>0&&result.Joint.Beats.Length>0,
             "Joint decoder lost periodic input.");
+        var hybrid = result.HybridTempogram;
+        Require(hybrid.States.Length == result.Baseline.States.Length &&
+            hybrid.States.All(state => state.Bpm is >= 118 and <= 122 && double.IsFinite(state.TempoEvidence)) &&
+            hybrid.Beats.All(beat => beat.Frame >= 0 && beat.Frame < total) &&
+            hybrid.Beats.Count(beat => Math.Abs(beat.Frame % 24000 - 12000) < 2400) >= 20,
+            "Hybrid tempogram lost the periodic low-band phase or native clock.");
         Require(result.MetricPaths.Length>=2 &&
             result.MetricPaths.Where(p=>p.Numerator==1&&p.Denominator==1).Count()==2 &&
             !result.MetricBudgetReached,"Independent phase lanes disappeared.");
@@ -332,6 +338,7 @@ internal static partial class Program
             "Long activity gap was not distinguished from predicted beats.");
         var silence=input.Select(f=>f with {Sub=0,Bass=0,LowMid=0,Mid=0,High=0}).ToArray();
         var silentResult=RhythmJointDecoder.Analyze(silence,total,default);
+        Require(silentResult.HybridTempogram.Beats.Length == 0, "Silence acquired a hybrid grid.");
         Require(silentResult.Joint.Beats.Length==0&&silentResult.MetricPaths.Length==0&&
             silentResult.RefinedMetricPaths.Length==0&&silentResult.RoleSelection.Events.Length==0,
             "Silence generated a joint or metrical grid.");

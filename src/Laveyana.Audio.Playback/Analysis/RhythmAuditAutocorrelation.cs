@@ -7,14 +7,14 @@ namespace Laveyana.Audio.Playback;
 /// longest period. Normalize by zero-lag energy outside this helper.</summary>
 internal sealed class RhythmAuditAutocorrelation
 {
-    private const int Size=4096;
+    internal const int Size=4096;
     private static readonly RhythmFftPlan Fft=new(Size);
     private readonly Complex[] _buffer=new Complex[Size];
 
     internal void Accumulate(ReadOnlySpan<double> samples,Span<double> destination,double scale,
-        CancellationToken token)
+        CancellationToken token, Span<double> spectralPower = default)
     {
-        if(samples.Length>Size/2||!double.IsFinite(scale))
+        if(samples.Length>Size/2||spectralPower.Length>Size/2||!double.IsFinite(scale))
             throw new ArgumentException("Autocorrelation input exceeds supported window.");
         token.ThrowIfCancellationRequested();
         Array.Clear(_buffer);
@@ -25,7 +25,9 @@ internal sealed class RhythmAuditAutocorrelation
         for(int i=0;i<Size;i++)
         {
             Complex value=_buffer[i];
-            _buffer[i]=new Complex(value.Real*value.Real+value.Imaginary*value.Imaginary,0);
+            double power = value.Real * value.Real + value.Imaginary * value.Imaginary;
+            _buffer[i] = new Complex(power, 0);
+            if (i < spectralPower.Length) spectralPower[i] += power;
         }
         for(int i=0;i<Size;i++)
         {

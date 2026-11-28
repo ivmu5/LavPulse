@@ -139,7 +139,7 @@ internal static class RhythmReportReplay
                 ("family",grid.RhythmHypotheses.Where(h=>h.IsFamilyPreferred)
                     .SelectMany(h=>h.CandidateFrames).Order().Distinct().ToArray())
             };
-            foreach (var (name,auditPath) in new[] { ("audit-baseline",audit.Baseline),("joint",audit.Joint),("joint-alternative",audit.Alternative) }
+            foreach (var (name,auditPath) in new[] { ("audit-baseline",audit.Baseline),("joint",audit.Joint),("joint-alternative",audit.Alternative), ("hybrid-tempogram",audit.HybridTempogram) }
                 .Concat(audit.EnvelopePaths.Select(p=>(p.Name,p.Path))))
             {
                 if (auditPath.States.Length==0) continue;
