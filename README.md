@@ -300,3 +300,5 @@ Schema 13 adds fractional-tempo envelope decay and pairwise phase agreement diag
 Schema 14 adds track-local cross-fitted acoustic recurrence templates, 2/3/4-pulse evidence, four-pulse ranking and a guarded diagnostic selector. No inferred downbeat or playback promotion. See docs/RhythmJointDecoder.md.
 
 Schema 15 adds a regularized conditional four-pulse recurrence score and separate diagnostic ranked/guarded paths. Earlier template selectors remain unchanged.
+
+Schema 16 adds cross-fitted soft acoustic memberships and conditional mixture scoring with diagnostic ranked/guarded paths, fold temperature and entropy. Existing grids and playback remain unchanged.

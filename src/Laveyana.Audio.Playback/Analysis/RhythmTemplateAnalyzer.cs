@@ -5,6 +5,7 @@ internal readonly record struct RhythmTemplateEvidence(string Name,int TestFold,
     double Coverage,double PhaseGain,double TwoGain,double ThreeGain,double FourGain)
 {
     internal double ConditionalFourGain { get; init; }
+    internal double SoftFourGain { get; init; }
 }
 internal readonly record struct RhythmTemplateAccent(string Name,int TestFold,int Cluster,int BeatPosition,int PhaseSlot,int TrainingEvents);
 internal sealed record RhythmTemplateResult(RhythmTemplatePrototype[] Prototypes,RhythmTemplateEvidence[] Evidence,
@@ -15,14 +16,19 @@ internal sealed record RhythmTemplateResult(RhythmTemplatePrototype[] Prototypes
     internal string ConditionalGuarded {get;init;}="";
     internal long[] ConditionalRankedBeats {get;init;}=[];
     internal long[] ConditionalGuardedBeats {get;init;}=[];
+    internal string SoftRanked {get;init;}="";
+    internal string SoftGuarded {get;init;}="";
+    internal long[] SoftRankedBeats {get;init;}=[];
+    internal long[] SoftGuardedBeats {get;init;}=[];
+    internal RhythmSoftFold[] SoftFolds {get;init;}=[];
 }
 
 /// <summary>Track-local acoustic recurrence with cross-fitted timbre clusters.
 /// A recurring pattern does not identify a musical downbeat, and the four-pulse
 /// rank is an experimental hypothesis, not an estimator of probability.</summary>
-internal static class RhythmTemplateAnalyzer
+internal static partial class RhythmTemplateAnalyzer
 {
-    internal const int Version=2,Clusters=4,Slots=8,Iterations=12;
+    internal const int Version=3,Clusters=4,Slots=8,Iterations=12;
     internal const long BlockFrames=8L*PlaybackFormat.SampleRate;
     private const int MinEvents=16;
     private const double MinimumCoverage=.8;
@@ -80,11 +86,13 @@ internal static class RhythmTemplateAnalyzer
             folds[i]=(int)((e.Frame/BlockFrames)%2);
         }
         var models=new Model[2];var prototypes=new List<RhythmTemplatePrototype>(2*Clusters);
+        var softModels=new SoftModel[2];
         for(int test=0;test<2;test++)
         {
             var train=Enumerable.Range(0,n).Where(i=>folds[i]!=test).ToArray();
             if(train.Length<MinEvents||n-train.Length<MinEvents)return RhythmTemplateResult.Empty;
             models[test]=Fit(features,train,token);
+            softModels[test]=SoftMembership(features,folds,train,models[test],test,token);
             for(int k=0;k<Clusters;k++)
             {
                 var v=models[test].Centers[k];
@@ -136,7 +144,8 @@ internal static class RhythmTemplateAnalyzer
                 }
                 evidence.Add(new(candidate.Name,test,training,testing,coverage,gains[0]/testing,
                     gains[1]/testing,gains[2]/testing,gains[3]/testing)
-                    {ConditionalFourGain=conditionalFour/testing});
+                    {ConditionalFourGain=conditionalFour/testing,
+                        SoftFourGain=SoftScore(positions,folds,test,softModels[test],testing,token)});
                 for(int k=0;k<Clusters;k++)for(int pos=0;pos<4;pos++)for(int s=0;s<Slots;s++)
                     accents.Add(new(candidate.Name,test,k,pos,s,bars[2][(k*4+pos)*Slots+s]));
             }
@@ -171,11 +180,29 @@ internal static class RhythmTemplateAnalyzer
         if(baseRows.Length==2&&conditionalRows.Length==2&&conditionalRows.Zip(baseRows).All(p=>
             p.First.ConditionalFourGain>Math.Max(0,p.Second.ConditionalFourGain)))
             conditionalGuarded=conditionalRanked;
+        // Same six control paths, coverage and two-fold guard. This is a
+        // separate comparison; neither earlier selector is overwritten.
+        var softRanked=reference;double softBest=double.NegativeInfinity;
+        foreach(var candidate in candidates.Where(p=>p.Rank))
+        {
+            var rows=evidence.Where(e=>e.Name==candidate.Name).ToArray();
+            if(rows.Length!=2||rows[0].Coverage<MinimumCoverage)continue;
+            double mean=rows.Sum(e=>e.SoftFourGain*e.TestEvents)/rows.Sum(e=>e.TestEvents);
+            if(mean>softBest){softBest=mean;softRanked=candidate;}
+        }
+        var softGuarded=reference;
+        var softRows=evidence.Where(e=>e.Name==softRanked.Name).OrderBy(e=>e.TestFold).ToArray();
+        if(baseRows.Length==2&&softRows.Length==2&&softRows.Zip(baseRows).All(p=>
+            p.First.SoftFourGain>Math.Max(0,p.Second.SoftFourGain)))
+            softGuarded=softRanked;
         return new(prototypes.ToArray(),evidence.ToArray(),accents.ToArray(),reference.Name,ranked.Name,guarded.Name,
             ranked.Frames,guarded.Frames)
         {
             ConditionalRanked=conditionalRanked.Name,ConditionalGuarded=conditionalGuarded.Name,
-            ConditionalRankedBeats=conditionalRanked.Frames,ConditionalGuardedBeats=conditionalGuarded.Frames
+            ConditionalRankedBeats=conditionalRanked.Frames,ConditionalGuardedBeats=conditionalGuarded.Frames,
+            SoftRanked=softRanked.Name,SoftGuarded=softGuarded.Name,
+            SoftRankedBeats=softRanked.Frames,SoftGuardedBeats=softGuarded.Frames,
+            SoftFolds=softModels.Select(m=>m.Diagnostics).ToArray()
         };
     }
 
