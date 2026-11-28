@@ -9,6 +9,11 @@ internal sealed class MusicalKeyAnalyzer
 {
     private const int Size = 8192;
     private const int Decimation = 4;
+    // Reject a chroma band more than 40 dB below the original broadband
+    // power. Relative gating preserves a quiet but genuinely tonal input.
+    private const double MinimumTonalPowerRatio = .0001;
+    // In a one-sided power spectrum, sum(Hann²) = 3N/8 and Parseval adds N/2.
+    private const double SpectralPowerScale = 3d * Size / (16 * Decimation);
     private static readonly double[] Major = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
     private static readonly double[] Minor = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
     private static readonly double[][] Profiles = [Normalize(Major), Normalize(Minor)];
@@ -20,7 +25,7 @@ internal sealed class MusicalKeyAnalyzer
 
     private readonly double _binHz;
     private readonly int _firstBin, _endBin;
-    private readonly double _coefficient;
+    private readonly BiquadCoefficients _section1, _section2;
     private readonly Complex[] _fft = new Complex[Size];
     private readonly double[] _power;
     private readonly double[] _chroma = new double[12];
@@ -30,7 +35,8 @@ internal sealed class MusicalKeyAnalyzer
     private const int LocalWindows = 12;
     private int _localTotal, _localTonal;
     private long _localStart;
-    private double _left1, _left2, _right1, _right2;
+    private BiquadState _left1, _left2, _right1, _right2;
+    private double _inputPower;
     private int _skip, _count, _total, _tonal;
 
     public MusicalKeyAnalyzer(int sampleRate)
@@ -41,7 +47,12 @@ internal sealed class MusicalKeyAnalyzer
         _endBin = Math.Min(Size / 2 - 1, (int)Math.Floor(2200 / _binHz));
         // Only bins first-1 through end are read by peak interpolation.
         _power = new double[_endBin + 1];
-        _coefficient = 1 - Math.Exp(-Math.Tau * Math.Min(2200, sampleRate / 12d) / sampleRate);
+        // Fourth-order Butterworth before the /4 decimator. At 48 kHz
+        // 3 kHz passes the 2.2 kHz chroma limit and rejects its first alias band.
+        double omega = Math.Tau * Math.Min(3000, sampleRate / 16d) / sampleRate;
+        (double sine, double cosine) = Math.SinCos(omega);
+        _section1 = LowPass(sine, cosine, .5411961001);
+        _section2 = LowPass(sine, cosine, 1.3065629649);
     }
 
     public void Add(ReadOnlySpan<float> stereo, CancellationToken token)
@@ -52,17 +63,17 @@ internal sealed class MusicalKeyAnalyzer
         {
             float left = stereo[i], right = stereo[i + 1];
             double a = float.IsFinite(left) ? left : 0, b = float.IsFinite(right) ? right : 0;
-            _left1 += _coefficient * (a - _left1);
-            _left2 += _coefficient * (_left1 - _left2);
-            _right1 += _coefficient * (b - _right1);
-            _right2 += _coefficient * (_right1 - _right2);
+            _inputPower += a * a + b * b;
+            a = _left2.Process(_left1.Process(a, _section1), _section2);
+            b = _right2.Process(_right1.Process(b, _section1), _section2);
             if (++_skip != Decimation) continue;
             _skip = 0;
-            _fft[Reversed[_count]] = new Complex(_left2 * Hann[_count], _right2 * Hann[_count]);
+            _fft[Reversed[_count]] = new Complex(a * Hann[_count], b * Hann[_count]);
             if (++_count == Size)
             {
                 token.ThrowIfCancellationRequested();
-                AnalyzeWindow();
+                AnalyzeWindow(_inputPower * SpectralPowerScale);
+                _inputPower = 0;
                 _localTotal++;
                 if (_localTotal == LocalWindows) FlushLocal();
                 _count = 0;
@@ -70,7 +81,7 @@ internal sealed class MusicalKeyAnalyzer
         }
     }
 
-    private void AnalyzeWindow()
+    private void AnalyzeWindow(double inputSpectrumPower)
     {
         _total++;
         Transform();
@@ -84,7 +95,8 @@ internal sealed class MusicalKeyAnalyzer
             _power[i] = p;
             if (i >= first && i < end) { total += p; maximum = Math.Max(maximum, p); }
         }
-        if (total < .001 || maximum < total * .012) return;
+        if (total < Math.Max(.001, inputSpectrumPower * MinimumTonalPowerRatio) ||
+            maximum < total * .012) return;
         Array.Clear(_chroma);
         double concentrated = 0, sum = 0;
         for (int i = first; i < end; i++)
@@ -115,6 +127,28 @@ internal sealed class MusicalKeyAnalyzer
             double value = _chroma[i] / sum;
             _aggregate[i] += value;
             _local[i] += value;
+        }
+    }
+
+    private readonly record struct BiquadCoefficients(double B0, double B1, double A1, double A2);
+
+    private static BiquadCoefficients LowPass(double sine, double cosine, double q)
+    {
+        double alpha = sine / (2 * q), a0 = 1 + alpha;
+        double b0 = (1 - cosine) / (2 * a0);
+        return new(b0, 2 * b0, -2 * cosine / a0, (1 - alpha) / a0);
+    }
+
+    private struct BiquadState
+    {
+        private double _z1, _z2;
+
+        public double Process(double input, in BiquadCoefficients c)
+        {
+            double output = c.B0 * input + _z1;
+            _z1 = c.B1 * input - c.A1 * output + _z2;
+            _z2 = c.B0 * input - c.A2 * output;
+            return output;
         }
     }
 
