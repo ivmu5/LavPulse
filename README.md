@@ -292,3 +292,5 @@ On Windows, in-app notifications appear in the upper-left corner above the playe
 Windows notification cards can collapse independently while keeping their title and live progress. Settings > Notifications offers four persisted corners with a live preview; new cards enter from the selected corner, and detailed content expands toward the interior. Running jobs remain alive while cards are collapsed or moved.
 
 Schema 12 adds three diagnostic-only envelope phase paths (rise, decay-weighted rise and hybrid spectral/envelope), reusing the existing 10 ms amplitude envelope without another FFT. Earlier grids and playback are unchanged.
+
+Windows notification cards also minimize to a clickable 52-DIP edge icon, with live ring progress. Background and retained cards automatically minimize (default 5 s), temporary cards slide out and close (default 8 s); both delays are configurable. Important completion results reopen with actions, then minimize again. Progress eases to actual updates with a decorative highlight; jobs continue independently.

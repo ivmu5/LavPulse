@@ -149,6 +149,7 @@ public sealed partial class MainPage
             _view.ApplyAppearance(settings);
 #if WINDOWS
             _view.SetNotificationPosition(settings.NotificationPosition);
+            _view.SetNotificationTimeouts(_settings.PinnedNotificationSeconds, _settings.TransientNotificationSeconds);
 #endif
             BackgroundColor = _view.BackgroundColor;
 #if ANDROID

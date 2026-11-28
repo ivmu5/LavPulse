@@ -65,6 +65,8 @@ internal static class PlayerPreferences
                 PlayerSettings.MinimumWaveformDetailSeconds, PlayerSettings.MaximumWaveformDetailSeconds),
             Theme = (PlayerTheme)Math.Clamp(Preferences.Default.Get("interface-theme", (int)defaults.Theme), 0, (int)PlayerTheme.Light),
             NotificationPosition = (NotificationCorner)Math.Clamp(Preferences.Default.Get("notification-corner", (int)defaults.NotificationPosition), 0, (int)NotificationCorner.BottomRight),
+            PinnedNotificationSeconds = Math.Clamp(Preferences.Default.Get("notification-pinned-seconds", defaults.PinnedNotificationSeconds), 3, 60),
+            TransientNotificationSeconds = Math.Clamp(Preferences.Default.Get("notification-transient-seconds", defaults.TransientNotificationSeconds), 3, 60),
             DarkBackground = (DarkBackground)Math.Clamp(Preferences.Default.Get("dark-background", (int)defaults.DarkBackground),
                 0, (int)DarkBackground.Amoled),
             Palette = (PlayerPalette)Math.Clamp(Preferences.Default.Get("palette", (int)defaults.Palette), 0, (int)PlayerPalette.Mint),
@@ -117,6 +119,8 @@ internal static class PlayerPreferences
         Preferences.Default.Set("waveform-detail-seconds", settings.WaveformDetailSeconds);
         Preferences.Default.Set("interface-theme", (int)settings.Theme);
         Preferences.Default.Set("notification-corner", (int)settings.NotificationPosition);
+        Preferences.Default.Set("notification-pinned-seconds", settings.PinnedNotificationSeconds);
+        Preferences.Default.Set("notification-transient-seconds", settings.TransientNotificationSeconds);
         Preferences.Default.Set("dark-background", (int)settings.DarkBackground);
         Preferences.Default.Set("palette", (int)settings.Palette);
         Preferences.Default.Set("custom-palette-accent", settings.CustomColors.Accent.ToInt());

@@ -20,8 +20,15 @@ public sealed partial class PlayerSettingsPanel
                 _settings = _settings with { NotificationPosition = value };
                 _previewAppearance?.Invoke(_settings);
             }, maxColumns: 2);
-        var hint = MixerStyle.Label("Сверните карточку стрелкой в заголовке: активная операция продолжит работать, а процент и полоса прогресса останутся видимыми. Новые карточки появляются со стороны выбранного угла.", 12, MixerColor.Muted);
-        return Section("Уведомления Windows", position, hint);
+        var hint = MixerStyle.Label("Стрелка сворачивает детали, боковая стрелка — всю карточку в значок. Фоновая операция продолжает работать; кольцо и процент показывают прогресс. Нажмите значок, чтобы развернуть карточку.", 12, MixerColor.Muted);
+        (int Value,string Label)[] intervals = [(3,"3 с"),(5,"5 с"),(8,"8 с"),(12,"12 с"),(20,"20 с"),(30,"30 с"),(60,"60 с")];
+        var pinned = Select("Сворачивать фоновые уведомления через", intervals,
+            _settings.PinnedNotificationSeconds, null,
+            value => _settings = _settings with { PinnedNotificationSeconds = value }, maxColumns: 4);
+        var transient = Select("Закрывать обычные уведомления через", intervals,
+            _settings.TransientNotificationSeconds, null,
+            value => _settings = _settings with { TransientNotificationSeconds = value }, maxColumns: 4);
+        return Section("Уведомления Windows", position, pinned, transient, hint);
     }
 
     private static View NotificationPreview(NotificationCorner position)
