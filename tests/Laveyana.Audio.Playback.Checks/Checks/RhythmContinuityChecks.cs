@@ -79,7 +79,29 @@ internal static partial class Program
         CheckBassOctave();
         CheckSpectralHypotheses();
         CheckGlobalHypothesisPath();
+        CheckHarmonicFamily();
         Console.WriteLine("OK: evidence-gated octave correction, isolated window recovery and local phase refinement.");
+    }
+
+    private static void CheckHarmonicFamily()
+    {
+        const long duration = 576000;
+        var attacks = Enumerable.Range(0,24).Select(i => (Index: i*25, Weight: 1d)).ToArray();
+        TrackRhythmHypothesis H(double bpm, long step) => new(0,duration,bpm,120,.7f,.8f,.9f,.8f,.7f,
+            Enumerable.Range(0,(int)(duration/step)).Select(i => i*step).ToArray());
+        var correct = RhythmHarmonicFamily.Evaluate(H(120,24000),attacks,attacks,.8f);
+        var slow = RhythmHarmonicFamily.Evaluate(H(60,48000),attacks,attacks,.8f);
+        var fast = RhythmHarmonicFamily.Evaluate(H(240,12000),attacks,attacks,.8f);
+        Require(correct.BassAttackRecall == 1 && correct.BassBeatPrecision == 1 &&
+            slow.BassAttackRecall < correct.BassAttackRecall &&
+            fast.BassBeatPrecision < correct.BassBeatPrecision &&
+            correct.FamilyScore > Math.Max(slow.FamilyScore,fast.FamilyScore),
+            "Harmonic scoring favored missing or unsupported subdivisions.");
+        var legacy = new[] { correct with { IsPreferred = true }, slow, fast };
+        var path = RhythmHypothesisPath.SelectFamily(legacy,default);
+        Require(path.Count(h => h.IsFamilyPreferred) == 1 && path[0].IsFamilyPreferred &&
+            path[0].IsPreferred && !path[1].IsPreferred && !path[2].IsPreferred,
+            "Family path replaced the previous spectral path.");
     }
 
     private static void CheckGlobalHypothesisPath()
