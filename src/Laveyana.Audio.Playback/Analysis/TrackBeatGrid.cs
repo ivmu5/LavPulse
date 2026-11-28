@@ -33,8 +33,18 @@ public readonly record struct TrackBeatEstimate(long Frame, float Confidence, in
 public sealed record TrackRhythmHypothesis(long StartFrame, long EndFrame, double Bpm, double ReferenceBpm,
     float TempoConfidence, float PhaseConfidence, float Stability, float Coverage, float Score, long[] CandidateFrames)
 {
-    /// <summary>Highest relative spectral score in this local block, not a verified beat.</summary>
+    /// <summary>Selected by the global unconfirmed path, not a verified beat.</summary>
     public bool IsPreferred { get; init; }
+    public bool IsLocalPreferred { get; init; }
+    public bool IsRecoveryCandidate { get; init; }
+    public float AttackCoverage { get; init; }
+    public float ReferenceAgreement { get; init; }
+    public float PhaseOffset { get; init; }
+    // Relative pulse rates, not an inferred time signature.
+    public string RelativePulse => ReferenceBpm < 40 ? "unknown" :
+        Math.Abs(Bpm / ReferenceBpm - .5) < .04 ? "half" :
+        Math.Abs(Bpm / ReferenceBpm - 1) < .04 ? "reference" :
+        Math.Abs(Bpm / ReferenceBpm - 2) < .08 ? "double" : "other";
 }
 
 /// <summary>Estimated tempo, measured attacks and a variable-tempo sequence of beat positions.</summary>
