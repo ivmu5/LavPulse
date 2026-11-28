@@ -141,6 +141,28 @@ internal static partial class Program
             "Selector changed baseline without evidence.");
     }
 
+    private static void CheckCrossfitTemplates()
+    {
+        var beats=Enumerable.Range(0,96).Select(i=>i*24000L).ToArray();
+        var events=beats.Select((frame,i)=>new RhythmRoleEvent(frame,1,i%4==3?1:0,0,
+            i%4==0?1:0,i%4==1?1:0,i%4==2?1:0,0,0,0,0)).ToArray();
+        var model=RhythmTemplateAnalyzer.CheckFixture(events,beats,default);
+        Require(model.Prototypes.Length==8&&model.Evidence.Length==2&&
+            model.Evidence.All(e=>e.Coverage>.9&&e.FourGain>.2&&e.FourGain>e.ThreeGain&&e.FourGain>e.TwoGain),
+            "Cross-fit model did not recover repeated four-pulse acoustic structure.");
+        Require(model.RankedBeats.SequenceEqual(beats)&&model.GuardedBeats.SequenceEqual(beats),
+            "Template ranking changed coordinates of the selected grid.");
+        var repeated=RhythmTemplateAnalyzer.CheckFixture(events,beats,default);
+        Require(repeated.Prototypes.SequenceEqual(model.Prototypes)&&repeated.Evidence.SequenceEqual(model.Evidence),
+            "Cross-fit clustering is not deterministic.");
+        Require(RhythmTemplateAnalyzer.CheckFixture(events.Take(8).ToArray(),beats,default).Evidence.Length==0,
+            "Insufficient events produced a template score.");
+        var constant=events.Select(e=>e with {Low=1,Middle=0,High=0,Sharpness=0}).ToArray();
+        var uniform=RhythmTemplateAnalyzer.CheckFixture(constant,beats,default);
+        Require(uniform.Evidence.All(e=>e.FourGain<.1),
+            "Uniform timbre incorrectly supplied evidence of a four-pulse accent pattern.");
+    }
+
     private static void CheckJointDecoder()
     {
         const int hop=RhythmAuditFlux.HopFrames;
@@ -192,6 +214,7 @@ internal static partial class Program
                 s.PhaseCycles>=0&&s.PhaseCycles<1),"Invalid joint state.");
         }
         CheckRoleSelector(result);
+        CheckCrossfitTemplates();
         // The envelope is a distinct observation: its attack is deliberately
         // displaced from the low spectral flux in this fixture.
         var envelope=Enumerable.Range(0,input.Length).Select(i=>

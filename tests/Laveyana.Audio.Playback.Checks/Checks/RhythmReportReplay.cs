@@ -168,6 +168,16 @@ internal static class RhythmReportReplay
             foreach(var pair in RhythmPhaseAgreement.Analyze(audit,grid.BeatFrames,total,default).GroupBy(r=>(r.Left,r.Right)))
                 Console.WriteLine($"  phase {pair.Key.Left}/{pair.Key.Right}: "+
                     string.Join(", ",pair.GroupBy(r=>r.Status).Select(g=>$"{g.Key}={g.Count()}")));
+            var templates=RhythmTemplateAnalyzer.Analyze(audit,grid.BeatFrames,default);
+            foreach(var evidence in templates.Evidence)
+                Console.WriteLine(FormattableString.Invariant(
+                    $"  template {evidence.Name} fold {evidence.TestFold} coverage {evidence.Coverage:F3} phase/2/3/4 gain {evidence.PhaseGain:F3}/{evidence.TwoGain:F3}/{evidence.ThreeGain:F3}/{evidence.FourGain:F3}"));
+            if(templates.Reference.Length>0)
+            {
+                comparisons.Add(("template-ranked",templates.RankedBeats));
+                comparisons.Add(("template-guarded",templates.GuardedBeats));
+                Console.WriteLine($"  template reference {templates.Reference}; rank {templates.Ranked}; guarded {templates.Guarded}");
+            }
             if (taps.Length>0)
                 foreach (var (name,frames) in comparisons)
                     foreach (int ms in new[]{50,70,100,180})
