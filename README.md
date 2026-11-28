@@ -286,3 +286,5 @@ Schema 10 adds independent phase lanes on rational multiples of the continuous a
 Schema 11 adds diagnostic acoustic role proxies, local evidence and a conservative phase/metric selector. The selector can abstain and retains the baseline when evidence or seam continuity is inadequate. No playback changes; see docs/RhythmJointDecoder.md.
 
 Refined metric lanes independently search a narrow local tempo envelope and sub-BPM offsets; they are exported alongside the unchanged original metric lanes. No automatic promotion.
+
+On Windows, in-app notifications appear in the upper-left corner above the player and library. Report export asks for a destination before fresh diagnostics, shows real per-track progress and cancellation, then offers Open folder / Open report. Library scan notifications continue across in-app navigation, retain stop and individual skip controls, and show counts and last track duration/storage change. Mobile retains its existing scan panel.

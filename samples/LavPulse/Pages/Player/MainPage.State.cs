@@ -74,6 +74,9 @@ public sealed partial class MainPage
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }
         if (_view.Panel is TrackLibraryPanel library) library.Cancel();
         _lifetime.Cancel();
+#if WINDOWS
+        _view.ClearNotifications();
+#endif
         SetSelection(null, null);
         _positions.Stop();
         _view.ResetAnimations();
@@ -81,7 +84,11 @@ public sealed partial class MainPage
         try
         {
             await Task.WhenAll(_worker ?? Task.CompletedTask, _coverAnimation ?? Task.CompletedTask, _analysisWorker,
-                _restoreQueue ?? Task.CompletedTask, AwaitImportSavesAsync(), _pendingBeatWrites);
+                _restoreQueue ?? Task.CompletedTask, AwaitImportSavesAsync(), _pendingBeatWrites
+#if WINDOWS
+                , _libraryNotificationScan, _reportExportWorker
+#endif
+                );
         }
         catch (Exception)
         {
