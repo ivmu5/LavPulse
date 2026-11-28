@@ -217,9 +217,9 @@ public sealed class PlayerNotification
     {
         if (Removed || !IsRunning) return;
         _message.Text = message;
-        _progress.IsVisible = _percent.IsVisible = progress.HasValue;
         if (progress.HasValue)
         {
+            _progress.IsVisible = _percent.IsVisible = true;
             _progress.Progress = Math.Clamp(progress.Value, 0, 1);
             _percent.Text = $"{_progress.Progress:P0}";
         }
@@ -282,6 +282,7 @@ public sealed partial class PlayerView
         NotificationPosition = position;
         // Reorder existing cards only when the corner changes. Jobs and their
         // collapsed state stay alive; progress callbacks keep the same card.
+        foreach (var item in _notifications.Where(n => n.Removing).ToArray()) RemoveCard(item);
         _notificationCards.Children.Clear();
         IEnumerable<PlayerNotification> ordered = NotificationsAtBottom ? _notifications.AsEnumerable().Reverse() : _notifications;
         foreach (var item in ordered)

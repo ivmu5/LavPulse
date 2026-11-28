@@ -197,9 +197,10 @@ public sealed partial class MainPage
     private void NotifyStatus(string title, string message)
     {
         if (_closed) return;
-        _view.Status.Text = message;
 #if WINDOWS
         _view.ShowNotification(title, message);
+#else
+        _view.Status.Text = message;
 #endif
     }
 
