@@ -36,7 +36,7 @@ internal sealed record RhythmAuditResult(RhythmAuditPath Baseline,RhythmAuditPat
 /// <summary>Two-pass audit baseline and joint beam share features but never use taps or legacy BPM.</summary>
 internal static partial class RhythmJointDecoder
 {
-    internal const int Version=4;
+    internal const int Version=5;
     internal const int Rate=RhythmAuditFlux.Rate,Hop=RhythmAuditFlux.HopFrames,Stride=200,PhaseCount=32,MinBpm=40,MaxBpm=240,
         TempoCount=MaxBpm-MinBpm+1;
     private static readonly double[] Prior=Enumerable.Range(MinBpm,TempoCount)
@@ -71,7 +71,7 @@ internal static partial class RhythmJointDecoder
         var annotatedBaseline=AnnotateActivity(baseline,input,token);
         var events=RhythmEventClassifier.Analyze(raw,input.Bands,input.Gate,token);
         var roles=RhythmMetricSelector.Select(events,annotatedBaseline,metricPaths,totalFrames,token);
-        var envelopePaths=EnvelopePhasePaths(input,baseline,baselineCycles,envelope,envelopeHop,totalFrames,token);
+        var envelopePaths=EnvelopePhasePaths(input,baseline,baselineCycles,envelope,envelopeHop,totalFrames,token,refinedPaths,scores);
         return new(annotatedBaseline,AnnotateActivity(joint,input,token),
             AnnotateActivity(alternative,input,token))
         {

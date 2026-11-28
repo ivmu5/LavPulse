@@ -165,6 +165,9 @@ internal static class RhythmReportReplay
                 comparisons.Add(("role-selector",audit.RoleSelection.Beats.Select(b=>b.Beat.Frame).ToArray()));
                 Console.WriteLine($"  role events {audit.RoleSelection.Events.Length}; switched blocks {audit.RoleSelection.Decisions.Count(d=>d.SelectedPathId>=0)}; ambiguous blocks {audit.RoleSelection.Decisions.Count(d=>d.Ambiguous)}");
             }
+            foreach(var pair in RhythmPhaseAgreement.Analyze(audit,grid.BeatFrames,total,default).GroupBy(r=>(r.Left,r.Right)))
+                Console.WriteLine($"  phase {pair.Key.Left}/{pair.Key.Right}: "+
+                    string.Join(", ",pair.GroupBy(r=>r.Status).Select(g=>$"{g.Key}={g.Count()}")));
             if (taps.Length>0)
                 foreach (var (name,frames) in comparisons)
                     foreach (int ms in new[]{50,70,100,180})

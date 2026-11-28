@@ -203,10 +203,13 @@ internal static partial class Program
         Require(withEnvelope.Baseline.Beats.SequenceEqual(result.Baseline.Beats)&&
             withEnvelope.Joint.Beats.SequenceEqual(result.Joint.Beats),
             "Envelope phase experiment changed existing paths.");
-        Require(withEnvelope.EnvelopePaths.Length==3&&withEnvelope.EnvelopePaths.All(p=>
+        Require(withEnvelope.EnvelopePaths.Length==4&&withEnvelope.EnvelopePaths.All(p=>
             p.Path.Beats.Length>0&&p.Path.Beats.All(b=>b.Frame>=0&&b.Frame<total)&&
             p.Path.Beats.Zip(p.Path.Beats.Skip(1)).All(q=>q.First.Frame<q.Second.Frame&&q.First.Index<q.Second.Index)&&
-            p.Path.States.Select(s=>s.Bpm).SequenceEqual(result.Baseline.States.Select(s=>s.Bpm))),
+            (p.Name=="envelope-refined-decay"
+                ?p.Path.States.Zip(result.Baseline.States).All(q=>
+                    Math.Abs(q.First.Bpm-q.Second.Bpm)<=Math.Max(1,.03*q.Second.Bpm)+1e-8)
+                :p.Path.States.Select(s=>s.Bpm).SequenceEqual(result.Baseline.States.Select(s=>s.Bpm)))),
             "Envelope paths lost valid coordinates or changed nominal tempo.");
         Require(withEnvelope.EnvelopePaths[0].Path.Beats.Any(b=>b.Frame%24000<2400||b.Frame%24000>21600),
             "Envelope rise path did not find the independent attack phase.");
@@ -215,6 +218,19 @@ internal static partial class Program
         var constant=Enumerable.Repeat(new RhythmEnergy(1,1,1),input.Length).ToArray();
         Require(RhythmJointDecoder.Analyze(input,total,default,constant,hop).EnvelopePaths.Length==0,
             "Constant envelope generated unsupported phase hypotheses.");
+        var regularPhase=Enumerable.Range(0,16).Select(i=>24000L*i).ToArray();
+        var opposingPhase=regularPhase.Select(f=>f+12000).ToArray();
+        var agreement=RhythmPhaseAgreement.Compare(0,384000,"a","b",regularPhase,regularPhase);
+        var conflict=RhythmPhaseAgreement.Compare(0,384000,"a","b",regularPhase,opposingPhase);
+        Require(agreement.Status=="near_phase"&&agreement.Matches70==16&&agreement.Concentration>.99&&
+            conflict.Status=="phase_conflict"&&conflict.Matches70==0&&
+            Math.Abs(Math.Abs(conflict.OffsetCycles)-.5)<1e-8&&conflict.Concentration>.99,
+            "Phase agreement lost aligned or opposing grid distinction.");
+        Require(RhythmPhaseAgreement.Compare(0,384000,"a","b",regularPhase,
+            regularPhase.Where((_,i)=>i%2==0).ToArray()).Status=="tempo_mismatch",
+            "Phase agreement confused a half-rate grid with a phase shift.");
+        Require(RhythmPhaseAgreement.Compare(0,384000,"a","b",regularPhase,[]).Status=="insufficient",
+            "Missing reference became phase confidence.");
         var paused=Enumerable.Range(0,2400).Select(i=>
         {
             float hit=i>=800&&i<1600?0:i%50==25?1:0;
