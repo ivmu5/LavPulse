@@ -104,6 +104,43 @@ internal static partial class Program
         }
     }
 
+    private static void CheckRoleSelector(RhythmAuditResult result)
+    {
+        var role=result.RoleSelection;
+        Require(role.Events.Length>0&&role.Decisions.Length>0&&
+            role.Events.Zip(role.Events.Skip(1)).All(p=>p.Second.Frame-p.First.Frame>=
+                RhythmEventClassifier.RefractoryHops*(long)RhythmAuditFlux.HopFrames),
+            "Role extraction lost events or refractory spacing.");
+        Require(role.Beats.Zip(role.Beats.Skip(1)).All(p=>p.First.Beat.Frame<p.Second.Beat.Frame),
+            "Role selector duplicated or reversed beats.");
+        var aligned=Enumerable.Range(0,16).Select(i=>new RhythmAuditBeat(i*24000L,i,true)).ToArray();
+        var shifted=aligned.Select(b=>b with { Frame=b.Frame+12000 }).ToArray();
+        var events=aligned.Select((b,i)=>new RhythmRoleEvent(b.Frame,1,1,0,
+            i%2==0?1:0,i%2==0?0:1,0,i%2==0?1:0,i%2==0?0:1,0,0)).ToArray();
+        var good=RhythmMetricSelector.Evaluate(aligned,events);
+        var bad=RhythmMetricSelector.Evaluate(shifted,events);
+        Require(good.Score>bad.Score+RhythmMetricSelector.MinimumGain&&good.Alternation>.9,
+            "Role score missed aligned alternating attacks.");
+        // A clean full-track alternative can win with repeated evidence.
+        // No mid-track phase jump is required in this fixture.
+        var clean=Enumerable.Range(0,48).Select(i=>new RhythmAuditBeat(i*24000L,i,true)).ToArray();
+        var cleanEvents=clean.Select((b,i)=>new RhythmRoleEvent(b.Frame,1,1,0,
+            i%2==0?1:0,i%2==0?0:1,0,i%2==0?1:0,i%2==0?0:1,0,0)).ToArray();
+        long duration=48*24000L;
+        var states=Enumerable.Range(0,12).Select(i=>new RhythmAuditState(i*96000L,120,0,1,1,0)).ToArray();
+        var wrong=new RhythmAuditPath(states,clean.Select(b=>b with {Frame=b.Frame+12000}).ToArray());
+        var correct=new RhythmMetricPath(1,1,1,2,1,1,new(states,clean));
+        var selected=RhythmMetricSelector.Select(cleanEvents,wrong,[correct],duration,default);
+        Require(selected.Decisions.All(d=>d.SelectedPathId==0)&&
+            selected.Beats.Select(b=>b.Beat.Frame).SequenceEqual(clean.Select(b=>b.Frame)),
+            "Repeated clean role evidence could not select an independent full-track phase.");
+        var none=RhythmMetricSelector.Select([],result.Baseline,result.MetricPaths,
+            result.Baseline.States[^1].Frame+RhythmJointDecoder.Stride*(long)RhythmJointDecoder.Hop,default);
+        Require(none.Decisions.All(d=>d.SelectedPathId==-1&&d.Ambiguous)&&
+            none.Beats.Select(b=>b.Beat.Frame).SequenceEqual(result.Baseline.Beats.Select(b=>b.Frame)),
+            "Selector changed baseline without evidence.");
+    }
+
     private static void CheckJointDecoder()
     {
         const int hop=RhythmAuditFlux.HopFrames;
@@ -136,8 +173,17 @@ internal static partial class Program
                     Math.Abs(pair.First.Bpm-pair.Second.Bpm*lane.Numerator/lane.Denominator)<1e-8),
                     "Metric ratio was clamped or changed.");
         }
+        Require(result.RefinedMetricPaths.Length==result.MetricPaths.Length &&
+            !result.RefinedMetricBudgetReached,"Refined metric families lost lanes.");
+        foreach(var lane in result.RefinedMetricPaths)
+            Require(lane.Path.States.Zip(result.Baseline.States).All(pair=>
+            {
+                double nominal=pair.Second.Bpm*lane.Numerator/lane.Denominator;
+                return Math.Abs(pair.First.Bpm-nominal)<=Math.Max(1,.03*nominal)+1e-8;
+            }),"Refined path escaped its nominal family.");
         foreach (var path in new[]{result.Baseline,result.Joint,result.Alternative}
-            .Concat(result.MetricPaths.Select(p=>p.Path)))
+            .Concat(result.MetricPaths.Select(p=>p.Path))
+            .Concat(result.RefinedMetricPaths.Select(p=>p.Path)))
         {
             Require(path.Beats.All(b=>b.Frame>=0&&b.Frame<total)&&path.Beats.Zip(path.Beats.Skip(1))
                 .All(pair=>pair.First.Frame<pair.Second.Frame&&pair.First.Index<pair.Second.Index),
@@ -145,6 +191,7 @@ internal static partial class Program
             Require(path.States.All(s=>double.IsFinite(s.Bpm)&&s.Bpm>=40&&s.Bpm<=240&&
                 s.PhaseCycles>=0&&s.PhaseCycles<1),"Invalid joint state.");
         }
+        CheckRoleSelector(result);
         var paused=Enumerable.Range(0,2400).Select(i=>
         {
             float hit=i>=800&&i<1600?0:i%50==25?1:0;
@@ -158,7 +205,8 @@ internal static partial class Program
             "Long activity gap was not distinguished from predicted beats.");
         var silence=input.Select(f=>f with {Sub=0,Bass=0,LowMid=0,Mid=0,High=0}).ToArray();
         var silentResult=RhythmJointDecoder.Analyze(silence,total,default);
-        Require(silentResult.Joint.Beats.Length==0&&silentResult.MetricPaths.Length==0,
+        Require(silentResult.Joint.Beats.Length==0&&silentResult.MetricPaths.Length==0&&
+            silentResult.RefinedMetricPaths.Length==0&&silentResult.RoleSelection.Events.Length==0,
             "Silence generated a joint or metrical grid.");
         var stereo=new float[8192*2];
         for(int i=0;i<8192;i++)

@@ -27,6 +27,8 @@ internal static class TrackDiagnosticCsv
             $"Audit feature version: {RhythmAuditFlux.Version}; joint decoder version: {RhythmJointDecoder.Version}; hop frames: {RhythmAuditFlux.HopFrames}; truncated: {trace.AuditTruncated}",
             FormattableString.Invariant($"Audit features ms: {trace.AuditFeatureMs:R}; audit path ms: {trace.AuditDecodeMs:R}"),
             $"Metric phase lanes: {trace.AuditResult.MetricPaths.Length}; budget reached: {trace.AuditResult.MetricBudgetReached}",
+            $"Role classifier: {RhythmEventClassifier.Version}; selector: {RhythmMetricSelector.Version}; block frames: {RhythmMetricSelector.BlockFrames}",
+            $"Refined metric lanes: {trace.AuditResult.RefinedMetricPaths.Length}; budget reached: {trace.AuditResult.RefinedMetricBudgetReached}",
             TrackAnalysisReport.Create(report.FileName, waveform, snapshot.Info, report.Title, report.Artist)
         ], token).ConfigureAwait(false);
 
@@ -51,19 +53,38 @@ internal static class TrackDiagnosticCsv
             await Write(zip,prefix+name+"-beats.csv",Rows("frame,index,observed,low_evidence,high_evidence,activity_region",
                 path.Beats.Select(b=>FormattableString.Invariant($"{b.Frame},{b.Index},{(b.Observed?1:0)},{b.LowEvidence:R},{b.HighEvidence:R},{b.ActivityRegion}"))),token).ConfigureAwait(false);
         }
-        var metricPaths=trace.AuditResult.MetricPaths;
-        await Write(zip,prefix+"metric-paths.csv",Rows(
-            "id,numerator,denominator,lane,lane_count,mean_tempo_evidence,mean_phase_evidence,beat_count",
-            metricPaths.Select((p,i)=>FormattableString.Invariant(
-                $"{i},{p.Numerator},{p.Denominator},{p.Lane},{p.LaneCount},{p.MeanTempoEvidence:R},{p.MeanPhaseEvidence:R},{p.Path.Beats.Length}"))),token).ConfigureAwait(false);
-        await Write(zip,prefix+"metric-states.csv",Rows(
-            "id,frame,bpm,phase_cycles,tempo_evidence,phase_evidence,inactive,inactive_boundary_frame",
-            metricPaths.SelectMany((p,i)=>p.Path.States.Select(s=>FormattableString.Invariant(
-                $"{i},{s.Frame},{s.Bpm:R},{s.PhaseCycles:R},{s.TempoEvidence:R},{s.PhaseEvidence:R},{(s.Inactive?1:0)},{s.InactiveBoundaryFrame}")))),token).ConfigureAwait(false);
-        await Write(zip,prefix+"metric-beats.csv",Rows(
-            "id,frame,index,observed,low_evidence,high_evidence,activity_region",
-            metricPaths.SelectMany((p,i)=>p.Path.Beats.Select(b=>FormattableString.Invariant(
-                $"{i},{b.Frame},{b.Index},{(b.Observed?1:0)},{b.LowEvidence:R},{b.HighEvidence:R},{b.ActivityRegion}")))),token).ConfigureAwait(false);
+        foreach(var (filePrefix,metricPaths) in new[] { ("metric",trace.AuditResult.MetricPaths),
+            ("refined-metric",trace.AuditResult.RefinedMetricPaths) })
+        {
+            await Write(zip,prefix+filePrefix+"-paths.csv",Rows(
+                "id,numerator,denominator,lane,lane_count,mean_tempo_evidence,mean_phase_evidence,beat_count",
+                metricPaths.Select((p,i)=>FormattableString.Invariant(
+                    $"{i},{p.Numerator},{p.Denominator},{p.Lane},{p.LaneCount},{p.MeanTempoEvidence:R},{p.MeanPhaseEvidence:R},{p.Path.Beats.Length}"))),token).ConfigureAwait(false);
+            await Write(zip,prefix+filePrefix+"-states.csv",Rows(
+                "id,frame,bpm,phase_cycles,tempo_evidence,phase_evidence,inactive,inactive_boundary_frame",
+                metricPaths.SelectMany((p,i)=>p.Path.States.Select(s=>FormattableString.Invariant(
+                    $"{i},{s.Frame},{s.Bpm:R},{s.PhaseCycles:R},{s.TempoEvidence:R},{s.PhaseEvidence:R},{(s.Inactive?1:0)},{s.InactiveBoundaryFrame}")))),token).ConfigureAwait(false);
+            await Write(zip,prefix+filePrefix+"-beats.csv",Rows(
+                "id,frame,index,observed,low_evidence,high_evidence,activity_region",
+                metricPaths.SelectMany((p,i)=>p.Path.Beats.Select(b=>FormattableString.Invariant(
+                    $"{i},{b.Frame},{b.Index},{(b.Observed?1:0)},{b.LowEvidence:R},{b.HighEvidence:R},{b.ActivityRegion}")))),token).ConfigureAwait(false);
+        }
+        var role=trace.AuditResult.RoleSelection;
+        await Write(zip,prefix+"rhythm-events.csv",Rows(
+            "frame,strength,sharpness,tail_ratio,low,middle,high,kick_proxy,snare_proxy,hat_proxy,bass_tail_proxy",
+            role.Events.Select(e=>FormattableString.Invariant(
+                $"{e.Frame},{e.Strength:R},{e.Sharpness:R},{e.TailRatio:R},{e.Low:R},{e.Middle:R},{e.High:R},{e.Kick:R},{e.Snare:R},{e.Hat:R},{e.BassTail:R}"))),token).ConfigureAwait(false);
+        await Write(zip,prefix+"role-candidates.csv",Rows(
+            "start_frame,end_frame_exclusive,path_id,score,attack_recall,beat_support,hat_alignment,alternation,contrast,period_frames,beat_count,event_count,local_support,eligible",
+            role.Candidates.Select(q=>FormattableString.Invariant(
+                $"{q.StartFrame},{q.EndFrame},{q.PathId},{q.Evidence.Score:R},{q.Evidence.AttackRecall:R},{q.Evidence.BeatSupport:R},{q.Evidence.HatAlignment:R},{q.Evidence.Alternation:R},{q.Evidence.Contrast:R},{q.Evidence.PeriodFrames:R},{q.Evidence.BeatCount},{q.Evidence.EventCount},{(q.LocallySupported?1:0)},{(q.Eligible?1:0)}"))),token).ConfigureAwait(false);
+        await Write(zip,prefix+"role-decisions.csv",Rows(
+            "start_frame,end_frame_exclusive,selected_path_id,local_best_path_id,baseline_score,best_score,runner_up_gap,ambiguous,reason",
+            role.Decisions.Select(d=>FormattableString.Invariant(
+                $"{d.StartFrame},{d.EndFrame},{d.SelectedPathId},{d.LocalBestPathId},{d.BaselineScore:R},{d.BestScore:R},{d.RunnerUpGap:R},{(d.Ambiguous?1:0)},{d.Reason}"))),token).ConfigureAwait(false);
+        await Write(zip,prefix+"role-selected-beats.csv",Rows("frame,source_index,path_id,observed,activity_region",
+            role.Beats.Select(b=>FormattableString.Invariant(
+                $"{b.Beat.Frame},{b.Beat.Index},{b.PathId},{(b.Beat.Observed?1:0)},{b.Beat.ActivityRegion}"))),token).ConfigureAwait(false);
         await Write(zip, prefix + "onsets.csv",
             Rows("frame,strength,accent", trace.Onsets.Select(o =>
                 FormattableString.Invariant($"{o.Frame},{o.Strength:R},{o.Accent:R}"))), token).ConfigureAwait(false);
