@@ -118,6 +118,7 @@ public sealed partial class MainPage
         _appearanceDraft = _settings with
         {
             Theme = draft.Theme,
+            NotificationPosition = draft.NotificationPosition,
             DarkBackground = draft.DarkBackground,
             HideStatusBar = draft.HideStatusBar,
             Palette = draft.Palette,
@@ -146,6 +147,9 @@ public sealed partial class MainPage
                 };
 #endif
             _view.ApplyAppearance(settings);
+#if WINDOWS
+            _view.SetNotificationPosition(settings.NotificationPosition);
+#endif
             BackgroundColor = _view.BackgroundColor;
 #if ANDROID
             if (Window?.Handler?.PlatformView is MainActivity activity)

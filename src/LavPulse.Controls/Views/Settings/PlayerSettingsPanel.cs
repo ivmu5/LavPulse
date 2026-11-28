@@ -4,8 +4,13 @@ namespace Laveyana.LavPulse.Controls;
 public sealed partial class PlayerSettingsPanel : ContentView
 {
     private readonly Action<PlayerSettings>? _previewAppearance;
-    private readonly ContentView[] _sectionHosts = new ContentView[8];
-    private readonly Button[] _sectionButtons = new Button[8];
+#if WINDOWS
+    private const int SectionCount = 9;
+#else
+    private const int SectionCount = 8;
+#endif
+    private readonly ContentView[] _sectionHosts = new ContentView[SectionCount];
+    private readonly Button[] _sectionButtons = new Button[SectionCount];
     private readonly IReadOnlyList<LibraryStorageOption> _storageOptions;
     private readonly Func<Task<string?>>? _pickStorageFolder;
     private readonly Func<Task<string>>? _copyReport;
@@ -65,7 +70,11 @@ public sealed partial class PlayerSettingsPanel : ContentView
         _detailScroll.Content = _wideSectionHost;
         var detail = _detailScroll;
         string[] names = ["Воспроизведение", "Деки и волны", "Темы и цвета", "Интерфейс и FPS", "Мастер-спектр",
-            "Анализ треков", "Хранилище", "Отчёты"];
+            "Анализ треков", "Хранилище", "Отчёты"
+#if WINDOWS
+            , "Уведомления"
+#endif
+            ];
         for (int index = 0; index < names.Length; index++)
         {
             int section = index;
@@ -229,6 +238,9 @@ public sealed partial class PlayerSettingsPanel : ContentView
             4 => CreateSpectrumSection(),
             5 => CreateAnalysisSection(),
             6 => CreateStorageSection(),
+#if WINDOWS
+            8 => CreateNotificationSection(),
+#endif
             _ => CreateReportSection()
         };
         for (int section = 0; section < _sectionButtons.Length; section++)

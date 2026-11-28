@@ -43,6 +43,8 @@ public enum PlayerTheme { System, Dark, Light }
 
 public enum DarkBackground { Classic, Amoled }
 
+public enum NotificationCorner { TopLeft, TopRight, BottomLeft, BottomRight }
+
 /// <summary>Contains the user-facing preferences for playback and the player visuals.</summary>
 public sealed record PlayerSettings
 {
@@ -93,6 +95,7 @@ public sealed record PlayerSettings
     public PlayerPalette Palette { get; init; }
     public PlayerColors CustomColors { get; init; } = PlayerColors.For(PlayerPalette.LavPulse);
     public PlayerTheme Theme { get; init; } = PlayerTheme.Dark;
+    public NotificationCorner NotificationPosition { get; init; } = NotificationCorner.TopLeft;
     public DarkBackground DarkBackground { get; init; }
     public SpectrumColorMode SpectrumColors { get; init; } = SpectrumColorMode.FrequencyGradient;
     public SpectrumFrameRate SpectrumFrameRate { get; init; }
