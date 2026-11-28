@@ -72,6 +72,9 @@ public sealed partial class PlayerView : Grid
         _queue.LibraryRequested += () => LibraryRequested?.Invoke();
         this.Add(_panelHost);
         this.Add(_actionOverlayHost);
+#if WINDOWS
+        InitializeNotifications();
+#endif
         Unloaded += (_, _) => TryDismissActionOverlay();
 
         _queue.ShowCurrent(null);

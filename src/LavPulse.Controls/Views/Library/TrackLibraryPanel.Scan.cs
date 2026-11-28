@@ -217,6 +217,13 @@ public sealed partial class TrackLibraryPanel
     private async Task ScanAsync(bool replaceAnalysis)
     {
         if (!_local || _selected is not { } selected) return;
+#if WINDOWS
+        if (BackgroundScanRequested is { } start)
+        {
+            start(SelectionFor(selected), replaceAnalysis);
+            return;
+        }
+#endif
         using var batch = new TrackScanBatch(_analysisParallelism, _token);
         _scanBatch = batch;
         UpdateActions();

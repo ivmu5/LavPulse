@@ -7,6 +7,8 @@ using Laveyana.Audio.Playback;
 namespace Laveyana.LavPulse.Tracks;
 
 /// <summary>Exports annotated diagnostics and original audio bytes into a user-requested ZIP.</summary>
+internal readonly record struct ReportExportProgress(int Completed, int Total, string? Track, string Stage, int DiagnosticErrors);
+
 internal static class TrackReportArchive
 {
     internal static string RenderText(IReadOnlyList<TrackIssueReport> reports)
@@ -67,9 +69,11 @@ internal static class TrackReportArchive
     internal static async Task CreateAsync(IReadOnlyList<TrackIssueReport> reports, string destination,
         Func<string, string> audioPath, CancellationToken token,
         Func<string, CancellationToken, Task<TrackDiagnosticSnapshot>>? analyze = null,
-        string? appVersion = null, string? platform = null)
+        string? appVersion = null, string? platform = null, IProgress<ReportExportProgress>? progress = null)
     {
         if (reports.Count == 0) throw new InvalidOperationException("Отчёт пуст. Нет сохранённых треков.");
+        int diagnosticErrors = 0;
+        progress?.Report(new(0, reports.Count, null, "preparing", diagnosticErrors));
         // Fail before writing the ZIP if a track disappeared or the selected SD card was removed.
         var audioFiles = reports.Select(report =>
         {
@@ -100,6 +104,7 @@ internal static class TrackReportArchive
                 {
                     token.ThrowIfCancellationRequested();
                     var report = reports[i];
+                    progress?.Report(new(i, reports.Count, report.Title, "analyzing", diagnosticErrors));
                     string baseName = $"tracks/{i + 1:D2}-{report.Id[..12]}/";
                     await WriteText(zip, baseName + "analysis.txt", report.Analysis, token);
                     await WriteText(zip, baseName + "comments.txt",
@@ -126,6 +131,7 @@ internal static class TrackReportArchive
                         catch (Exception ex) when (ex is IOException or InvalidDataException or
                             UnauthorizedAccessException or NotSupportedException or InvalidOperationException)
                         {
+                            diagnosticErrors++;
                             // Error messages can contain private absolute file paths.
                             // Keep original audio and annotations even when a fresh analysis fails.
                             await WriteText(zip, baseName + "diagnostics/error.txt",
@@ -135,6 +141,7 @@ internal static class TrackReportArchive
                             await TrackDiagnosticCsv.WriteAsync(zip, baseName + "diagnostics/", report,
                                 snapshot, token).ConfigureAwait(false);
                     }
+                    progress?.Report(new(i, reports.Count, report.Title, "packing", diagnosticErrors));
                     string originalName = SafeName(report.FileName, audioFiles[i]);
                     var entry = zip.CreateEntry(baseName + originalName, CompressionLevel.NoCompression);
                     await using var input = new FileStream(audioFiles[i], FileMode.Open, FileAccess.Read, FileShare.Read,
@@ -142,6 +149,7 @@ internal static class TrackReportArchive
                     await using var output = entry.Open();
                     await input.CopyToAsync(output, token).ConfigureAwait(false);
                 }
+                progress?.Report(new(reports.Count, reports.Count, null, "finalizing", diagnosticErrors));
                 await WriteText(zip, "full-report.txt", RenderText(reports), token);
             }
             token.ThrowIfCancellationRequested();

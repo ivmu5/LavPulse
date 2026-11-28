@@ -56,7 +56,7 @@ public sealed partial class MainPage
             // drained on normal shutdown, even after the playback lifetime is cancelled.
             int count = await Task.Run(() => _reports.AppendBeatTapAsync(id, track.Name, track.Title, track.Artist,
                 analysis, tap, CancellationToken.None));
-            if (!_closed && count == 1) _view.Status.Text = $"«{track.Title}» добавлен в отчёт.";
+            if (!_closed && count == 1) NotifyStatus("Диагностика", $"«{track.Title}» добавлен в отчёт.");
         }
         catch (Exception ex)
         {
@@ -66,7 +66,7 @@ public sealed partial class MainPage
             {
                 _view.CurrentDeck.DiscardFailedBassTap(track, frame);
                 _view.IncomingDeck.DiscardFailedBassTap(track, frame);
-                _view.Status.Text = "Не удалось сохранить удар: " + ex.Message;
+                NotifyStatus("Ошибка отчёта", "Не удалось сохранить удар: " + ex.Message);
             }
         }
     }
@@ -111,15 +111,15 @@ public sealed partial class MainPage
                 new TrackIssueMark(startFrame, endFrame, selection.Comment, DateTimeOffset.UtcNow, kind,
                     selection.TimingToleranceMilliseconds, selection.PossibleMissingBeats,
                     selection.SuggestedBpm), _lifetime.Token);
-            _view.Status.Text = selection.Mode == TrackMarkMode.StrongRhythm
+            NotifyStatus("Диагностика", selection.Mode == TrackMarkMode.StrongRhythm
                 ? $"Отмечен сильный ритм «{track.Title}»"
-                : $"Комментарий добавлен в отчёт «{track.Title}»";
+                : $"Комментарий добавлен в отчёт «{track.Title}»");
             return true;
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return false; }
         catch (Exception ex)
         {
-            _view.Status.Text = "Не удалось сохранить отметку: " + ex.Message;
+            NotifyStatus("Ошибка отчёта", "Не удалось сохранить отметку: " + ex.Message);
             return false;
         }
     }
@@ -139,7 +139,9 @@ public sealed partial class MainPage
         if (reports.Length == 0) throw new InvalidOperationException("Отчёт пуст. Нет сохранённых отметок или комментариев.");
         string report = await Task.Run(() => TrackReportArchive.RenderText(reports), _lifetime.Token);
         await Clipboard.Default.SetTextAsync(report);
-        return $"Скопировано {report.Length:N0} символов из {reports.Length} треков.";
+        string message = $"Скопировано {report.Length:N0} символов из {reports.Length} треков.";
+        NotifyStatus("Отчёт скопирован", message);
+        return message;
     }
 
     private async Task<string?> ExportReportZipAsync()
@@ -148,6 +150,9 @@ public sealed partial class MainPage
         var reports = await _reports.ReadAllAsync(_lifetime.Token);
         if (reports.Length == 0) throw new InvalidOperationException("Отчёт пуст. Нет сохранённых отметок или комментариев.");
         string suggested = "LavPulse_Report_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".zip";
+#if WINDOWS
+        return await ExportWindowsReportAsync(reports, suggested);
+#else
         string temporary = Path.Combine(FileSystem.CacheDirectory, Guid.NewGuid().ToString("N") + ".zip");
         try
         {
@@ -155,23 +160,7 @@ public sealed partial class MainPage
             await Task.Run(() => TrackReportArchive.CreateAsync(reports, temporary,
                 _trackStore.ReportAudioPath, _lifetime.Token, _library.AnalyzeDiagnosticAsync,
                 DiagnosticAppVersion, platform), _lifetime.Token);
-#if WINDOWS
-            if (Window?.Handler?.PlatformView is not Microsoft.UI.Xaml.Window native)
-                throw new InvalidOperationException("Системное окно сохранения недоступно.");
-            var picker = new Windows.Storage.Pickers.FileSavePicker
-            {
-                SuggestedFileName = Path.GetFileNameWithoutExtension(suggested)
-            };
-            picker.FileTypeChoices.Add("ZIP", new List<string> { ".zip" });
-            WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(native));
-            var picked = await picker.PickSaveFileAsync();
-            if (picked is null) return null;
-            await using var input = File.OpenRead(temporary);
-            await using var output = new FileStream(picked.Path, FileMode.Create, FileAccess.Write,
-                FileShare.None, 128 * 1024, FileOptions.Asynchronous);
-            await input.CopyToAsync(output, _lifetime.Token);
-            return "ZIP сохранён: " + picked.Name;
-#elif ANDROID
+#if ANDROID
             if (Window?.Handler?.PlatformView is not MainActivity activity)
                 throw new InvalidOperationException("Выбор файла недоступен.");
             var uri = await activity.PickReportDocumentAsync(suggested, _lifetime.Token);
@@ -196,6 +185,16 @@ public sealed partial class MainPage
             try { File.Delete(temporary); } catch (IOException) { } catch (UnauthorizedAccessException) { }
 #endif
         }
+#endif
+    }
+
+    private void NotifyStatus(string title, string message)
+    {
+        if (_closed) return;
+        _view.Status.Text = message;
+#if WINDOWS
+        _view.ShowNotification(title, message);
+#endif
     }
 
     private async Task<string> ClearReportsAsync()
@@ -208,6 +207,8 @@ public sealed partial class MainPage
         await _reports.ClearAsync(_lifetime.Token);
         _view.CurrentDeck.ClearBassTaps();
         _view.IncomingDeck.ClearBassTaps();
-        return "Сохранённые замечания и ручные басовые удары удалены.";
+        const string message = "Сохранённые замечания и ручные басовые удары удалены.";
+        NotifyStatus("Отчёты очищены", message);
+        return message;
     }
 }

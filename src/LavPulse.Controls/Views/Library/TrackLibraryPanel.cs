@@ -10,6 +10,18 @@ public sealed record TrackLibrarySelection(IReadOnlyList<TrackFolderSource> Fold
 public sealed partial class TrackLibraryPanel : ContentView
 {
     private bool _editing;
+#if WINDOWS
+    public Action<TrackLibrarySelection, bool>? BackgroundScanRequested { get; set; }
+
+    public void RefreshCompletedAnalysis(string path)
+    {
+        if (_closed || !_local) return;
+        _metadataCache.Invalidate(new HashSet<string>(StringComparer.Ordinal) { path });
+        foreach (var row in _rows)
+            if (row.File?.LocalPath == path) row.RefreshMetadata();
+        RefreshTrackStorageSize(path);
+    }
+#endif
     private readonly HashSet<TreeRow> _checkedRows = [];
     private readonly ListEditToolbar _editToolbar;
     public Func<IReadOnlyList<TrackLibrarySelection>, ListEditAction, Task>? SelectionActionRequested { get; set; }

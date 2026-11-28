@@ -4,12 +4,12 @@ using Laveyana.Audio.Playback;
 
 namespace Laveyana.LavPulse.Controls;
 
-internal enum TrackScanOutcome { Scanned, Skipped, Failed, Stopped }
+public enum TrackScanOutcome { Scanned, Skipped, Failed, Stopped }
 
-internal readonly record struct TrackScanResult(TrackFile File, TrackScanOutcome Outcome,
+public readonly record struct TrackScanResult(TrackFile File, TrackScanOutcome Outcome,
     long? BeforeBytes, long? AfterBytes, TimeSpan Elapsed);
 
-internal sealed class TrackScanBatch : IDisposable
+public sealed class TrackScanBatch : IDisposable
 {
     private readonly int _parallelism;
     private readonly CancellationTokenSource _stop;

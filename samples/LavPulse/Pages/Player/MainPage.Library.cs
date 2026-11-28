@@ -17,6 +17,9 @@ public sealed partial class MainPage
             RemoveLibrarySelectionAsync, ClosePanel, _lifetime.Token,
             _trackStore.ReadTrackStorageSizeAsync, _settings.ScanReturnSeconds));
         if (library is null) return false;
+#if WINDOWS
+        library.BackgroundScanRequested = StartLibraryNotificationScan;
+#endif
         library.ConfigureListActions(_settings,ShowLibraryActionsAsync,ExecuteLibrarySwipeAsync);
         library.SelectionActionRequested = ExecuteLibrarySelectionActionAsync;
         library.ImportFolderOpened += RecordOpeningScreen;
