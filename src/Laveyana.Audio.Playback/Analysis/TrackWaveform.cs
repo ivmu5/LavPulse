@@ -197,7 +197,7 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
             trace.AuditTruncated = auditFlux.Truncated;
             trace.AuditFeatureMs = auditTicks * 1000d / System.Diagnostics.Stopwatch.Frequency;
             long started = System.Diagnostics.Stopwatch.GetTimestamp();
-            trace.AuditResult = RhythmJointDecoder.Analyze(auditFlux.Frames, totalFrames, token);
+            trace.AuditResult = RhythmJointDecoder.Analyze(auditFlux.Frames, totalFrames, token, rhythmEnergy, rhythmHopFrames);
             trace.AuditDecodeMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         }
         double rhythmMs = watch.Elapsed.TotalMilliseconds - readMs;

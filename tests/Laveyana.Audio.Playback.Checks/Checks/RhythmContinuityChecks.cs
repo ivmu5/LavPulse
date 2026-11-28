@@ -192,6 +192,29 @@ internal static partial class Program
                 s.PhaseCycles>=0&&s.PhaseCycles<1),"Invalid joint state.");
         }
         CheckRoleSelector(result);
+        // The envelope is a distinct observation: its attack is deliberately
+        // displaced from the low spectral flux in this fixture.
+        var envelope=Enumerable.Range(0,input.Length).Select(i=>
+        {
+            float level=(float)Math.Exp(-(i%50)/6d);
+            return new RhythmEnergy(level,level*.5f,level*.2f);
+        }).ToArray();
+        var withEnvelope=RhythmJointDecoder.Analyze(input,total,default,envelope,hop);
+        Require(withEnvelope.Baseline.Beats.SequenceEqual(result.Baseline.Beats)&&
+            withEnvelope.Joint.Beats.SequenceEqual(result.Joint.Beats),
+            "Envelope phase experiment changed existing paths.");
+        Require(withEnvelope.EnvelopePaths.Length==3&&withEnvelope.EnvelopePaths.All(p=>
+            p.Path.Beats.Length>0&&p.Path.Beats.All(b=>b.Frame>=0&&b.Frame<total)&&
+            p.Path.Beats.Zip(p.Path.Beats.Skip(1)).All(q=>q.First.Frame<q.Second.Frame&&q.First.Index<q.Second.Index)&&
+            p.Path.States.Select(s=>s.Bpm).SequenceEqual(result.Baseline.States.Select(s=>s.Bpm))),
+            "Envelope paths lost valid coordinates or changed nominal tempo.");
+        Require(withEnvelope.EnvelopePaths[0].Path.Beats.Any(b=>b.Frame%24000<2400||b.Frame%24000>21600),
+            "Envelope rise path did not find the independent attack phase.");
+        Require(RhythmJointDecoder.Analyze(input,total,default,envelope,hop*2).EnvelopePaths.Length==0,
+            "Envelope experiment accepted a mismatched clock.");
+        var constant=Enumerable.Repeat(new RhythmEnergy(1,1,1),input.Length).ToArray();
+        Require(RhythmJointDecoder.Analyze(input,total,default,constant,hop).EnvelopePaths.Length==0,
+            "Constant envelope generated unsupported phase hypotheses.");
         var paused=Enumerable.Range(0,2400).Select(i=>
         {
             float hit=i>=800&&i<1600?0:i%50==25?1:0;
