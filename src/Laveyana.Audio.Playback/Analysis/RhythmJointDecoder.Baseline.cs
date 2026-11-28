@@ -6,6 +6,7 @@ internal static partial class RhythmJointDecoder
     {
         var scores=new double[input.Centers.Length,TempoCount];
         var ac=new double[451];var v=new double[1601];var taper=new double[1601];
+        var autocorrelation=new RhythmAuditAutocorrelation();
         for(int w=0;w<input.Centers.Length;w++)
         {
             token.ThrowIfCancellationRequested();
@@ -19,18 +20,14 @@ internal static partial class RhythmJointDecoder
                 for(int i=0;i<n;i++)mean+=input.Bands[band,start+i]/(double)n;
                 for(int i=0;i<n;i++){v[i]=(input.Bands[band,start+i]-mean)*taper[i];energy+=v[i]*v[i];}
                 if(energy<1e-8)continue;
-                for(int lag=25;lag<ac.Length&&lag<n;lag++)
-                {
-                    double dot=0;
-                    for(int i=0;i<n-lag;i++)dot+=v[i]*v[i+lag];
-                    ac[lag]+=dot/(energy*5);
-                }
+                autocorrelation.Accumulate(v.AsSpan(0,n),ac,1/(energy*5),token);
             }
             double At(double lag)
             {
                 int i=(int)lag;
                 if(i>=ac.Length||i>=n)return 0;
-                return ac[i]+(ac[Math.Min(i+1,ac.Length-1)]-ac[i])*(lag-i);
+                double next=i+1<n&&i+1<ac.Length?ac[i+1]:0;
+                return ac[i]+(next-ac[i])*(lag-i);
             }
             for(int j=0;j<TempoCount;j++)
             {

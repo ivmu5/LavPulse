@@ -81,7 +81,27 @@ internal static partial class Program
         CheckGlobalHypothesisPath();
         CheckHarmonicFamily();
         CheckJointDecoder();
+        CheckAuditAutocorrelation();
         Console.WriteLine("OK: evidence-gated octave correction, isolated window recovery and local phase refinement.");
+    }
+
+    private static void CheckAuditAutocorrelation()
+    {
+        var ac=new RhythmAuditAutocorrelation();
+        var rng=new Random(20261128);
+        foreach(int count in new[]{1,17,128,801,1601})
+        {
+            var samples=Enumerable.Range(0,count).Select(_=>rng.NextDouble()*2-1).ToArray();
+            var actual=new double[451];
+            ac.Accumulate(samples,actual,.37,default);
+            for(int lag=0;lag<actual.Length;lag++)
+            {
+                double expected=0;
+                for(int i=0;i+lag<count;i++)expected+=samples[i]*samples[i+lag]*.37;
+                Require(Math.Abs(expected-actual[lag])<=1e-8*Math.Max(1,Math.Abs(expected)),
+                    "FFT autocorrelation differs from the linear direct reference.");
+            }
+        }
     }
 
     private static void CheckJointDecoder()
