@@ -91,8 +91,20 @@ internal static class RhythmReportReplay
             {
                 var preferred = grid.RhythmHypotheses.Where(h => h.IsPreferred).SelectMany(h => h.CandidateFrames)
                     .Order().Distinct().ToArray();
+                var localPreferred = grid.RhythmHypotheses.Where(h => h.IsLocalPreferred && !h.IsRecoveryCandidate)
+                    .SelectMany(h => h.CandidateFrames).Order().Distinct().ToArray();
                 Console.WriteLine(FormattableString.Invariant(
-                    $"  spectral hypotheses {grid.RhythmHypotheses.Length}, preferred candidate taps 100/180ms {Close(preferred)}/{Close180(preferred)} of {taps.Length} (unconfirmed)"));
+                    $"  spectral hypotheses {grid.RhythmHypotheses.Length}, local candidate taps 100/180ms {Close(localPreferred)}/{Close180(localPreferred)}, global {Close(preferred)}/{Close180(preferred)} of {taps.Length} (unconfirmed)"));
+                Console.WriteLine(FormattableString.Invariant(
+                    $"  selected blocks {grid.RhythmHypotheses.Count(h => h.IsPreferred)}, recovered weak blocks {grid.RhythmHypotheses.Count(h => h.IsPreferred && h.IsRecoveryCandidate)}"));
+                if (taps.Length >= 2)
+                {
+                    long spectralTolerance = PlaybackFormat.SampleRate * 180 / 1000;
+                    var localMetrics = Metrics(localPreferred, taps, spectralTolerance);
+                    var globalMetrics = Metrics(preferred, taps, spectralTolerance);
+                    Console.WriteLine(FormattableString.Invariant(
+                        $"  spectral annotated-span P/R/F1 at 180ms: local {localMetrics.P:F3}/{localMetrics.R:F3}/{localMetrics.F1:F3}, global {globalMetrics.P:F3}/{globalMetrics.R:F3}/{globalMetrics.F1:F3}"));
+                }
             }
             else Console.WriteLine("  No spectral hypotheses; old report or insufficient evidence.");
             int ClosePredicted = Close(grid.PredictedBeatFrames);
