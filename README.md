@@ -289,4 +289,6 @@ Refined metric lanes independently search a narrow local tempo envelope and sub-
 
 On Windows, in-app notifications appear in the upper-left corner above the player and library. Report export asks for a destination before fresh diagnostics, shows real per-track progress and cancellation, then offers Open folder / Open report. Library scan notifications continue across in-app navigation, retain stop and individual skip controls, and show counts and last track duration/storage change. Mobile retains its existing scan panel.
 
+Windows notification cards can collapse independently while keeping their title and live progress. Settings > Notifications offers four persisted corners with a live preview; new cards enter from the selected corner, and detailed content expands toward the interior. Running jobs remain alive while cards are collapsed or moved.
+
 Schema 12 adds three diagnostic-only envelope phase paths (rise, decay-weighted rise and hybrid spectral/envelope), reusing the existing 10 ms amplitude envelope without another FFT. Earlier grids and playback are unchanged.
