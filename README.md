@@ -306,3 +306,5 @@ Schema 16 adds cross-fitted soft acoustic memberships and conditional mixture sc
 Schema 17 adds diagnostic adjacent-event conditional evidence and paired soft-score comparisons on common events. No change to earlier selectors or playback.
 
 Experimental offline supervised rhythm ranking: see [research instructions](docs/RhythmJointDecoder.md). No model weights or Python dependencies are shipped with the player.
+
+The offline ranker now supports explicit development/test separation for cumulative reports, artist-group holdout and optional experimental phase features.
