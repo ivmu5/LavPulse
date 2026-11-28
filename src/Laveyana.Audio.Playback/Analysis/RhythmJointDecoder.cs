@@ -78,9 +78,21 @@ internal static partial class RhythmJointDecoder
         };
     }
 
-    private sealed record Input(float[,] Bands,double[] Low,double[] High,double[] Activity,int[] Centers,double Gate)
+    private sealed record Input(float[,] Bands,double[] Low,double[] High,double[] Activity,int[] Centers,double Gate,
+        long[] Boundaries)
     {
         internal int Length=>Low.Length;
+        // Per-analysis cache. No global mutable scratch or cross-track state.
+        private readonly Dictionary<int,double[]> _tapers=new();
+        internal double[] Taper(int length)
+        {
+            if(!_tapers.TryGetValue(length,out var values))
+            {
+                values=Enumerable.Range(0,length).Select(i=>Hann(i,length)).ToArray();
+                _tapers.Add(length,values);
+            }
+            return values;
+        }
     }
 
     private static Input Prepare(IReadOnlyList<RhythmSpectrumFrame> raw,CancellationToken token)
@@ -122,8 +134,10 @@ internal static partial class RhythmJointDecoder
         var sorted=(double[])activity.Clone();Array.Sort(sorted);
         double q=.9*(n-1);int qi=(int)q;
         double quantile=sorted[qi]+(sorted[Math.Min(qi+1,n-1)]-sorted[qi])*(q-qi);
+        double gate=Math.Max(1e-6,.015*quantile);
+        var boundaries=ActivityBoundaries(activity,gate,token);
         return new(bands,low,high,activity,Enumerable.Range(0,(n-1)/Stride+1).Select(i=>i*Stride).ToArray(),
-            Math.Max(1e-6,.015*quantile));
+            gate,boundaries);
     }
 
     private static double[,] BuildCosts()
@@ -146,6 +160,7 @@ internal static partial class RhythmJointDecoder
         int n=end-start;
         if(n<2)return new double[PhaseCount];
         double ml=0,mh=0;
+        var taper=input.Taper(n);
         for(int i=start;i<end;i++){ml+=input.Low[i]/n;mh+=input.High[i]/n;}
         Span<double> l=stackalloc double[PhaseCount],h=stackalloc double[PhaseCount],counts=stackalloc double[PhaseCount];
         l.Clear();h.Clear();counts.Clear();
@@ -154,7 +169,7 @@ internal static partial class RhythmJointDecoder
             double p=Mod(cycles(i))*PhaseCount;
             if (p>=PhaseCount) p=0; // roundoff at the circular boundary
             int k=(int)p,next=(k+1)%PhaseCount;
-            double w=Hann(i-start,n),v=p-k,a=w*(1-v),b=w*v;
+            double w=taper[i-start],v=p-k,a=w*(1-v),b=w*v;
             counts[k]+=a;counts[next]+=b;
             l[k]+=a*(input.Low[i]-ml);l[next]+=b*(input.Low[i]-ml);
             h[k]+=a*(input.High[i]-mh);h[next]+=b*(input.High[i]-mh);
@@ -174,11 +189,32 @@ internal static partial class RhythmJointDecoder
         return result;
     }
 
+    private static long[] ActivityBoundaries(double[] activity,double gate,CancellationToken token)
+    {
+        var boundaries=new List<long>();
+        // The activity envelope spans +/-0.5 seconds. A further second
+        // without activity is longer than the gaps in a 40 BPM pulse.
+        for(int i=0;i<activity.Length;)
+        {
+            if((i&4095)==0)token.ThrowIfCancellationRequested();
+            if(activity[i]>gate){i++;continue;}
+            int start=i;
+            while(i<activity.Length&&activity[i]<=gate)
+            {
+                if((i&4095)==0)token.ThrowIfCancellationRequested();
+                i++;
+            }
+            if(start>0&&i<activity.Length&&i-start>=Rate)
+                boundaries.Add((long)(start+(i-start)/2)*Hop);
+        }
+        return boundaries.ToArray();
+    }
+
     private static RhythmAuditPath AnnotateActivity(RhythmAuditPath path,Input input,CancellationToken token)
     {
         if(path.States.Length==0)return path;
         var states=(RhythmAuditState[])path.States.Clone();
-        var boundaries=new List<long>();
+        var boundaries=input.Boundaries;
         for(int w=0;w<states.Length;w++)
         {
             token.ThrowIfCancellationRequested();
@@ -186,27 +222,11 @@ internal static partial class RhythmJointDecoder
             states[w]=states[w] with {Inactive=input.Activity[center]<=input.Gate,
                 InactiveBoundaryFrame=-1};
         }
-        // The activity envelope spans +/-0.5 seconds. A further second
-        // without activity is longer than the gaps in a 40 BPM pulse.
-        // Find whole inactive runs, independently of the state stride.
-        for(int i=0;i<input.Length;)
-        {
-            if((i&4095)==0)token.ThrowIfCancellationRequested();
-            if(input.Activity[i]>input.Gate){i++;continue;}
-            int start=i;
-            while(i<input.Length&&input.Activity[i]<=input.Gate)
-            {
-                if((i&4095)==0)token.ThrowIfCancellationRequested();
-                i++;
-            }
-            if(start>0&&i<input.Length&&i-start>=Rate)
-                boundaries.Add((long)(start+(i-start)/2)*Hop);
-        }
         int nextBoundary=0;
         for(int w=0;w<states.Length;w++)
         {
             long boundary=-1;
-            while(nextBoundary<boundaries.Count&&boundaries[nextBoundary]<=states[w].Frame)
+            while(nextBoundary<boundaries.Length&&boundaries[nextBoundary]<=states[w].Frame)
                 boundary=boundaries[nextBoundary++];
             states[w]=states[w] with {InactiveBoundaryFrame=boundary};
         }
@@ -215,7 +235,7 @@ internal static partial class RhythmJointDecoder
         for(int i=0;i<beats.Length;i++)
         {
             if((i&4095)==0)token.ThrowIfCancellationRequested();
-            while(region<boundaries.Count&&boundaries[region]<=beats[i].Frame)region++;
+            while(region<boundaries.Length&&boundaries[region]<=beats[i].Frame)region++;
             beats[i]=beats[i] with {ActivityRegion=region};
         }
         return new(states,beats);

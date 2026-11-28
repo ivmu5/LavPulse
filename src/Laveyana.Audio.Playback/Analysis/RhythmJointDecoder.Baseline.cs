@@ -5,14 +5,14 @@ internal static partial class RhythmJointDecoder
     private static double[,] TempoEvidence(Input input,CancellationToken token)
     {
         var scores=new double[input.Centers.Length,TempoCount];
-        var ac=new double[451];var v=new double[1601];var taper=new double[1601];
+        var ac=new double[451];var v=new double[1601];
         var autocorrelation=new RhythmAuditAutocorrelation();
         for(int w=0;w<input.Centers.Length;w++)
         {
             token.ThrowIfCancellationRequested();
             int start=Math.Max(0,input.Centers[w]-800),end=Math.Min(input.Length,input.Centers[w]+801),n=end-start;
             Array.Clear(ac);
-            for(int i=0;i<n;i++)taper[i]=Hann(i,n);
+            var taper=input.Taper(n);
             for(int band=0;band<5;band++)
             {
                 token.ThrowIfCancellationRequested();

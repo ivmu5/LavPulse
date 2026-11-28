@@ -121,6 +121,19 @@ internal static partial class Program
         var bad=RhythmMetricSelector.Evaluate(shifted,events);
         Require(good.Score>bad.Score+RhythmMetricSelector.MinimumGain&&good.Alternation>.9,
             "Role score missed aligned alternating attacks.");
+        // A clean full-track alternative can win with repeated evidence.
+        // No mid-track phase jump is required in this fixture.
+        var clean=Enumerable.Range(0,48).Select(i=>new RhythmAuditBeat(i*24000L,i,true)).ToArray();
+        var cleanEvents=clean.Select((b,i)=>new RhythmRoleEvent(b.Frame,1,1,0,
+            i%2==0?1:0,i%2==0?0:1,0,i%2==0?1:0,i%2==0?0:1,0,0)).ToArray();
+        long duration=48*24000L;
+        var states=Enumerable.Range(0,12).Select(i=>new RhythmAuditState(i*96000L,120,0,1,1,0)).ToArray();
+        var wrong=new RhythmAuditPath(states,clean.Select(b=>b with {Frame=b.Frame+12000}).ToArray());
+        var correct=new RhythmMetricPath(1,1,1,2,1,1,new(states,clean));
+        var selected=RhythmMetricSelector.Select(cleanEvents,wrong,[correct],duration,default);
+        Require(selected.Decisions.All(d=>d.SelectedPathId==0)&&
+            selected.Beats.Select(b=>b.Beat.Frame).SequenceEqual(clean.Select(b=>b.Frame)),
+            "Repeated clean role evidence could not select an independent full-track phase.");
         var none=RhythmMetricSelector.Select([],result.Baseline,result.MetricPaths,
             result.Baseline.States[^1].Frame+RhythmJointDecoder.Stride*(long)RhythmJointDecoder.Hop,default);
         Require(none.Decisions.All(d=>d.SelectedPathId==-1&&d.Ambiguous)&&
