@@ -141,6 +141,38 @@ internal static partial class Program
             "Selector changed baseline without evidence.");
     }
 
+    private static void CheckSharedRhythmFft()
+    {
+        foreach(int size in new[]{512,2048,4096})
+        {
+            var plan=new RhythmFftPlan(size);
+            var original=Enumerable.Range(0,size).Select(i=>new System.Numerics.Complex(
+                Math.Sin(i*.031),Math.Cos(i*.071))).ToArray();
+            var old=new System.Numerics.Complex[size];
+            var actual=new System.Numerics.Complex[size];
+            for(int i=0;i<size;i++)
+            {
+                int x=i,r=0;
+                for(int bit=1;bit<size;bit<<=1){r=(r<<1)|(x&1);x>>=1;}
+                old[r]=original[i];actual[plan.Reverse(i)]=original[i];
+            }
+            var twiddle=Enumerable.Range(0,size/2)
+                .Select(i=>System.Numerics.Complex.FromPolarCoordinates(1,-Math.Tau*i/size)).ToArray();
+            for(int length=2;length<=size;length<<=1)
+            {
+                int half=length/2,step=size/length;
+                for(int start=0;start<size;start+=length)
+                    for(int j=0;j<half;j++)
+                    {
+                        var even=old[start+j];var odd=old[start+j+half]*twiddle[j*step];
+                        old[start+j]=even+odd;old[start+j+half]=even-odd;
+                    }
+            }
+            plan.Transform(actual);
+            Require(actual.SequenceEqual(old),"Shared FFT changed reference arithmetic.");
+        }
+    }
+
     private static void CheckCrossfitTemplates()
     {
         var beats=Enumerable.Range(0,96).Select(i=>i*24000L).ToArray();
@@ -215,6 +247,7 @@ internal static partial class Program
         }
         CheckRoleSelector(result);
         CheckCrossfitTemplates();
+        CheckSharedRhythmFft();
         // The envelope is a distinct observation: its attack is deliberately
         // displaced from the low spectral flux in this fixture.
         var envelope=Enumerable.Range(0,input.Length).Select(i=>
