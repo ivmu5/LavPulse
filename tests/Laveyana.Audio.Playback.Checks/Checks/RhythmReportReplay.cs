@@ -129,17 +129,32 @@ internal static class RhythmReportReplay
                 }
             }
             else Console.WriteLine("  No spectral hypotheses; old report or insufficient evidence.");
+            var comparisons = new List<(string Name,long[] Frames)>
+            {
+                ("exported-confirmed",oldBeats),("replayed-confirmed",grid.BeatFrames),
+                ("local",grid.RhythmHypotheses.Where(h=>h.IsLocalPreferred&&!h.IsRecoveryCandidate)
+                    .SelectMany(h=>h.CandidateFrames).Order().Distinct().ToArray()),
+                ("global",grid.RhythmHypotheses.Where(h=>h.IsPreferred)
+                    .SelectMany(h=>h.CandidateFrames).Order().Distinct().ToArray()),
+                ("family",grid.RhythmHypotheses.Where(h=>h.IsFamilyPreferred)
+                    .SelectMany(h=>h.CandidateFrames).Order().Distinct().ToArray())
+            };
             foreach (var (name,auditPath) in new[] { ("audit-baseline",audit.Baseline),("joint",audit.Joint),("joint-alternative",audit.Alternative) })
             {
-                if (auditPath.States.Length==0 || taps.Length==0) continue;
-                long[] frames=auditPath.Beats.Select(b=>b.Frame).ToArray();
-                foreach (int ms in new[]{50,70,100,180})
-                {
-                    var metric=SeriesMetrics(frames,taps,PlaybackFormat.SampleRate*ms/1000);
-                    Console.WriteLine(FormattableString.Invariant(
-                        $"  {name} {ms}ms: P/R/F1 {metric.P:F3}/{metric.R:F3}/{metric.F1:F3}, beats {frames.Length}, observed {auditPath.Beats.Count(b=>b.Observed)}"));
-                }
+                if (auditPath.States.Length==0) continue;
+                comparisons.Add((name,auditPath.Beats.Select(b=>b.Frame).ToArray()));
+                Console.WriteLine($"  {name} observed low-band attacks {auditPath.Beats.Count(b=>b.Observed)}/{auditPath.Beats.Length}");
             }
+            if (taps.Length>0)
+                foreach (var (name,frames) in comparisons)
+                    foreach (int ms in new[]{50,70,100,180})
+                    {
+                        long allowed=PlaybackFormat.SampleRate*ms/1000;
+                        var metric=SeriesMetrics(frames,taps,allowed);
+                        double nullF1=PhaseNull(frames,taps,allowed);
+                        Console.WriteLine(FormattableString.Invariant(
+                            $"  {name} {ms}ms series: P/R/F1 {metric.P:F3}/{metric.R:F3}/{metric.F1:F3}; phase-null {nullF1:F3}, beats {frames.Length}"));
+                    }
             int ClosePredicted = Close(grid.PredictedBeatFrames);
             long covered = grid.Sections.Sum(s => s.EndFrame - s.StartFrame);
             Console.WriteLine(FormattableString.Invariant(
@@ -164,6 +179,31 @@ internal static class RhythmReportReplay
                 Console.WriteLine($"  Mark: {mark.GetProperty("Comment").GetString()} | beats {oldBeats.Count(f => f >= start && f < end)}->{grid.BeatFrames.Count(f => f >= start && f < end)}");
             }
         }
+    }
+
+    // Shift every beat by the same offset over one typical period, retaining
+    // density, interval pattern and the original annotated runs.
+    internal static double PhaseNull(long[] beats,long[] taps,long tolerance)
+    {
+        if(beats.Length<2||taps.Length==0)return 0;
+        var intervals=new List<long>();
+        for(int i=1;i<beats.Length;i++)
+        {
+            long gap=beats[i]-beats[i-1];
+            if(gap>=PlaybackFormat.SampleRate/4&&gap<=PlaybackFormat.SampleRate*3/2)
+                intervals.Add(gap);
+        }
+        if(intervals.Count==0)return 0;
+        intervals.Sort();
+        double period=intervals[intervals.Count/2],sum=0;
+        var shifted=new long[beats.Length];
+        for(int i=0;i<32;i++)
+        {
+            long offset=(long)Math.Round((i/32d-.5)*period);
+            for(int j=0;j<beats.Length;j++)shifted[j]=beats[j]+offset;
+            sum+=SeriesMetrics(shifted,taps,tolerance).F1;
+        }
+        return sum/32;
     }
 
     internal static (double P,double R,double F1) SeriesMetrics(long[] beats,long[] taps,long tolerance)
