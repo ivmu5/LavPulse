@@ -304,3 +304,5 @@ Schema 15 adds a regularized conditional four-pulse recurrence score and separat
 Schema 16 adds cross-fitted soft acoustic memberships and conditional mixture scoring with diagnostic ranked/guarded paths, fold temperature and entropy. Existing grids and playback remain unchanged.
 
 Schema 17 adds diagnostic adjacent-event conditional evidence and paired soft-score comparisons on common events. No change to earlier selectors or playback.
+
+Experimental offline supervised rhythm ranking: see [research instructions](docs/RhythmJointDecoder.md). No model weights or Python dependencies are shipped with the player.
