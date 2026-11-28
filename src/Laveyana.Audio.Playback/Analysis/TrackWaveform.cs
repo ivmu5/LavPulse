@@ -69,6 +69,8 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         Vector4 rhythmSum = Vector4.Zero;
         var rhythmEnergy = new List<RhythmEnergy>();
         var spectralFlux = new RhythmSpectralFlux();
+        var auditFlux = trace is null ? null : new RhythmAuditFlux();
+        long auditTicks = 0;
         long totalFrames = 0;
         var key = pipeline is null ? new MusicalKeyAnalyzer(source.SampleRate) : null;
         var loudness = pipeline is null && source.SampleRate == PlaybackFormat.SampleRate
@@ -93,6 +95,12 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
             var block = pcm.AsSpan(0, frames * channels);
             PcmNormalization.Copy(block,block);
             spectralFlux.Add(block, token);
+            if (auditFlux is not null)
+            {
+                long started = System.Diagnostics.Stopwatch.GetTimestamp();
+                auditFlux.Add(block, token);
+                auditTicks += System.Diagnostics.Stopwatch.GetTimestamp() - started;
+            }
             loudness?.Add(block);
             if (pipeline is null) key!.Add(block, token);
             else pipeline.Submit(block);
@@ -152,11 +160,26 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         }
 
         pipeline?.CompleteInput();
+        if (auditFlux is not null)
+        {
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
+            auditFlux.Finish(token);
+            auditTicks += System.Diagnostics.Stopwatch.GetTimestamp() - started;
+        }
         double readMs = watch.Elapsed.TotalMilliseconds;
         var waveform = new TrackWaveform(points.AsReadOnly(), totalFrames, framesPerPoint);
         var rhythm = TrackRhythmAnalyzer.AnalyzeEnergy(rhythmEnergy, rhythmHopFrames, totalFrames, token, trace);
         if (trace is not null) trace.SpectralFlux = spectralFlux.Frames;
         rhythm = rhythm with { RhythmHypotheses = RhythmHypothesisAnalyzer.Analyze(spectralFlux.Frames, rhythm, totalFrames, token) };
+        if (trace is not null && auditFlux is not null)
+        {
+            trace.AuditFlux = auditFlux.Frames;
+            trace.AuditTruncated = auditFlux.Truncated;
+            trace.AuditFeatureMs = auditTicks * 1000d / System.Diagnostics.Stopwatch.Frequency;
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
+            trace.AuditResult = RhythmJointDecoder.Analyze(auditFlux.Frames, totalFrames, token);
+            trace.AuditDecodeMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        }
         double rhythmMs = watch.Elapsed.TotalMilliseconds - readMs;
         var musicalKey = pipeline is null ? key!.Finish() : pipeline.Join();
         var localKeys = pipeline is null ? key!.FinishLocal() : pipeline.LocalKeys;

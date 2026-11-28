@@ -21,6 +21,8 @@ internal static class TrackDiagnosticCsv
             "Decoder: " + trace.Decoder,
             FormattableString.Invariant($"Sample rate: {PlaybackFormat.SampleRate}; total PCM frames: {waveform.TotalFrames}; envelope hop frames: {trace.HopFrames}"),
             "Track SHA-256 library ID: " + report.Id,
+            $"Audit feature version: {RhythmAuditFlux.Version}; joint decoder version: {RhythmJointDecoder.Version}; hop frames: {RhythmAuditFlux.HopFrames}; truncated: {trace.AuditTruncated}",
+            FormattableString.Invariant($"Audit features ms: {trace.AuditFeatureMs:R}; audit path ms: {trace.AuditDecodeMs:R}"),
             TrackAnalysisReport.Create(report.FileName, waveform, snapshot.Info, report.Title, report.Artist)
         ], token).ConfigureAwait(false);
 
@@ -31,6 +33,18 @@ internal static class TrackDiagnosticCsv
             Rows("frame,sub_20_60,bass_60_150,low_mid_150_400,mid_400_2000,high_2000_16000",
                 trace.SpectralFlux.Select(f => FormattableString.Invariant(
                     $"{f.Frame},{f.Sub:R},{f.Bass:R},{f.LowMid:R},{f.Mid:R},{f.High:R}"))), token).ConfigureAwait(false);
+        await Write(zip, prefix + "audit-flux.csv", Rows("frame,band_30_100,band_100_220,band_220_600,band_600_2000,band_2000_7900",
+            trace.AuditFlux.Select(f => FormattableString.Invariant(
+                $"{f.Frame},{f.Sub:R},{f.Bass:R},{f.LowMid:R},{f.Mid:R},{f.High:R}"))), token).ConfigureAwait(false);
+        foreach (var (name,path) in new[] { ("audit-baseline",trace.AuditResult.Baseline),
+            ("joint",trace.AuditResult.Joint), ("joint-alternative",trace.AuditResult.Alternative) })
+        {
+            await Write(zip,prefix+name+"-states.csv",Rows("frame,bpm,phase_cycles,tempo_evidence,phase_evidence,prefix_margin",
+                path.States.Select(s=>FormattableString.Invariant(
+                    $"{s.Frame},{s.Bpm:R},{s.PhaseCycles:R},{s.TempoEvidence:R},{s.PhaseEvidence:R},{s.Margin:R}"))),token).ConfigureAwait(false);
+            await Write(zip,prefix+name+"-beats.csv",Rows("frame,index,observed",
+                path.Beats.Select(b=>FormattableString.Invariant($"{b.Frame},{b.Index},{(b.Observed?1:0)}"))),token).ConfigureAwait(false);
+        }
         await Write(zip, prefix + "onsets.csv",
             Rows("frame,strength,accent", trace.Onsets.Select(o =>
                 FormattableString.Invariant($"{o.Frame},{o.Strength:R},{o.Accent:R}"))), token).ConfigureAwait(false);

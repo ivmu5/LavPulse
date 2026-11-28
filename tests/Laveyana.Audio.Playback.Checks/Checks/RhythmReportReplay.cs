@@ -63,6 +63,23 @@ internal static class RhythmReportReplay
                 }
                 grid = grid with { RhythmHypotheses = RhythmHypothesisAnalyzer.Analyze(flux, grid, total, default) };
             }
+            RhythmAuditResult audit = RhythmAuditResult.Empty;
+            if (zip.GetEntry(prefix+"diagnostics/audit-flux.csv") is {} auditEntry)
+            {
+                using var auditReader = new StreamReader(auditEntry.Open());
+                if (auditReader.ReadLine()!="frame,band_30_100,band_100_220,band_220_600,band_600_2000,band_2000_7900")
+                    throw new InvalidDataException("Unknown audit flux schema.");
+                var rawAudit = new List<RhythmSpectrumFrame>();
+                while (auditReader.ReadLine() is {} row)
+                {
+                    string[] fields = row.Split(',');
+                    if (fields.Length!=6 || rawAudit.Count>=RhythmAuditFlux.MaxFrames)
+                        throw new InvalidDataException("Invalid audit flux.");
+                    float Band(int i)=>float.Parse(fields[i],CultureInfo.InvariantCulture);
+                    rawAudit.Add(new(long.Parse(fields[0],CultureInfo.InvariantCulture),Band(1),Band(2),Band(3),Band(4),Band(5)));
+                }
+                audit = RhythmJointDecoder.Analyze(rawAudit,total,default);
+            }
             watch.Stop();
             long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
             if (!TrackRhythmAnalyzer.IsValid(grid, total)) throw new InvalidDataException("Invalid new grid.");
@@ -112,6 +129,17 @@ internal static class RhythmReportReplay
                 }
             }
             else Console.WriteLine("  No spectral hypotheses; old report or insufficient evidence.");
+            foreach (var (name,path) in new[] { ("audit-baseline",audit.Baseline),("joint",audit.Joint),("joint-alternative",audit.Alternative) })
+            {
+                if (path.States.Length==0 || taps.Length==0) continue;
+                long[] frames=path.Beats.Select(b=>b.Frame).ToArray();
+                foreach (int ms in new[]{50,70,100,180})
+                {
+                    var metric=SeriesMetrics(frames,taps,PlaybackFormat.SampleRate*ms/1000);
+                    Console.WriteLine(FormattableString.Invariant(
+                        $"  {name} {ms}ms: P/R/F1 {metric.P:F3}/{metric.R:F3}/{metric.F1:F3}, beats {frames.Length}, observed {path.Beats.Count(b=>b.Observed)}"));
+                }
+            }
             int ClosePredicted = Close(grid.PredictedBeatFrames);
             long covered = grid.Sections.Sum(s => s.EndFrame - s.StartFrame);
             Console.WriteLine(FormattableString.Invariant(
@@ -136,6 +164,26 @@ internal static class RhythmReportReplay
                 Console.WriteLine($"  Mark: {mark.GetProperty("Comment").GetString()} | beats {oldBeats.Count(f => f >= start && f < end)}->{grid.BeatFrames.Count(f => f >= start && f < end)}");
             }
         }
+    }
+
+    internal static (double P,double R,double F1) SeriesMetrics(long[] beats,long[] taps,long tolerance)
+    {
+        if (taps.Length==0) return default;
+        int matches=0,predictions=0,cursor=0;
+        for (int start=0;start<taps.Length;)
+        {
+            int end=start+1;
+            while (end<taps.Length && taps[end]-taps[end-1]<=2L*PlaybackFormat.SampleRate) end++;
+            long lo=taps[start]-tolerance,hi=taps[end-1]+tolerance;
+            while (cursor<beats.Length && beats[cursor]<lo) cursor++;
+            int first=cursor;
+            while (cursor<beats.Length && beats[cursor]<=hi) cursor++;
+            predictions+=cursor-first;
+            matches+=MatchOneToOne(beats[first..cursor],taps[start..end],tolerance);
+            start=end;
+        }
+        return (predictions==0?0:matches/(double)predictions,matches/(double)taps.Length,
+            2d*matches/(predictions+taps.Length));
     }
 
     private static long[] ReadBeats(ZipArchiveEntry entry)

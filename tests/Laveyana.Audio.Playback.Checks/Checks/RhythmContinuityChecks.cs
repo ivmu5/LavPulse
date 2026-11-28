@@ -80,7 +80,48 @@ internal static partial class Program
         CheckSpectralHypotheses();
         CheckGlobalHypothesisPath();
         CheckHarmonicFamily();
+        CheckJointDecoder();
         Console.WriteLine("OK: evidence-gated octave correction, isolated window recovery and local phase refinement.");
+    }
+
+    private static void CheckJointDecoder()
+    {
+        const int hop=RhythmAuditFlux.HopFrames;
+        var input=Enumerable.Range(0,1200).Select(i=>
+        {
+            float bass=i%50==25?1:0,high=i%50==0?1:0;
+            return new RhythmSpectrumFrame((long)i*hop,bass,bass,high,high,high);
+        }).ToArray();
+        long total=input.Length*(long)hop;
+        var result=RhythmJointDecoder.Analyze(input,total,default);
+        Require(result.Baseline.Beats.Length>0&&result.Joint.Beats.Length>0,
+            "Joint decoder lost periodic input.");
+        foreach (var path in new[]{result.Baseline,result.Joint,result.Alternative})
+        {
+            Require(path.Beats.All(b=>b.Frame>=0&&b.Frame<total)&&path.Beats.Zip(path.Beats.Skip(1))
+                .All(pair=>pair.First.Frame<pair.Second.Frame&&pair.First.Index<pair.Second.Index),
+                "Joint decoder published invalid coordinates.");
+            Require(path.States.All(s=>double.IsFinite(s.Bpm)&&s.Bpm>=40&&s.Bpm<=240&&
+                s.PhaseCycles>=0&&s.PhaseCycles<1),"Invalid joint state.");
+        }
+        var silence=input.Select(f=>f with {Sub=0,Bass=0,LowMid=0,Mid=0,High=0}).ToArray();
+        Require(RhythmJointDecoder.Analyze(silence,total,default).Joint.Beats.Length==0,
+            "Silence generated a joint grid.");
+        var stereo=new float[8192*2];
+        for(int i=0;i<8192;i++)
+        {
+            float v=.4f*MathF.Sin(MathF.Tau*100*i/PlaybackFormat.SampleRate);
+            stereo[2*i]=v;stereo[2*i+1]=-v;
+        }
+        var split=new RhythmAuditFlux();split.Add(stereo.AsSpan(0,2000),default);
+        split.Add(stereo.AsSpan(2000),default);split.Finish(default);
+        var whole=new RhythmAuditFlux();whole.Add(stereo,default);whole.Finish(default);
+        Require(split.Frames.SequenceEqual(whole.Frames)&&split.Frames.Count==18&&
+            split.Frames[0].Frame==0&&split.Frames.Skip(1).Any(f=>f.Sub>0||f.Bass>0),
+            "Audit flux chunking, clock or antiphase energy regressed.");
+        var metric=RhythmReportReplay.SeriesMetrics([0,48000,240000,480000],
+            [0,48000,480000],3360);
+        Require(metric.F1==1,"Series metrics counted beats outside annotated runs.");
     }
 
     private static void CheckHarmonicFamily()
