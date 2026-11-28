@@ -4,11 +4,17 @@ namespace Laveyana.Audio.Playback;
 /// Not retained by playback, saved waveform caches or ordinary background scans.</summary>
 internal sealed class TrackRhythmTrace
 {
-    public const int SchemaVersion = 8;
+    public const int SchemaVersion = 9;
     public int HopFrames { get; set; }
     public string Decoder { get; set; } = "unknown";
     public IReadOnlyList<RhythmEnergy> Energy { get; set; } = [];
     public IReadOnlyList<RhythmSpectrumFrame> SpectralFlux { get; set; } = [];
+    public IReadOnlyList<RhythmSpectrumFrame> AuditFlux { get; set; } = [];
+    public RhythmAuditResult AuditResult { get; set; } = RhythmAuditResult.Empty;
+    public bool AuditTruncated { get; set; }
+    public double AuditFeatureMs { get; set; }
+    public double AuditDecodeMs { get; set; }
+    public RhythmStageTiming[] StageTimings { get; set; } = [];
     public TrackOnsetDiagnostic[] Onsets { get; set; } = [];
     public float[,]? TempoScores { get; set; }
     public float[,]? RawTempoScores { get; set; }
@@ -23,6 +29,8 @@ internal sealed class TrackRhythmTrace
     public RhythmMetricHierarchy.Root? MetricRoot { get; set; }
     public List<RhythmSectionPhaseDecision> SectionPhasePath { get; } = [];
 }
+
+internal readonly record struct RhythmStageTiming(string Stage, double Milliseconds);
 
 internal readonly record struct RhythmSectionAttempt(int FirstWindow, int EndWindowExclusive,
     bool Recovery, double MeanConfidence, double Bpm, double AnchorBpm, double PhaseInHops,

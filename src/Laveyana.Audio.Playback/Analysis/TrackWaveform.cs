@@ -69,6 +69,12 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         Vector4 rhythmSum = Vector4.Zero;
         var rhythmEnergy = new List<RhythmEnergy>();
         var spectralFlux = new RhythmSpectralFlux();
+        var auditFlux = trace is null ? null : new RhythmAuditFlux();
+        long auditTicks = 0, readTicks = 0, normalizationTicks = 0, spectralTicks = 0,
+            loudnessTicks = 0, keyOrQueueTicks = 0, waveformTicks = 0;
+        bool detailed = trace is not null;
+        static long Stamp(bool enabled) => enabled ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+        static double Milliseconds(long ticks) => ticks * 1000d / System.Diagnostics.Stopwatch.Frequency;
         long totalFrames = 0;
         var key = pipeline is null ? new MusicalKeyAnalyzer(source.SampleRate) : null;
         var loudness = pipeline is null && source.SampleRate == PlaybackFormat.SampleRate
@@ -78,7 +84,9 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         while (true)
         {
             token.ThrowIfCancellationRequested();
+            long stage = Stamp(detailed);
             int frames = source.Read(pcm);
+            if (detailed) readTicks += Stamp(true) - stage;
             token.ThrowIfCancellationRequested();
             if (frames == 0)
             {
@@ -91,11 +99,26 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
             // Custom PCM sources can bypass decoder validation. Prevent one
             // nonfinite sample from poisoning both recursive band filters.
             var block = pcm.AsSpan(0, frames * channels);
+            stage = Stamp(detailed);
             PcmNormalization.Copy(block,block);
+            if (detailed) normalizationTicks += Stamp(true) - stage;
+            stage = Stamp(detailed);
             spectralFlux.Add(block, token);
+            if (detailed) spectralTicks += Stamp(true) - stage;
+            if (auditFlux is not null)
+            {
+                long started = System.Diagnostics.Stopwatch.GetTimestamp();
+                auditFlux.Add(block, token);
+                auditTicks += System.Diagnostics.Stopwatch.GetTimestamp() - started;
+            }
+            stage = Stamp(detailed);
             loudness?.Add(block);
+            if (detailed) loudnessTicks += Stamp(true) - stage;
+            stage = Stamp(detailed);
             if (pipeline is null) key!.Add(block, token);
             else pipeline.Submit(block);
+            if (detailed) keyOrQueueTicks += Stamp(true) - stage;
+            stage = Stamp(detailed);
             int offset = 0;
             while (offset < frames)
             {
@@ -133,6 +156,7 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
                 points.RemoveRange(maxPoints / 2, maxPoints / 2);
                 framesPerPoint = checked(framesPerPoint * 2);
             }
+            if (detailed) waveformTicks += Stamp(true) - stage;
         }
 
         if (framesInPoint > 0)
@@ -152,12 +176,32 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         }
 
         pipeline?.CompleteInput();
+        if (auditFlux is not null)
+        {
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
+            auditFlux.Finish(token);
+            auditTicks += System.Diagnostics.Stopwatch.GetTimestamp() - started;
+        }
         double readMs = watch.Elapsed.TotalMilliseconds;
         var waveform = new TrackWaveform(points.AsReadOnly(), totalFrames, framesPerPoint);
+        long legacyStarted = Stamp(detailed);
         var rhythm = TrackRhythmAnalyzer.AnalyzeEnergy(rhythmEnergy, rhythmHopFrames, totalFrames, token, trace);
+        long legacyTicks = detailed ? Stamp(true) - legacyStarted : 0;
         if (trace is not null) trace.SpectralFlux = spectralFlux.Frames;
+        long hypothesesStarted = Stamp(detailed);
         rhythm = rhythm with { RhythmHypotheses = RhythmHypothesisAnalyzer.Analyze(spectralFlux.Frames, rhythm, totalFrames, token) };
+        long hypothesesTicks = detailed ? Stamp(true) - hypothesesStarted : 0;
+        if (trace is not null && auditFlux is not null)
+        {
+            trace.AuditFlux = auditFlux.Frames;
+            trace.AuditTruncated = auditFlux.Truncated;
+            trace.AuditFeatureMs = auditTicks * 1000d / System.Diagnostics.Stopwatch.Frequency;
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
+            trace.AuditResult = RhythmJointDecoder.Analyze(auditFlux.Frames, totalFrames, token);
+            trace.AuditDecodeMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        }
         double rhythmMs = watch.Elapsed.TotalMilliseconds - readMs;
+        long finishStarted = Stamp(detailed);
         var musicalKey = pipeline is null ? key!.Finish() : pipeline.Join();
         var localKeys = pipeline is null ? key!.FinishLocal() : pipeline.LocalKeys;
         // The incomplete final FFT window has no local tonal evidence.
@@ -166,6 +210,8 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         if (keyEnd < totalFrames && localKeys.Length < 8192)
             localKeys = [..localKeys, new TrackKeySection(keyEnd,totalFrames,null)];
         var measuredLoudness = pipeline is null ? loudness?.Finish() : pipeline.Loudness;
+        long finishTicks = detailed ? Stamp(true) - finishStarted : 0;
+        long profileStarted = Stamp(detailed);
         var profile = new TrackMusicProfile
         {
             LocalKeyVersion = TrackMusicProfile.CurrentLocalKeyVersion,
@@ -177,6 +223,23 @@ public sealed record TrackWaveform(IReadOnlyList<WaveformPoint> Points, long Tot
         profile = TrackMusicProfileAnalyzer.Derive(waveform, profile, token);
         token.ThrowIfCancellationRequested();
         double totalMs = watch.Elapsed.TotalMilliseconds;
+        if (trace is not null)
+            trace.StageTimings = new[]
+            {
+                new RhythmStageTiming("pcm_source_read", Milliseconds(readTicks)),
+                new RhythmStageTiming("normalization", Milliseconds(normalizationTicks)),
+                new RhythmStageTiming("legacy_spectral_flux", Milliseconds(spectralTicks)),
+                new RhythmStageTiming("audit_spectral_flux", Milliseconds(auditTicks)),
+                new RhythmStageTiming("inline_loudness", Milliseconds(loudnessTicks)),
+                new RhythmStageTiming(pipeline is null ? "inline_key" : "key_queue_submit_wait", Milliseconds(keyOrQueueTicks)),
+                new RhythmStageTiming("waveform_energy", Milliseconds(waveformTicks)),
+                new RhythmStageTiming("legacy_rhythm", Milliseconds(legacyTicks)),
+                new RhythmStageTiming("spectral_hypotheses", Milliseconds(hypothesesTicks)),
+                new RhythmStageTiming("audit_paths", trace.AuditDecodeMs),
+                new RhythmStageTiming("key_loudness_finalize_join", Milliseconds(finishTicks)),
+                new RhythmStageTiming("music_profile", Milliseconds(Stamp(true) - profileStarted)),
+                new RhythmStageTiming("total_wall", totalMs)
+            };
         return waveform with { MusicProfile = profile, Timing = new(readMs, rhythmMs,
             totalMs - readMs - rhythmMs, totalMs) };
     }

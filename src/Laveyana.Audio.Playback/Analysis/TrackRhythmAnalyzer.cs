@@ -126,6 +126,12 @@ public static partial class TrackRhythmAnalyzer
             trace.HopFrames = framesPerHop;
             trace.Energy = energy;
             trace.SpectralFlux = [];
+            trace.AuditFlux = [];
+            trace.AuditResult = RhythmAuditResult.Empty;
+            trace.AuditTruncated = false;
+            trace.AuditFeatureMs = 0;
+            trace.AuditDecodeMs = 0;
+            trace.StageTimings = [];
             trace.Onsets = [];
             trace.TempoScores = null;
             trace.RawTempoScores = null;

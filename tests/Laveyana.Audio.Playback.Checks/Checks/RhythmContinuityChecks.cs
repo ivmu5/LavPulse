@@ -80,7 +80,87 @@ internal static partial class Program
         CheckSpectralHypotheses();
         CheckGlobalHypothesisPath();
         CheckHarmonicFamily();
+        CheckJointDecoder();
+        CheckAuditAutocorrelation();
         Console.WriteLine("OK: evidence-gated octave correction, isolated window recovery and local phase refinement.");
+    }
+
+    private static void CheckAuditAutocorrelation()
+    {
+        var ac=new RhythmAuditAutocorrelation();
+        var rng=new Random(20261128);
+        foreach(int count in new[]{1,17,128,801,1601})
+        {
+            var samples=Enumerable.Range(0,count).Select(_=>rng.NextDouble()*2-1).ToArray();
+            var actual=new double[451];
+            ac.Accumulate(samples,actual,.37,default);
+            for(int lag=0;lag<actual.Length;lag++)
+            {
+                double expected=0;
+                for(int i=0;i+lag<count;i++)expected+=samples[i]*samples[i+lag]*.37;
+                Require(Math.Abs(expected-actual[lag])<=1e-8*Math.Max(1,Math.Abs(expected)),
+                    "FFT autocorrelation differs from the linear direct reference.");
+            }
+        }
+    }
+
+    private static void CheckJointDecoder()
+    {
+        const int hop=RhythmAuditFlux.HopFrames;
+        var input=Enumerable.Range(0,1200).Select(i=>
+        {
+            float bass=i%50==25?1:0,high=i%50==0?1:0;
+            return new RhythmSpectrumFrame((long)i*hop,bass,bass,high,high,high);
+        }).ToArray();
+        long total=input.Length*(long)hop;
+        var result=RhythmJointDecoder.Analyze(input,total,default);
+        Require(result.Baseline.Beats.Length>0&&result.Joint.Beats.Length>0,
+            "Joint decoder lost periodic input.");
+        foreach (var path in new[]{result.Baseline,result.Joint,result.Alternative})
+        {
+            Require(path.Beats.All(b=>b.Frame>=0&&b.Frame<total)&&path.Beats.Zip(path.Beats.Skip(1))
+                .All(pair=>pair.First.Frame<pair.Second.Frame&&pair.First.Index<pair.Second.Index),
+                "Joint decoder published invalid coordinates.");
+            Require(path.States.All(s=>double.IsFinite(s.Bpm)&&s.Bpm>=40&&s.Bpm<=240&&
+                s.PhaseCycles>=0&&s.PhaseCycles<1),"Invalid joint state.");
+        }
+        var paused=Enumerable.Range(0,2400).Select(i=>
+        {
+            float hit=i>=800&&i<1600?0:i%50==25?1:0;
+            return new RhythmSpectrumFrame((long)i*hop,hit,hit,hit,hit,hit);
+        }).ToArray();
+        var pausedResult=RhythmJointDecoder.Analyze(paused,paused.Length*(long)hop,default);
+        Require(pausedResult.Joint.States.Any(s=>s.InactiveBoundaryFrame>=0)&&
+            pausedResult.Joint.Beats.Any(b=>b.ActivityRegion==0)&&
+            pausedResult.Joint.Beats.Any(b=>b.ActivityRegion==1)&&
+            !pausedResult.Joint.Beats.Any(b=>b.Frame>=850L*hop&&b.Frame<1550L*hop),
+            "Long activity gap was not distinguished from predicted beats.");
+        var silence=input.Select(f=>f with {Sub=0,Bass=0,LowMid=0,Mid=0,High=0}).ToArray();
+        Require(RhythmJointDecoder.Analyze(silence,total,default).Joint.Beats.Length==0,
+            "Silence generated a joint grid.");
+        var stereo=new float[8192*2];
+        for(int i=0;i<8192;i++)
+        {
+            float v=.4f*MathF.Sin(MathF.Tau*100*i/PlaybackFormat.SampleRate);
+            stereo[2*i]=v;stereo[2*i+1]=-v;
+        }
+        var split=new RhythmAuditFlux();split.Add(stereo.AsSpan(0,2000),default);
+        split.Add(stereo.AsSpan(2000),default);split.Finish(default);
+        var whole=new RhythmAuditFlux();whole.Add(stereo,default);whole.Finish(default);
+        Require(split.Frames.SequenceEqual(whole.Frames)&&split.Frames.Count==18&&
+            split.Frames[0].Frame==0&&split.Frames.Skip(1).Any(f=>f.Sub>0||f.Bass>0),
+            "Audit flux chunking, clock or antiphase energy regressed.");
+        var metric=RhythmReportReplay.SeriesMetrics([0,48000,240000,480000],
+            [0,48000,480000],3360);
+        Require(metric.F1==1,"Series metrics counted beats outside annotated runs.");
+        var regular=Enumerable.Range(0,40).Select(i=>i*24000L).ToArray();
+        Require(RhythmReportReplay.PhaseNull(regular,regular,3360)<.5,
+            "Phase-null control did not distinguish a regular exact grid.");
+        using var cancelled=new CancellationTokenSource();cancelled.Cancel();
+        bool threw=false;
+        try { RhythmJointDecoder.Analyze(input,total,cancelled.Token); }
+        catch(OperationCanceledException){threw=true;}
+        Require(threw,"Joint decoder ignored cancellation.");
     }
 
     private static void CheckHarmonicFamily()
