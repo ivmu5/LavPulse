@@ -61,7 +61,7 @@ internal static partial class RhythmTemplateAnalyzer
     }
 
     private static double SoftScore(Position[] positions,int[] folds,int test,SoftModel model,
-        int testing,CancellationToken token)
+        int testing,CancellationToken token,double[]? eventGains=null)
     {
         // Fractional training counts, normalized conditional distribution
         // per cluster and phase. Use the same symmetric prior as schema 15.
@@ -94,7 +94,9 @@ internal static partial class RhythmTemplateAnalyzer
             double probability=0;
             for(int k=0;k<Clusters;k++)
                 probability+=model.Weights[i*Clusters+k]*cells[(k*Slots+p.Slot)*4+r];
-            gain+=Math.Log(4*probability);
+            double value=Math.Log(4*probability);
+            gain+=value;
+            if(eventGains is not null)eventGains[i]=value;
         }
         return gain/testing;
     }

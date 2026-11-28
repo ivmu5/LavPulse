@@ -172,6 +172,11 @@ internal static class RhythmReportReplay
             foreach(var evidence in templates.Evidence)
                 Console.WriteLine(FormattableString.Invariant(
                     $"  template {evidence.Name} fold {evidence.TestFold} coverage {evidence.Coverage:F3} phase/2/3/4 gain {evidence.PhaseGain:F3}/{evidence.TwoGain:F3}/{evidence.ThreeGain:F3}/{evidence.FourGain:F3}; conditional 4 {evidence.ConditionalFourGain:F3}; soft 4 {evidence.SoftFourGain:F3}"));
+            foreach(var e in templates.TransitionEvidence)
+                Console.WriteLine(FormattableString.Invariant(
+                    $"  transition {e.Name} fold {e.TestFold}: gain {e.Gain:F4}, increment {e.Increment:F4}, pairs {e.TestPairs}/{e.TestEvents}"));
+            if(templates.SoftBlockComparisons.Length>0)
+                Console.WriteLine($"  soft paired blocks: {templates.SoftBlockComparisons.Count(e=>e.Difference>0)}/{templates.SoftBlockComparisons.Length} favor ranked");
             if(templates.Reference.Length>0)
             {
                 comparisons.Add(("template-ranked",templates.RankedBeats));

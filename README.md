@@ -302,3 +302,5 @@ Schema 14 adds track-local cross-fitted acoustic recurrence templates, 2/3/4-pul
 Schema 15 adds a regularized conditional four-pulse recurrence score and separate diagnostic ranked/guarded paths. Earlier template selectors remain unchanged.
 
 Schema 16 adds cross-fitted soft acoustic memberships and conditional mixture scoring with diagnostic ranked/guarded paths, fold temperature and entropy. Existing grids and playback remain unchanged.
+
+Schema 17 adds diagnostic adjacent-event conditional evidence and paired soft-score comparisons on common events. No change to earlier selectors or playback.
