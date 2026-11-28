@@ -9,7 +9,7 @@ internal readonly record struct RhythmPhaseAgreementRow(long StartFrame,long End
 /// one-to-one match and circular phase measurement at compatible tempos.</summary>
 internal static class RhythmPhaseAgreement
 {
-    internal const int Version=1;
+    internal const int Version=2;
     internal const long BlockFrames=8L*PlaybackFormat.SampleRate;
     internal static RhythmPhaseAgreementRow[] Analyze(RhythmAuditResult result,long[] legacy,long total,CancellationToken token)
     {
@@ -65,20 +65,43 @@ internal static class RhythmPhaseAgreement
             new(start,end,left,right,leftCount,rightCount,pa,pb,matches,offset,concentration,status);
         if(a.Length<4||b.Length<4||pa<=0||pb<=0)return Row(0,0,"insufficient");
         if(Math.Abs(pa-pb)>.08*Math.Max(pa,pb))return Row(0,0,"tempo_mismatch");
-        double period=(pa+pb)/2,real=0,imaginary=0;
-        j=0;
-        foreach(long frame in a)
+        var leftPhase = OverlappingPhase(a, b, pb, -1);
+        var rightPhase = OverlappingPhase(b, a, pa, 1);
+        if (leftPhase.Count < 3 || rightPhase.Count < 3) return Row(0, 0, "insufficient_overlap");
+
+        // Average both directions so swapping the grids reverses the offset
+        // without changing concentration. Phase is measured only inside
+        // actual, locally regular intervals on the other grid.
+        double real = .5 * (leftPhase.Real / leftPhase.Count + rightPhase.Real / rightPhase.Count);
+        double imaginary = .5 * (leftPhase.Imaginary / leftPhase.Count + rightPhase.Imaginary / rightPhase.Count);
+        double concentration = Math.Clamp(Math.Sqrt(real * real + imaginary * imaginary), 0, 1);
+        double offset = Math.Atan2(imaginary, real) / Math.Tau;
+        string status = concentration < .7 ? "diffuse" :
+            Math.Abs(offset) >= .25 ? "phase_conflict" :
+            Math.Abs(offset) <= .125 ? "near_phase" : "phase_offset";
+        return Row(offset, concentration, status);
+    }
+
+    private static (int Count, double Real, double Imaginary) OverlappingPhase(
+        ReadOnlySpan<long> observations, ReadOnlySpan<long> grid, double period, int sign)
+    {
+        int index = 0, count = 0;
+        double real = 0, imaginary = 0;
+        foreach (long frame in observations)
         {
-            while(j+1<b.Length&&Math.Abs(b[j+1]-frame)<Math.Abs(b[j]-frame))j++;
-            double angle=Math.Tau*(b[j]-frame)/period;
-            real+=Math.Cos(angle);imaginary+=Math.Sin(angle);
+            if (frame < grid[0]) continue;
+            if (frame > grid[^1]) break;
+            while (index+2 < grid.Length && grid[index+1] < frame) index++;
+            long interval = grid[index+1] - grid[index];
+            if (interval < .67 * period || interval > 1.5 * period) continue;
+
+            double angle = sign * Math.Tau * (frame - grid[index]) / interval;
+            (double sine, double cosine) = Math.SinCos(angle);
+            real += cosine;
+            imaginary += sine;
+            count++;
         }
-        double concentration=Math.Clamp(Math.Sqrt(real*real+imaginary*imaginary)/a.Length,0,1);
-        double offset=Math.Atan2(imaginary,real)/Math.Tau;
-        string status=concentration<.7?"diffuse":
-            Math.Abs(offset)>=.25?"phase_conflict":
-            Math.Abs(offset)<=.125?"near_phase":"phase_offset";
-        return Row(offset,concentration,status);
+        return (count, real, imaginary);
     }
 
     private static double Period(ReadOnlySpan<long> beats)
