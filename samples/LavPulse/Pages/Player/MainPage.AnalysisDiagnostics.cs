@@ -132,19 +132,7 @@ public sealed partial class MainPage
             $"ручных ударов: {reports.Sum(r => r.BeatTaps?.Count ?? 0)}";
     }
 
-    private async Task<string> CopyReportTextAsync()
-    {
-        await _pendingBeatWrites;
-        var reports = await _reports.ReadAllAsync(_lifetime.Token);
-        if (reports.Length == 0) throw new InvalidOperationException("Отчёт пуст. Нет сохранённых отметок или комментариев.");
-        string report = await Task.Run(() => TrackReportArchive.RenderText(reports), _lifetime.Token);
-        await Clipboard.Default.SetTextAsync(report);
-        string message = $"Скопировано {report.Length:N0} символов из {reports.Length} треков.";
-        NotifyStatus("Отчёт скопирован", message);
-        return message;
-    }
-
-    private async Task<string?> ExportReportZipAsync()
+    private async Task<string?> ExportReportZipAsync(bool includeAudio)
     {
         await _pendingBeatWrites;
         var reports = await _reports.ReadAllAsync(_lifetime.Token);
@@ -157,7 +145,7 @@ public sealed partial class MainPage
         }
         string suggested = "LavPulse_Report_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".zip";
 #if WINDOWS
-        return await ExportWindowsReportAsync(reports, suggested);
+        return await ExportWindowsReportAsync(reports, suggested, includeAudio);
 #else
         string temporary = Path.Combine(FileSystem.CacheDirectory, Guid.NewGuid().ToString("N") + ".zip");
         try
@@ -165,7 +153,7 @@ public sealed partial class MainPage
             string platform = DeviceInfo.Current.Platform.ToString();
             await Task.Run(() => TrackReportArchive.CreateAsync(reports, temporary,
                 _trackStore.ReportAudioPath, _lifetime.Token, _library.AnalyzeDiagnosticAsync,
-                DiagnosticAppVersion, platform), _lifetime.Token);
+                DiagnosticAppVersion, platform, includeAudio: includeAudio), _lifetime.Token);
 #if ANDROID
             if (Window?.Handler?.PlatformView is not MainActivity activity)
                 throw new InvalidOperationException("Выбор файла недоступен.");

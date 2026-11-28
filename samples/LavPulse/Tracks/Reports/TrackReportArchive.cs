@@ -6,7 +6,7 @@ using Laveyana.Audio.Playback;
 
 namespace Laveyana.LavPulse.Tracks;
 
-/// <summary>Exports annotated diagnostics and original audio bytes into a user-requested ZIP.</summary>
+/// <summary>Progress of a user-requested diagnostic ZIP export.</summary>
 internal readonly record struct ReportExportProgress(int Completed, int Total, string? Track, string Stage, int DiagnosticErrors);
 
 internal static class TrackReportArchive
@@ -69,21 +69,28 @@ internal static class TrackReportArchive
     internal static async Task<int> CreateAsync(IReadOnlyList<TrackIssueReport> reports, string destination,
         Func<string, string> audioPath, CancellationToken token,
         Func<string, CancellationToken, Task<TrackDiagnosticSnapshot>>? analyze = null,
-        string? appVersion = null, string? platform = null, IProgress<ReportExportProgress>? progress = null)
+        string? appVersion = null, string? platform = null, IProgress<ReportExportProgress>? progress = null, bool includeAudio = false)
     {
         if (reports.Count == 0) throw new InvalidOperationException("Отчёт пуст. Нет сохранённых треков.");
         int diagnosticErrors = 0;
         progress?.Report(new(0, reports.Count, null, "preparing", diagnosticErrors));
-        // Fail before writing the ZIP if a track disappeared or the selected SD card was removed.
-        var audioFiles = reports.Select(report =>
+        // Validate IDs regardless of the selected export mode. Full bundles
+        // retain the strict preflight; diagnostics-only bundles preserve
+        // saved annotations even if the source disappeared.
+        foreach (var report in reports)
         {
+            token.ThrowIfCancellationRequested();
             if (report.Id.Length != 64 || !report.Id.All(char.IsAsciiHexDigitUpper))
                 throw new InvalidDataException("Некорректный идентификатор трека в отчёте.");
+        }
+        string ResolveAudio(TrackIssueReport report)
+        {
             string path = audioPath(report.Id);
             if (!File.Exists(path))
-                throw new FileNotFoundException($"Оригинал MP3 для «{report.Title}» недоступен.", path);
+                throw new FileNotFoundException($"Оригинальный аудиофайл для «{report.Title}» недоступен.", path);
             return path;
-        }).ToArray();
+        }
+        var audioFiles = includeAudio ? reports.Select(ResolveAudio).ToArray() : null;
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         string temporary = destination + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
@@ -93,8 +100,9 @@ internal static class TrackReportArchive
             using (var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
             {
                 await WriteText(zip, "README.txt",
-                    "LavPulse diagnostic bundle. Includes the original audio files explicitly selected by the user.\n" +
-                    "Bundle schema: 2. Each track folder contains recorded analysis, comments, exact annotations and original audio bytes.\n" +
+                    "LavPulse diagnostic bundle.\n" +
+                    $"Bundle schema: 3. Original audio included: {(includeAudio ? "yes" : "no")}.\n" +
+                    "Each track folder contains recorded analysis, comments and exact annotations. Original audio is optional.\n" +
                     "diagnostics/ contains a fresh export-time analysis, not necessarily the historical grid.\n" +
                     "PCM frame coordinates are at 48000 Hz; the 10 ms envelope contains filter-band mean absolute amplitudes, not instrument stems.\n" +
                     "Tap positions are approximate human observations, never ground truth.\n" +
@@ -125,7 +133,7 @@ internal static class TrackReportArchive
                         TrackDiagnosticSnapshot? snapshot = null;
                         try
                         {
-                            snapshot = await analyze(audioFiles[i], token).ConfigureAwait(false);
+                            snapshot = await analyze(audioFiles?[i] ?? ResolveAudio(report), token).ConfigureAwait(false);
                         }
                         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
                         catch (Exception ex) when (ex is IOException or InvalidDataException or
@@ -133,7 +141,7 @@ internal static class TrackReportArchive
                         {
                             diagnosticErrors++;
                             // Error messages can contain private absolute file paths.
-                            // Keep original audio and annotations even when a fresh analysis fails.
+                            // Preserve annotations and any requested original audio if fresh analysis fails.
                             await WriteText(zip, baseName + "diagnostics/error.txt",
                                 "Fresh analysis unavailable: " + ex.GetType().Name, token);
                         }
@@ -142,12 +150,15 @@ internal static class TrackReportArchive
                                 snapshot, token).ConfigureAwait(false);
                     }
                     progress?.Report(new(i, reports.Count, report.Title, "packing", diagnosticErrors));
-                    string originalName = SafeName(report.FileName, audioFiles[i]);
-                    var entry = zip.CreateEntry(baseName + originalName, CompressionLevel.NoCompression);
-                    await using var input = new FileStream(audioFiles[i], FileMode.Open, FileAccess.Read, FileShare.Read,
-                        128 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
-                    await using var output = entry.Open();
-                    await input.CopyToAsync(output, token).ConfigureAwait(false);
+                    if (audioFiles is not null)
+                    {
+                        string originalName = SafeName(report.FileName, audioFiles[i]);
+                        var entry = zip.CreateEntry(baseName + originalName, CompressionLevel.NoCompression);
+                        await using var input = new FileStream(audioFiles[i], FileMode.Open, FileAccess.Read, FileShare.Read,
+                            128 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+                        await using var output = entry.Open();
+                        await input.CopyToAsync(output, token).ConfigureAwait(false);
+                    }
                 }
                 progress?.Report(new(reports.Count, reports.Count, null, "finalizing", diagnosticErrors));
                 await WriteText(zip, "full-report.txt", RenderText(reports), token);

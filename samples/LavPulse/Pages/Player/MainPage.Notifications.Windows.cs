@@ -102,7 +102,7 @@ public sealed partial class MainPage
         }
     }
 
-    private async Task<string?> ExportWindowsReportAsync(IReadOnlyList<TrackIssueReport> reports, string suggested)
+    private async Task<string?> ExportWindowsReportAsync(IReadOnlyList<TrackIssueReport> reports, string suggested, bool includeAudio)
     {
         if (_closed || _pickerOpen || _reportExportInProgress)
         {
@@ -127,7 +127,7 @@ public sealed partial class MainPage
             if (_closed || picked is null) return null;
             string path = picked.Path;
             if (string.IsNullOrWhiteSpace(path)) throw new IOException("Путь сохранения недоступен.");
-            var work = SaveWindowsReportAsync(reports, path);
+            var work = SaveWindowsReportAsync(reports, path, includeAudio);
             _reportExportWorker = work;
             return await work;
         }
@@ -139,7 +139,7 @@ public sealed partial class MainPage
         finally { _reportExportInProgress = false; }
     }
 
-    private async Task<string?> SaveWindowsReportAsync(IReadOnlyList<TrackIssueReport> reports, string path)
+    private async Task<string?> SaveWindowsReportAsync(IReadOnlyList<TrackIssueReport> reports, string path, bool includeAudio)
     {
         using var cancel = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         var notice = _view.ShowNotification("Экспорт отчёта", $"Подготовка {reports.Count} треков…", running: true);
@@ -171,8 +171,9 @@ public sealed partial class MainPage
         {
             string platform = DeviceInfo.Current.Platform.ToString();
             int errors = await Task.Run(() => TrackReportArchive.CreateAsync(reports, path, _trackStore.ReportAudioPath,
-                cancel.Token, _library.AnalyzeDiagnosticAsync, DiagnosticAppVersion, platform, progress), cancel.Token);
-            string message = "ZIP сохранён: " + Path.GetFileName(path);
+                cancel.Token, _library.AnalyzeDiagnosticAsync, DiagnosticAppVersion, platform, progress, includeAudio: includeAudio), cancel.Token);
+            string message = "ZIP сохранён: " + Path.GetFileName(path) +
+                (includeAudio ? "\nС аудио" : "\nБез аудио");
             if (!_closed)
                 notice.Complete("Отчёт сохранён", message + (errors > 0 ? $"\nБез свежей диагностики: {errors}" : ""),
                     [new("Открыть папку", () => OpenReportLocation(path, folder: true)),

@@ -7,12 +7,16 @@ public sealed partial class PlayerSettingsPanel
         var summary = MixerStyle.Label("Загрузка отчётов…", 12, MixerColor.Muted);
         var message = MixerStyle.Label("", 12, MixerColor.Accent);
         message.LineBreakMode = LineBreakMode.WordWrap;
-        var clipboard = MixerStyle.Button("Скопировать текстовый отчёт");
-        var archive = MixerStyle.Button("Экспорт ZIP с MP3", primary: true);
+        var includeAudio = new CheckBox { IsChecked = _includeReportAudio };
+        MixerStyle.UseColor(includeAudio, CheckBox.ColorProperty, MixerColor.Accent);
+        SemanticProperties.SetDescription(includeAudio, "Экспортировать вместе с аудио");
+        includeAudio.CheckedChanged += (_, args) => _includeReportAudio = args.Value;
+        var audioOption = ControlRow("Экспортировать вместе с аудио", includeAudio);
+        var archive = MixerStyle.Button("Экспорт ZIP", primary: true);
         var clear = MixerStyle.Button("Очистить отчёты");
-        foreach (var control in new[] { clipboard, archive, clear })
+        foreach (var control in new[] { archive, clear })
             control.HorizontalOptions = LayoutOptions.Fill;
-        clipboard.IsEnabled = _copyReport is not null;
+        includeAudio.IsEnabled = _exportReportZip is not null;
         archive.IsEnabled = _exportReportZip is not null;
         clear.IsEnabled = _clearReports is not null;
 
@@ -25,7 +29,7 @@ public sealed partial class PlayerSettingsPanel
 
         async Task RunAsync(Button button, Func<Task<string?>> action)
         {
-            clipboard.IsEnabled = archive.IsEnabled = clear.IsEnabled = false;
+            includeAudio.IsEnabled = archive.IsEnabled = clear.IsEnabled = false;
 #if WINDOWS
             message.Text = ReferenceEquals(button, archive) ? "Выберите место сохранения. Прогресс появится в уведомлении." : "Подготовка отчёта…";
 #else
@@ -41,23 +45,25 @@ public sealed partial class PlayerSettingsPanel
             catch (Exception ex) { message.Text = "Ошибка отчёта: " + ex.Message; }
             finally
             {
-                clipboard.IsEnabled = _copyReport is not null;
+                includeAudio.IsEnabled = _exportReportZip is not null;
                 archive.IsEnabled = _exportReportZip is not null;
                 clear.IsEnabled = _clearReports is not null;
             }
         }
-        clipboard.Clicked += async (_, _) =>
-            await RunAsync(clipboard, async () => _copyReport is null ? null : await _copyReport());
         archive.Clicked += async (_, _) =>
-            await RunAsync(archive, async () => _exportReportZip is null ? null : await _exportReportZip());
+        {
+            bool withAudio = includeAudio.IsChecked;
+            await RunAsync(archive, async () => _exportReportZip is null ? null : await _exportReportZip(withAudio));
+        };
         clear.Clicked += async (_, _) =>
             await RunAsync(clear, async () => _clearReports is null ? null : await _clearReports());
 
         var help = MixerStyle.Label("«Ритм» — ручная отметка басового удара и автоматическое добавление трека в отчёт. " +
             "«В отчёт» — комментарий к выбранному участку. " +
-            "ZIP включает результаты анализа, ручные отметки, комментарии и оригинальные MP3. " +
+            "ZIP всегда включает результаты анализа, ручные отметки и комментарии. " +
+            "Галочка добавляет оригинальные аудиофайлы; без неё архив значительно меньше. " +
             "Экспорт выполняется локально, без автоматической отправки данных.", 11, MixerColor.Muted);
-        var result = Section("Диагностические отчёты", summary, help, clipboard, archive, clear, message);
+        var result = Section("Диагностические отчёты", summary, help, audioOption, archive, clear, message);
         // Open only this section on demand, so no background reads happen during playback.
         _ = Refresh();
         return result;
