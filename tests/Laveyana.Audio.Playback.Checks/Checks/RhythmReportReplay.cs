@@ -145,6 +145,14 @@ internal static class RhythmReportReplay
                 comparisons.Add((name,auditPath.Beats.Select(b=>b.Frame).ToArray()));
                 Console.WriteLine($"  {name} observed low-band attacks {auditPath.Beats.Count(b=>b.Observed)}/{auditPath.Beats.Length}");
             }
+            foreach(var lane in audit.MetricPaths)
+            {
+                string name=$"metric-{lane.Numerator}-{lane.Denominator}-lane{lane.Lane}";
+                comparisons.Add((name,lane.Path.Beats.Select(b=>b.Frame).ToArray()));
+                Console.WriteLine(FormattableString.Invariant(
+                    $"  {name} tempo/phase evidence {lane.MeanTempoEvidence:F3}/{lane.MeanPhaseEvidence:F3}"));
+            }
+            if(audit.MetricBudgetReached)Console.WriteLine("  Metric path budget reached; whole remaining families omitted.");
             if (taps.Length>0)
                 foreach (var (name,frames) in comparisons)
                     foreach (int ms in new[]{50,70,100,180})

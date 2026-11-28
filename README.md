@@ -280,3 +280,5 @@ Diagnostic schema 8 adds a separate harmonic-family path, retaining the prior gl
 Diagnostic schema 9 runs an audit-inspired 16 kHz frontend and two-pass role-aware decoder, plus a bounded joint tempo/phase beam and a distinct alternative path. All are export-only; normal scans, saved BeatGrid and mixing are unchanged. The FIR differs from FFmpeg's resampler. See docs/RhythmJointDecoder.md for validation and modernization.
 
 Schema 9 also exports `analysis-timings.csv` with producer-side wall timings, assembly provenance and the joint configuration. No experiment runs during a normal scan.
+
+Schema 10 adds independent phase lanes on rational multiples of the continuous audit baseline, with disjoint phase search and bounded complete-family output. `metric-paths.csv`, `metric-states.csv`, and `metric-beats.csv` expose alternatives without modifying the existing paths or playback. See docs/RhythmJointDecoder.md.

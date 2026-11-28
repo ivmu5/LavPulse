@@ -116,7 +116,28 @@ internal static partial class Program
         var result=RhythmJointDecoder.Analyze(input,total,default);
         Require(result.Baseline.Beats.Length>0&&result.Joint.Beats.Length>0,
             "Joint decoder lost periodic input.");
-        foreach (var path in new[]{result.Baseline,result.Joint,result.Alternative})
+        Require(result.MetricPaths.Length>=2 &&
+            result.MetricPaths.Where(p=>p.Numerator==1&&p.Denominator==1).Count()==2 &&
+            !result.MetricBudgetReached,"Independent phase lanes disappeared.");
+        var sameRate=result.MetricPaths.Where(p=>p.Numerator==1&&p.Denominator==1).ToArray();
+        Require(sameRate.All(p=>p.Path.Beats.Length>0) &&
+            sameRate[0].Path.States.Zip(sameRate[1].Path.States).All(pair=>
+            {
+                double distance=Math.Abs(pair.First.PhaseCycles-pair.Second.PhaseCycles);
+                return Math.Min(distance,1-distance)>=.25;
+            }),"Opposing phase lanes collapsed into the same trajectory.");
+        foreach(var family in result.MetricPaths.GroupBy(p=>(p.Numerator,p.Denominator)))
+        {
+            Require(family.Count()==family.First().LaneCount &&
+                family.Select(p=>p.Lane).Distinct().Count()==family.Count(),
+                "Incomplete metrical family.");
+            foreach(var lane in family)
+                Require(lane.Path.States.Zip(result.Baseline.States).All(pair=>
+                    Math.Abs(pair.First.Bpm-pair.Second.Bpm*lane.Numerator/lane.Denominator)<1e-8),
+                    "Metric ratio was clamped or changed.");
+        }
+        foreach (var path in new[]{result.Baseline,result.Joint,result.Alternative}
+            .Concat(result.MetricPaths.Select(p=>p.Path)))
         {
             Require(path.Beats.All(b=>b.Frame>=0&&b.Frame<total)&&path.Beats.Zip(path.Beats.Skip(1))
                 .All(pair=>pair.First.Frame<pair.Second.Frame&&pair.First.Index<pair.Second.Index),
@@ -136,8 +157,9 @@ internal static partial class Program
             !pausedResult.Joint.Beats.Any(b=>b.Frame>=850L*hop&&b.Frame<1550L*hop),
             "Long activity gap was not distinguished from predicted beats.");
         var silence=input.Select(f=>f with {Sub=0,Bass=0,LowMid=0,Mid=0,High=0}).ToArray();
-        Require(RhythmJointDecoder.Analyze(silence,total,default).Joint.Beats.Length==0,
-            "Silence generated a joint grid.");
+        var silentResult=RhythmJointDecoder.Analyze(silence,total,default);
+        Require(silentResult.Joint.Beats.Length==0&&silentResult.MetricPaths.Length==0,
+            "Silence generated a joint or metrical grid.");
         var stereo=new float[8192*2];
         for(int i=0;i<8192;i++)
         {
