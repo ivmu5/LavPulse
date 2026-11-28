@@ -44,7 +44,7 @@ public sealed partial class MainPage
         var settings = OpenPanel(() =>
             new PlayerSettingsPanel(_settings, value => ApplySettings(value), ClosePanel, PreviewAppearance,
                 GetStorageOptions(), PickStorageFolderAsync,
-                CopyReportTextAsync, ExportReportZipAsync, ReportSummaryAsync, ClearReportsAsync,
+                ExportReportZipAsync, ReportSummaryAsync, ClearReportsAsync,
                 typeof(MainPage).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
 #if WINDOWS
                 , openDefaultApps: WinUI.WindowsFileAssociation.OpenDefaultAppsAsync

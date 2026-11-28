@@ -128,7 +128,7 @@ The 56-band master spectrum uses a 4096-frame FFT with a 1024-frame hop. Frequen
 
 ## Diagnostics
 
-Use the deck's Rhythm button to tap beats manually, and mark problematic or strong-rhythm intervals with comments. These marks are diagnostic data; they do not retrain the analyzer automatically or edit its grid. Settings → Diagnostic reports can copy a text summary, export ZIP with originals, or clear reports. The export includes saved annotations and a fresh numerical analysis trace: waveforms, onsets, tempo evidence, predicted/confirmed beats, section attempts, local keys, downbeats, loudness and energy/structure CSVs.
+Use the deck's Rhythm button to tap beats manually, and mark problematic or strong-rhythm intervals with comments. These marks are diagnostic data; they do not retrain the analyzer automatically or edit its grid. Settings → Diagnostic reports can export ZIP or clear reports. The optional “Export with audio” checkbox is off by default; all numerical diagnostics are retained in either mode. The export includes saved annotations and a fresh numerical analysis trace: waveforms, onsets, tempo evidence, predicted/confirmed beats, section attempts, local keys, downbeats, loudness and energy/structure CSVs.
 
 Exports may include the actual music files and personal notes. Review the archive before sharing; share only audio you have rights to share. Nothing needs to be uploaded for ordinary local analysis.
 

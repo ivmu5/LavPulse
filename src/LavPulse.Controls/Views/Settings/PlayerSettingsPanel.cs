@@ -13,8 +13,8 @@ public sealed partial class PlayerSettingsPanel : ContentView
     private readonly Button[] _sectionButtons = new Button[SectionCount];
     private readonly IReadOnlyList<LibraryStorageOption> _storageOptions;
     private readonly Func<Task<string?>>? _pickStorageFolder;
-    private readonly Func<Task<string>>? _copyReport;
-    private readonly Func<Task<string?>>? _exportReportZip;
+    private readonly Func<bool, Task<string?>>? _exportReportZip;
+    private bool _includeReportAudio;
     private readonly Func<Task<string>>? _reportSummary;
     private readonly Func<Task<string>>? _clearReports;
     private readonly Func<Task<string?>>? _openDefaultApps;
@@ -33,15 +33,13 @@ public sealed partial class PlayerSettingsPanel : ContentView
         Action<PlayerSettings>? previewAppearance = null,
         IReadOnlyList<LibraryStorageOption>? storageOptions = null,
         Func<Task<string?>>? pickStorageFolder = null,
-        Func<Task<string>>? copyReport = null,
-        Func<Task<string?>>? exportReportZip = null,
+        Func<bool, Task<string?>>? exportReportZip = null,
         Func<Task<string>>? reportSummary = null,
         Func<Task<string>>? clearReports = null,
         string? appVersion = null,
         Func<Task<string?>>? openDefaultApps = null)
     {
         _settings = settings;
-        _copyReport = copyReport;
         _exportReportZip = exportReportZip;
         _reportSummary = reportSummary;
         _clearReports = clearReports;

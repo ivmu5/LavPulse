@@ -27,7 +27,7 @@ internal static partial class Program
 
         string zipBeforeMarks = Path.Combine(root, "empty-marks.zip");
         await TrackReportArchive.CreateAsync(registered, zipBeforeMarks, key => Path.Combine(root, key + ".mp3"),
-            default);
+            default, includeAudio: true);
         using (var archive = ZipFile.OpenRead(zipBeforeMarks))
         {
             using var copy = archive.Entries.Single(e => e.Name == "Original.mp3").Open();
@@ -53,7 +53,7 @@ internal static partial class Program
             copyText.Contains("up to 3 missing beats") && copyText.Contains("BeatGrid offset"),
             "Diagnostic report omitted human timing uncertainty or user-supplied BPM.");
         string bundle = Path.Combine(root, "full-report.zip");
-        await TrackReportArchive.CreateAsync(updated, bundle, key => Path.Combine(root, key + ".mp3"), default);
+        await TrackReportArchive.CreateAsync(updated, bundle, key => Path.Combine(root, key + ".mp3"), default, includeAudio: true);
         using (var archive = ZipFile.OpenRead(bundle))
         {
             Require(archive.Entries.Any(e => e.FullName == "full-report.txt") &&
@@ -109,7 +109,7 @@ internal static partial class Program
 
         string tappedZip = Path.Combine(root, "manual-beats.zip");
         await TrackReportArchive.CreateAsync(withTaps, tappedZip,
-            key => Path.Combine(root, key + ".mp3"), default);
+            key => Path.Combine(root, key + ".mp3"), default, includeAudio: true);
         using (var archive = ZipFile.OpenRead(tappedZip))
         {
             var tapEntry = archive.Entries.Single(e => e.FullName.Contains(tapId[..12]) &&
@@ -151,7 +151,7 @@ internal static partial class Program
         await TrackReportArchive.CreateAsync([diagnosticReport], detailedZip,
             key => Path.Combine(root, key + ".mp3"), default,
             (_, _) => Task.FromResult(new TrackDiagnosticSnapshot(wave, null, trace)),
-            "test-version", "test-platform");
+            "test-version", "test-platform", includeAudio: true);
         using (var detailed = ZipFile.OpenRead(detailedZip))
         {
             string Read(string name)
@@ -182,10 +182,50 @@ internal static partial class Program
                 Read("analysis.txt") == "SAVED MACHINE ANALYSIS",
                 "Detailed export changed the recorded analysis or raw manual tap.");
         }
+        string compactZip = Path.Combine(root, "without-audio.zip");
+        int analysisCalls = 0;
+        await TrackReportArchive.CreateAsync([diagnosticReport], compactZip,
+            key => Path.Combine(root, key + ".mp3"), default,
+            (path, _) =>
+            {
+                Require(File.Exists(path), "Diagnostics-only export did not resolve the source.");
+                analysisCalls++;
+                return Task.FromResult(new TrackDiagnosticSnapshot(wave, null, trace));
+            }, "test-version", "test-platform");
+        using (var compact = ZipFile.OpenRead(compactZip))
+        using (var full = ZipFile.OpenRead(detailedZip))
+        {
+            Require(analysisCalls == 1 && !compact.Entries.Any(e => e.Name == "Tapped.mp3"),
+                "Diagnostics-only export omitted fresh analysis or included audio.");
+            var expected = full.Entries.Where(e => e.Name != "Tapped.mp3").Select(e => e.FullName).Order().ToArray();
+            Require(compact.Entries.Select(e => e.FullName).Order().SequenceEqual(expected),
+                "Diagnostics-only export lost numerical or annotation entries.");
+            foreach (var entry in compact.Entries.Where(e => e.FullName != "README.txt"))
+            {
+                using var left = entry.Open();
+                using var right = full.GetEntry(entry.FullName)!.Open();
+                using var leftBytes = new MemoryStream();
+                using var rightBytes = new MemoryStream();
+                await left.CopyToAsync(leftBytes);
+                await right.CopyToAsync(rightBytes);
+                Require(leftBytes.ToArray().SequenceEqual(rightBytes.ToArray()),
+                    "Audio option changed diagnostic bytes: " + entry.FullName);
+            }
+        }
+        string missingZip = Path.Combine(root, "missing-original.zip");
+        int missingErrors = await TrackReportArchive.CreateAsync([diagnosticReport], missingZip,
+            _ => throw new FileNotFoundException("/private/path"), default,
+            (_, _) => throw new InvalidOperationException("Must not decode a missing source."));
+        using (var missing = ZipFile.OpenRead(missingZip))
+        {
+            Require(missingErrors == 1 && missing.Entries.Any(e => e.Name == "annotations.json") &&
+                missing.Entries.Any(e => e.Name == "error.txt") && !missing.Entries.Any(e => e.Name == "Tapped.mp3"),
+                "Missing audio discarded saved diagnostics or failed to report missing analysis.");
+        }
         string failedZip = Path.Combine(root, "diagnostic-failure.zip");
         await TrackReportArchive.CreateAsync([diagnosticReport], failedZip,
             key => Path.Combine(root, key + ".mp3"), default,
-            (_, _) => Task.FromException<TrackDiagnosticSnapshot>(new InvalidDataException("/private/path")));
+            (_, _) => Task.FromException<TrackDiagnosticSnapshot>(new InvalidDataException("/private/path")), includeAudio: true);
         using (var failed = ZipFile.OpenRead(failedZip))
         {
             using var reader = new StreamReader(failed.Entries.Single(e => e.Name == "error.txt").Open());
